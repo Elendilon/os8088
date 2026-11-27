@@ -303,8 +303,9 @@ INLINE = {
 # index on every kernel. The value is the routine the entry must name there.
 # OSAPI_FILE_PLACE (SPEC.md 19.12.8) has a body on kern_mega alone: kern_big
 # and kern_emu hold its index with `.cold`'s api_refusec (an RN refusal must
-# far-return), kern_small ends its table before it (20.3.4), and kern_mega's
-# body is disk.inc's dsk_fpl_door
+# far-return; there it is an equ for OSAPI_VOL_STAT's no-volume exit,
+# dwf_dskw_vstat.bad, the same CF = 1 / AX = 1), kern_small ends its table
+# before it (20.3.4), and kern_mega's body is disk.inc's dsk_fpl_door
 DOOR_OWN = {
     "big": {"OSAPI_XMEM_SEL": "api_refuse", "OSAPI_XMEM_RUN": "api_refuse",
             "OSAPI_FILE_PLACE": "api_refusec"},

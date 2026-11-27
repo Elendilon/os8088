@@ -48999,7 +48999,9 @@ but only the table's LAST cells: step 3 below answers an index at or past
 its `RD_N` with the refusal entry's own CF = 1, AX = 1, for no bytes, while
 a gap mid-table would move every later index. kern_small does this for
 `OSAPI_FILE_PLACE` (§19.12.8), its heap rung being locked; kern_big holds
-an `RDREF` row for it (`api_refusec`, six `.cold` bytes) because the SDK's
+an `RDREF` row for it (`api_refusec`, which there is `OSAPI_VOL_STAT`'s
+no-volume exit - `mov ax, FERR_NODISK` / `stc` / `retf`, the same answer by
+that cell's own contract, so no byte of its own) because the SDK's
 indices are generated from kern_big's table, and t_api_abi passes a cell
 past a kernel's `RD_N - RD_P` as refused.
 

@@ -3739,12 +3739,15 @@ api_refuse:                     ; OSAPI_XMEM_SEL's and _XMEM_RUN's index here
     mov ax, 1
     stc
     ret
-section .cold                   ; ...and OSAPI_FILE_PLACE's, an RN cell whose
-api_refusec:                    ; body is kern_mega's alone (SPEC.md 19.12.8):
-    mov ax, 1                   ; small's six bytes, and an even count keeps
-    cmp al, 2                   ; .cold's hot dsk_* routines at their parity
-    retf                        ; (t_hotpar)
-section .text
+                                ; ...and OSAPI_FILE_PLACE's, an RN cell whose
+                                ; body is kern_mega's alone (SPEC.md 19.12.8):
+                                ; its refusal is OSAPI_VOL_STAT's no-volume
+                                ; exit, which is `mov ax, FERR_NODISK / stc /
+                                ; retf` by that cell's published contract
+                                ; (CF = 1, AX = FERR_NODISK = 1) and writes no
+                                ; other register - the six `.cold` bytes this
+                                ; spelled out again (kernel size pass 21)
+api_refusec equ dwf_dskw_vstat.bad ; (FERR_NODISK = 1 asserted below)
  %endif
 %ifndef FPG_PARK
 osapi_fs_op equ api_refuse      ; kern_small: OSAPI_FS_OP refused, and DISKOPS's
@@ -5233,11 +5236,18 @@ kmain:
 %ifdef BOOT_MARK
     call mark_beacon            ; BEFORE anything: no state of ours is needed
 %endif
+%ifdef KERN_MEGA
     KDATAR ax                   ; the boot sector jumped here with its own
     mov ds, ax                  ; segments; setting ours up is our job
     mov es, ax
+%else
+    push cs                     ; ...and its far jump was to KERNEL_SEG:0000
+    pop ds                      ; (cold_entry), so CS is the kernel's data
+    push cs                     ; segment already: KDS's own spelling, and
+    pop es                      ; AX is loaded below (kernel size pass 21, -3)
+%endif
 %ifdef BOOT_MARK
-    MARK 50                     ; ...and the first one down the ORDINARY path,
+    MARK 50                    ; ...and the first one down the ORDINARY path,
                                 ; while SS is still the boot sector's. A corner
                                 ; with no 50 beside it means the drawing helpers
                                 ; are what is broken, not the boot
@@ -5804,6 +5814,7 @@ osapi_rand:
 osapi_font_glyphs:
     pushf
     cli                         ; snapshot before a module can be disabled
+%ifdef KERN_MEGA
     mov si, [font_base]
     mov dx, [font_seg]
     cmp byte [font_last], FONT_LAST
@@ -5814,6 +5825,24 @@ osapi_font_glyphs:
     mov dx, [es:klf_saved_seg]  ; face, never the optional provider's storage
     pop es
 .table:
+%else
+    ; Both pairs are the SEGMENT word and then the OFFSET (font.inc's, and
+    ; keyfont.inc's bank of them - asserted below the includes), so one
+    ; `les dx` reads either into DX and ES, and `mov si, es` finishes the
+    ; pair. ES is only a scratch word here, which a real-mode kernel may load
+    ; with anything; kern_mega may not (an offset is no selector), so it
+    ; keeps the four loads (kernel size pass 21, -7).
+    push es
+    les dx, [font_seg]          ; DX = the segment, ES = the offset
+    cmp byte [font_last], FONT_LAST
+    jbe .ascii                  ; (not `.table`: the two arms are one source
+                                ; to tools/stkbalance.py, at two depths)
+    mov es, [KLFP + KL_CMD + 2] ; readable image+BSS code alias
+    les dx, [es:klf_saved_seg]  ; old clients always borrow the stable ASCII
+.ascii:                         ; face, never the optional provider's storage
+    mov si, es
+    pop es
+%endif
     popf
     mov ax, FONT_FIRST | (FONT_LAST << 8)
     mov cx, 8
@@ -9240,6 +9269,16 @@ MODC_BSS equ modcb_end - $$
 %endif
 %if sd_down - sd_arm != 1
 %error "shutdown: sd_arm and sd_down are cleared and set with one word store"
+%endif
+%ifndef KERN_MEGA
+ %if font_base - font_seg != 2 || klf_saved_base - klf_saved_seg != 2
+  %error "osapi_font_glyphs reads each glyph table's segment and offset with one les"
+ %endif
+ %ifndef KERN_SMALL
+  %if FERR_NODISK != 1
+   %error "api_refusec is OSAPI_VOL_STAT's refusal, which answers AX = FERR_NODISK: it must be OSAPI_XREFUSE's AX = 1"
+  %endif
+ %endif
 %endif
 
 section .modc
