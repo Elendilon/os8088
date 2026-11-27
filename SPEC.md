@@ -13817,6 +13817,7 @@ is the right one to restore. Nothing else in a record is a word the cursor
 path reads. Cost: conventional `.text` +4 (the two words of the bank). The
 conversion and the shared restore are in `.mega`, above 1MB.
 
+### 7.5 The clock belongs to a LOCK HOLD, not to a window
 
 `CUR_BUSYSH` is the third shape and it is the odd one. §7.2's two are a
 property of a **window**: `OSAPI_WM_CURSOR` writes one into `W_FLAGS`, the
