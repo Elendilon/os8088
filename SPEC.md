@@ -83867,6 +83867,49 @@ from geometry may not be asked either side of a write to that geometry. §12.9's
 `menu_bcell` is the same discipline in the drawing half of the system —
 compose once, and let the composition be the record.
 
+##### 39.16.4.3 `OSAPI_WM_DORIGIN` — WHERE that display is
+
+`OSAPI_WM_DISPLAY` answers a display's SIZE. A package that compares a
+desktop position with that size also needs the display's ORIGIN. Its own
+`W_X`/`W_Y` are virtual coordinates, and display 1 of an extended desktop
+is not at (0, 0). The Sticky widgets (`apps/os88stik.inc`) compared a
+widget's virtual y with display 1's own height and lifted a widget dropped
+at y = 330 to y = 238 at the next beat (the audit's L1).
+
+**`OSAPI_WM_DORIGIN`** (0x0244, BX = the window): out **AX = x, DX = y** of
+that display's top-left corner, in virtual coordinates. Every other register
+is preserved. It is the display `wm_disp_now` names, the same one
+`OSAPI_WM_DISPLAY` describes, so a straddler gets the restrictive display's
+origin with that display's size. One display gives (0, 0). There is no lock
+and any context may ask. The C SDK's `os88_wm_dorigin(win, &pt)` fills a
+`struct os88_pt`, and AX/DX are `OSAPI_WM_CONTENT`'s point convention.
+Inside the kernel it is `EXT_DISPLAY` entered with CF = 1, which `EXTD.DRV`
+answers out of the display's `vid_ctx` record. `wm_display` enters it with
+CF = 0, because its gate's compare leaves CF clear.
+
+**Why a new cell, and not two more outputs from `OSAPI_WM_DISPLAY`** (the
+written decision §20.2.0.1 asks for):
+
+- That cell already answers in AX, BX, CX, SI and DX, and **preserves DI**.
+  The C SDK's compiled thunk holds its struct pointer in DI across the
+  call. So DI cannot become an output without breaking every C package
+  built before, which is a `PKG_FMT` bump.
+- BP is preserved by every cell, and a caller may hold it.
+- An input selector cannot be added either. That cell has no input but BX,
+  so an old caller's CF, DI or anything else is arbitrary, and would select
+  the new answer at random.
+- **The rare door** (§20.3.4) cannot take a new RS-kind cell anywhere but
+  in the middle of its kind-ordered table, which renumbers every later
+  cell. Its last kind, RN, stages a file name and enters the instance's
+  folder, so it can cost a disk read.
+
+So it is a JCELL appended at 0x0244: three bytes of table and a far body.
+`ABI`: an addition at the end, so `PKG_FMT` stays 13 (`tools/abi.lock.json`
+records the fingerprint). It lies past the released table end (§92.2's cell
+fence), so a package that calls it needs a kernel built from this table
+on. The release that first publishes such a package through The Wire cuts
+the next fence row.
+
 #### 39.16.3.3 The trigger is a change of ADAPTER KIND, and there is one of it
 
 Three separate mechanisms used to decide a dragged window's size and each
