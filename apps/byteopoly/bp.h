@@ -472,6 +472,7 @@ extern BPByte bp_sel;           /* the selected space (presentation) */
 #define BP_D_FORCE      0x8000  /* with other bits: repaint them even if their
                                    signature says nothing changed */
 int    bp_face_init(void *win, unsigned artseg, unsigned bandseg, unsigned bandcap, int bpp);
+void   bp_face_depth(unsigned artseg, unsigned bandseg, unsigned bandcap, int bpp);
 void   bp_face_layout(int w, int h);              /* content size changed */
 void   bp_face_dirty(unsigned mask);
 void   bp_face_dirty_space(int space);

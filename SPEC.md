@@ -259111,6 +259111,12 @@ mush it has a `_M` twin drawn in black and white only (dark chromatic fills as a
 as an ID added after the colour ones; the face prefers `BP_A_M_x` when `bp_mono`. `art.h` lists
 which exist. `os88bpart.py png DIR --mono` previews every sprite through the core's mapping.
 
+**`bp_mono` is the WINDOW's display's**, not the launch's: `os88_onresize` (§11.98, which fires when
+the window lands on a display of another kind, §39.16.3.3) asks `os88_wm_display` (§39.16.4), and a
+change of depth goes through `bp_face_depth` - `bp_mono`, `bx_setup`'s planes and `gk_init`'s roles
+again, the next paint laying out and drawing the whole face. The colour art dithered past reading on
+a Hercules d1 under a VGA primary until the extended-desktop audit of 2026-11-27.
+
 The Apple IIe, PC AT, Atari ST and 486 were redrawn from a fourth master (`art/master4.png`) so no two
 machines are near-twins: a light-grey keyboard with a separate amber monitor, a tall grey case with
 three bays and a yellow screen, a dark-grey wedge with a blue-screen monitor, and a lone black tower.
