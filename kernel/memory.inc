@@ -3410,15 +3410,19 @@ mem_cp_walk:
     mov ax, [ss:si+MC_DMA]      ; move (66.4)? Bit 15 is the door it came in
     xor ax, [mem_cp_msk]        ; by, complemented coming down, so it is 0
     add ax, ax                  ; exactly when it agrees with this pass - and
-    jc .barrier                 ; `add` lifts that bit straight into the carry.
-                                ; A BARRIER and NOT .pinned: the claim is
-                                ; MOVABLE, only not this pass's, so the other
-                                ; pass packs it - and .pinned would DISSOLVE
-                                ; it when it is a cheap cache. A kept module
-                                ; image (top-down, MEM_P_MOD) was dropped by
-                                ; every ascending pass that way before the
-                                ; descending one could move it (SPEC.md
-                                ; 2.8.3, tests/modcache.py). A truly pinned
+    jc .door                    ; `add` lifts that bit straight into the carry.
+                                ; GOING UP, A BARRIER and NOT .pinned (.door):
+                                ; the claim is MOVABLE, only not this pass's,
+                                ; so the other pass packs it - and .pinned
+                                ; would DISSOLVE it when it is a cheap cache.
+                                ; A kept module image (top-down, MEM_P_MOD)
+                                ; was dropped by every ascending pass that
+                                ; way before the descending one could move it
+                                ; (SPEC.md 2.8.3, tests/modcache.py). COMING
+                                ; DOWN nothing runs after this pass (SPEC.md
+                                ; 66.10.6), so a cheap bottom-up cache goes
+                                ; to .pinned and dissolves, as mem_avail's
+                                ; plan already counted it. A truly pinned
                                 ; cache still dissolves: mem_can_move's arm
                                 ; AX IS THIS WALK'S SCRATCH: the entry banks
                                 ; it, and nothing in the loop carries a value
@@ -3506,6 +3510,13 @@ mem_cp_walk:
     pop ax
     pop bp
     ret
+.door:                          ; MOVABLE, but through the other door (above):
+    mov ax, [mem_cp_msk]        ; 0 going up, where the descending pass still
+    inc ax                      ; packs it: a barrier. 0xFFFF coming down,
+    jnz .barrier                ; where nothing will (SPEC.md 66.10.6): AX is
+                                ; this walk's scratch, and 6 bytes and not
+                                ; the 7 of a `cmp byte`, so the hot routines
+                                ; behind it keep their parity (t_hotpar)
 .pinned:                        ; ...unless it is a cache this pass may
     cmp byte [mem_pg_rank], 0   ; dissolve - mem_cp_drop, inlined (its header
     je .barrier                 ; carries the reasons for each test):

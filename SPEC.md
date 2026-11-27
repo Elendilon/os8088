@@ -127821,6 +127821,56 @@ included - a pinned cache in the way is still dissolved under pressure. The
 plan and the run are the same walk, so they still agree. No bytes: the jump
 changes its target and stays short.
 
+#### 66.10.6 ...but coming DOWN there is no other pass, and the posted request has no shed
+
+§66.10.5's barrier is right going up, because *"the other pass packs it"* is
+true there: the descending pass is still to come. **Coming down it is false.**
+The descending pass is the last thing `mem_compact` runs - alone after `.flip`,
+or second in `.both` - so a movable bottom-up cache it meets is a barrier
+nothing will ever move out of the way, and every top-down mover below it stays
+packed under it. `mem_avail`'s plan (§66.4.3.1: `mem_pg_cheap` is asked before
+`mem_can_move`) counts that cache as DISSOLVED, so the two disagreed in the
+dangerous direction: the plan promised room the pass did not produce.
+
+§66.10.4 accepted exactly that divergence, and its argument holds for
+`mem_claim`: the plan over-reports *"by a cache the retry loop is about to
+shed anyway"*. **It does not hold for §66.4.3's posted request**, which is a
+compaction with no claim behind it and therefore no shed. Tracker's what-if
+reads the plan, posts, and on the wake re-asks plain `OSAPI_MEM_AVAIL` with
+its own region pinned again (§45.3.2) - so a 5KB cache standing above the
+ceiling run turned a load the what-if had funded into `Too big for free
+memory`.
+
+Found by `soak -k trkcompact` (`os8088_5150_cga_512k_gla`), which went red
+the day `KERN_SIZE` crossed a rung (§18.5.3, 95,232 -> 95,744). Nothing in
+the compactor changed then: the heap floor moved up 512 bytes, so the ninth
+Tracker's region overlapped the icon store (§25.9, owner `fb01`, 5KB,
+movable) where it stood at the floor and shed it, and the store was claimed
+again bottom-up into the hole the two closed Trackers left - **above** the
+seven survivors, at `7960`. The what-if planned 121KB with the store
+dissolved; the posted pass ran `.both`, whose floor pass packed the store DOWN
+onto the asker's region at `6ac0` and whose ceiling pass then found it a
+barrier directly above every region. Nothing moved (`6020 -> 6020`), the wake
+read 85KB and the 114KB module was refused. One rung earlier the store
+survived at the floor, and the same clicks moved the asker `6020 -> 7560` and
+loaded the module.
+
+**The fix is in the run, coming down only.** The door test sends a claim of
+the other door to `.door`, which is `.barrier` going up - §66.10.5 unchanged,
+so the kept module image is still moved by the descending pass and never
+dropped by an ascending one - and `.pinned` coming down, where a cache the
+rank allows is dissolved exactly as a pinned one is and anything else is
+still a barrier. The descending PLAN is the same walk, so `mem_compact`'s own
+decision and its run still agree, and both now agree with `mem_avail`'s plan.
+A rank of 0 (`mem_unblob_x`) still dissolves nothing. **+6 bytes of `.cold`,
+resident, on kern_big** (37,824 -> 37,830; `KERN_SIZE` 95,744 either way, and
+per §1's banner the six bytes are the figure): `mov ax, [mem_cp_msk]` /
+`inc ax` / `jnz .barrier`, six bytes and not a `cmp byte`'s seven, so
+`t_hotpar`'s routines behind it keep their parity. kern_mega's `.cold` -
+above 1MB once it has switched - reads 53,075 -> 53,078; kern_small has no
+compactor and is byte-identical. `soak -k trkcompact` is the gate: red at the
+base on the shifted heap, green with the fix, and `mega-trkcompact`,
+`modcache`, `megamodcache`, `heapcheck` and `trackmove` stay green.
 
 ## 67. Cyclone 88 — the seventeenth package (`apps/cyclone/cyclone.asm`)
 
