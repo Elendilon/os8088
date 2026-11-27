@@ -47,94 +47,11 @@
 %include "hdcom.inc"
 %include "hdsvc.inc"
 
-; THE NEXT THREE ROUTINES AND ipkg.inc's STRINGS sit in front of the sector
-; buffers for the tuning described past hdsec.inc below, and HERE among the
-; includes because the compressed file is smallest with them here.
-; -----------------------------------------------------------------------------
-; hd_tshut - HDT_SHUT: nothing of ours left on screen, nothing of ours held
-; in:  nothing
-; out: CF = 0
-;
-; DESTROY AND NOT HIDE, which is what OSAPI_WM_DESTROY (a door cell) was added
-; for. Hiding takes the pixels down and leaves the RECORD, holding a W_SEG that
-; names this image - inert while nothing re-shows it, and a loaded gun once the
-; image is freed and something else claims the memory. It also costs a window
-; slot per load, and MAX_WIN is 12: with the image now reclaimed every time the
-; tool is finished with, an open/close cycle that leaked one would run the
-; table out inside a session.
-;
-; hd_ia_rel runs FIRST for the ASSOC.DAT hold an abandoned install keeps;
-; destroying a window already hidden is fine - wm_destroy tests the visible
-; bit and passes an empty damage rect when it is clear. The launch window
-; (cppage.inc's hd_inst_post) is never shown at all.
-; -----------------------------------------------------------------------------
-hd_tshut:
-    push ax
-    push bx
-    call hd_ia_rel              ; an install abandoned at its apps prompt
-    mov bx, [hd_twin]
-    or bx, bx
-    jz .launch
-    call OSAPI_WM_DESTROY
-    mov word [hd_twin], 0
-.launch:
-    call hd_lkill               ; a posted wizard launch that never ran
-    pop bx
-    pop ax
-    clc
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_tbusy - HDT_BUSY: is a window of ours still on screen?
-; in:  nothing
-; out: CF = 1 = yes, do not unload me
-;
-; VISIBLE, not merely allocated. Closing one of our windows is a hide, so
-; [hd_twin] stays non-zero for the rest of the load and testing it would pin
-; this image until detach - which is the whole thing this verb exists to stop.
-;
-; The resident asks; we never volunteer. A "you may free me now" call would be
-; answered by freeing the image the call has to return into.
-; -----------------------------------------------------------------------------
-hd_tbusy:
-    push bx
-    cmp byte [hd_iw_st], HII_SYSDONE    ; A RUN waiting on its apps disk
-    je .busy                    ; (SPEC.md 117.4): it holds ASSOC.DAT's
-                                ; writer and its stage is in this image
-    cmp word [hd_lwin], 0       ; a wizard launch posted and not yet run
-    jne .busy                   ; (cppage.inc's hd_inst_post)
-    mov bx, [hd_twin]
-    call hd_win_live
-    jc .busy
-    pop bx
-    clc
-    ret
-.busy:
-    pop bx
-    stc
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_win_live - CF = 1 when BX names a window of ours that is on screen
-; in:  BX = a window pointer, or 0
-; out: CF = 1 visible; CF = 0 = never created, or closed
-; clobbers: flags
-; -----------------------------------------------------------------------------
-hd_win_live:
-    or bx, bx
-    jz .no
-    push cx
-    push dx
-    call OSAPI_WM_GEOM          ; CF = 1 = not visible
-    pop dx
-    pop cx
-    jc .no
-    stc
-    ret
-.no:
-    clc
-    ret
-
+; ipkg.inc's STRINGS sit in front of the sector buffers for the tuning
+; described past hdsec.inc below, and HERE among the includes because the
+; compressed file is smallest with them here. (hd_tshut, hd_tbusy and
+; hd_win_live were here with them until driver size pass 2: they are at the
+; END now, past the buffers, for the same tuning.)
 %define HD_IPKG_TEXT            ; ipkg.inc's log strings, in front of the
 %include "ipkg.inc"             ; buffers with these three routines: the
 %undef HD_IPKG_TEXT             ; tuning below
@@ -248,8 +165,12 @@ hd_tinit:
 ; hd_win_live (78 bytes) and ipkg.inc's log strings but one (241, the
 ; HD_IPKG_TEXT include) moved in front of partw.inc - placed there because
 ; that is where the compressed file came out smallest of the places tried -
-; and the pad is 0 again. What is left here: os88ui.inc's controls and
-; ipkg.inc's code (and hd_s_lmbr, the one string that did not fit).
+; and the pad is 0 again. #386 (logical drives, SPEC.md 52.4.1) added ~100
+; bytes in front and a pad of 397 with them; driver size pass 2 freed 50 and
+; moved the three routines back out here, at the end, where the file packs
+; smallest of four places tried: the pad is 13, the image 16,231 and the
+; claim 16,384 again. What is here: os88ui.inc's controls, ipkg.inc's code (and
+; hd_s_lmbr, the one string that did not fit) and those three routines.
 ; =============================================================================
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
 ; %define OS88UI_CHK              ; the installer's Erase box (SPEC.md 52.10.15)
@@ -263,5 +184,90 @@ hd_tinit:
 %include "os88ui.inc"
 %include "ipkg.inc"             ; HDT_PKG (SPEC.md 117.4) - past the sector
                                 ; buffers, where it costs no alignment
+
+; -----------------------------------------------------------------------------
+; hd_tshut - HDT_SHUT: nothing of ours left on screen, nothing of ours held
+; in:  nothing
+; out: CF = 0
+;
+; DESTROY AND NOT HIDE, which is what OSAPI_WM_DESTROY (a door cell) was added
+; for. Hiding takes the pixels down and leaves the RECORD, holding a W_SEG that
+; names this image - inert while nothing re-shows it, and a loaded gun once the
+; image is freed and something else claims the memory. It also costs a window
+; slot per load, and MAX_WIN is 12: with the image now reclaimed every time the
+; tool is finished with, an open/close cycle that leaked one would run the
+; table out inside a session.
+;
+; hd_ia_rel runs FIRST for the ASSOC.DAT hold an abandoned install keeps;
+; destroying a window already hidden is fine - wm_destroy tests the visible
+; bit and passes an empty damage rect when it is clear. The launch window
+; (cppage.inc's hd_inst_post) is never shown at all.
+; -----------------------------------------------------------------------------
+hd_tshut:
+    push ax
+    push bx
+    call hd_ia_rel              ; an install abandoned at its apps prompt
+    mov bx, [hd_twin]
+    or bx, bx
+    jz .launch
+    call OSAPI_WM_DESTROY
+    mov word [hd_twin], 0
+.launch:
+    call hd_lkill               ; a posted wizard launch that never ran
+    pop bx
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_tbusy - HDT_BUSY: is a window of ours still on screen?
+; in:  nothing
+; out: CF = 1 = yes, do not unload me
+;
+; VISIBLE, not merely allocated. Closing one of our windows is a hide, so
+; [hd_twin] stays non-zero for the rest of the load and testing it would pin
+; this image until detach - which is the whole thing this verb exists to stop.
+;
+; The resident asks; we never volunteer. A "you may free me now" call would be
+; answered by freeing the image the call has to return into.
+; -----------------------------------------------------------------------------
+hd_tbusy:
+    push bx
+    cmp byte [hd_iw_st], HII_SYSDONE    ; A RUN waiting on its apps disk
+    je .busy                    ; (SPEC.md 117.4): it holds ASSOC.DAT's
+                                ; writer and its stage is in this image
+    cmp word [hd_lwin], 0       ; a wizard launch posted and not yet run
+    jne .busy                   ; (cppage.inc's hd_inst_post)
+    mov bx, [hd_twin]
+    call hd_win_live
+    jc .busy
+    pop bx
+    clc
+    ret
+.busy:
+    pop bx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_win_live - CF = 1 when BX names a window of ours that is on screen
+; in:  BX = a window pointer, or 0
+; out: CF = 1 visible; CF = 0 = never created, or closed
+; clobbers: flags
+; -----------------------------------------------------------------------------
+hd_win_live:
+    or bx, bx
+    jz .no
+    push cx
+    push dx
+    call OSAPI_WM_GEOM          ; CF = 1 = not visible
+    pop dx
+    pop cx
+    jc .no
+    stc
+    ret
+.no:
+    clc
+    ret
 
     OS88_DRV_END

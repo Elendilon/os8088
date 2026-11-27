@@ -391,6 +391,12 @@ hd_part_big:
 ; 19.12.10) - kern_mega reads it, and every other kernel's BPB check refuses
 ; FATSz16 = 0 as it refuses any boot sector that is not its format.
 ; -----------------------------------------------------------------------------
+%ifdef HD_TOOL
+hd_part_isf16:                  ; ...the same, FAT12 and FAT16 only: what the
+    push ax                     ; installer can install to (inst.inc)
+    mov ax, HPT_NOTFAT | (1 << HPT_FAT32) | (1 << HPT_FAT32L)
+    jmp short hd_part_istype
+%endif
 hd_part_isfat:
     push ax
     mov ax, HPT_NOTFAT
