@@ -17,6 +17,7 @@ cs_cmd_fly:
     push si                         ; reads a world in below: this routine's
     push di                         ; header promises EVERY register back to a
     push es                         ; menu, key or click handler
+    call cs_adapter                 ; ASKED WHERE IT IS USED (88.17)
     cmp byte [cs_want], CSB_NONE
     je .out                         ; the same predicate the menu greyed on
     mov al, [cs_apnow]              ; ...AND THE WORLD IS IN (SPEC.md 88.10.5).
@@ -32,7 +33,8 @@ cs_cmd_fly:
                                     ; right country
     mov ax, cs_fsx_main
     mov bx, [cs_win]
-    xor cx, cx                      ; no worker to keep: this loop IS the flight
+    mov cl, 0                       ; no worker to keep: this loop IS the flight,
+    mov ch, [cs_fsdisp]             ; on the display cs_adapter found
     call OSAPI_FSX_RUN              ; the kernel repaints the desktop on the
 .out:                               ; way out (SPEC.md 53.6)
     pop es

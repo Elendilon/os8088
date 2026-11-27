@@ -130395,6 +130395,19 @@ initials entered on game over, the table kept in `CYCLONE.HS` in
 construction (§34.3) and needs no driver; FM would need one loaded and would
 say nothing on the machine this is calibrated against, which has no sound card
 at all (docs/FIELD-MACHINES.md).
+### 67.28 The inks: the window's display, or the bracket's (2026-11-27)
+
+`cy_pal` picks the colour or the mono inks. It asked `OSAPI_FSX_CAPS`, which
+answers for the display the window's CENTRE is on. That is right for the
+full screen, a same-mode bracket on that display. It is wrong for the
+window: a straddling window is sized and drawn for its more restrictive
+display (§39.16.4.1), so its inks came from one monitor and its frame from
+the other.
+
+`cy_pal` now asks `OSAPI_WM_DISPLAY` while `[cy_fsx]` is clear, and
+`OSAPI_FSX_CAPS` once it is set. It is set before the call that precedes
+the bracket, and cleared before the call that follows it.
+
 ## 68. Microsoft Word — the word processor (`apps/word/word.asm`)
 
 A faithful native reimplementation of Microsoft Word for Windows 1.1a
@@ -167428,6 +167441,25 @@ machine does being none:
   and the overlay). It costs no image byte, the overlay's own `align 2`
   giving one back.
 
+#### 85.10.8 Two displays, two questions (2026-11-27)
+
+`tk_adapter` answered both questions off `OSAPI_FSX_CAPS`, the display the
+window's CENTRE is on. The first is the attract window's ink. The second is
+the raster Play would take. They are now asked separately:
+
+- **The ink** (`[tk_vidk]`) comes from `OSAPI_WM_DISPLAY`: the display the
+  window is drawn and sized for, which is the more restrictive one of a
+  straddle (§39.16.4.1).
+- **The raster** comes from `fsxw_pick` (§53.1.2.1): Mode X, CGA 320 or
+  Hercules, on the display the window is mostly on when it can, else the
+  first that can. `[tk_fsdisp]` is the bracket's CH.
+
+`tk_cmd_play` runs `tk_adapter` again before the bracket. `W_ONRESIZE`
+fires only when the restrictive display changes. A drag from a Hercules
+until the window's centre was on a VGA kept the Hercules raster, so Play
+opened on the VGA, was refused the Hercules mode, and did nothing. That is
+the case Pixelstein (§97.14.1) had.
+
 ## 86. AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`)
 
 `AUDIO.O88`, "AUDIO PLAYER" in the header name field. Lightweight background
@@ -179798,6 +179830,20 @@ already leaves the haze out for the same reason.
 there are `CSI_LIFT`'s, read at `cs_r_end` so the read cannot land between
 the erase and the fill; in the Cessna they are not. `--no-lift` (`cs_mapair`
 a bare `ret`) and a map with its transpose taken out both go red.
+
+### 88.17 Fly goes to the display that can, asked when it is pressed (2026-11-27)
+
+`cs_adapter` asks `fsxw_pick` (§53.1.2.1) for Mode X, CGA 320 or Hercules.
+The answer is the display the window is mostly on when it can set one of
+them, else the first display that can. `[cs_caps]`, `[cs_vidk]` (which picks
+the Mode row's two names and the 16-colour text hack's real-CGA offer) and
+`[cs_fsdisp]`, the bracket's CH, all describe that display.
+
+`cs_cmd_fly` runs `cs_adapter` again first. The answer used to be banked
+only in `W_ONRESIZE`, which fires on a change of the restrictive display. A
+window dragged from a Hercules until its centre was on a VGA flew into a
+bracket on the VGA, asked it for the Hercules mode, was refused, and did
+nothing. Tank (§85.10.8) and Pixelstein (§97.14.1) had the same case.
 
 ## 89. Pac-Man (`apps/pacman/pacman.asm`) — **RETIRED**
 
