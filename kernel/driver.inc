@@ -6686,11 +6686,20 @@ drv_pkg_call_x:
     push es                     ; THE CALLER'S ES, which the driver reads its
                                 ; buffer through - drv_cls_svc_x answers in it
     call COLD_SEG:drvf_drv_cls_svc  ; ES:DI = the class's table. CF = it
-    jc .noes                    ; has none: 0, DRVC_POINT, not published or
-                                ; out of range. AX is preserved
+%ifdef KERN_MEGA                ; has none: 0, DRVC_POINT, not published or
+    jc .noes                    ; out of range. AX is preserved
+%endif
     mov bp, [es:di+DSV_PKGCALL] ; BP = the driver's near proc, read in place
-.noes:                          ; (kernel size pass 19) - EMS.DRV's too, which
-    pop es                      ; rode drv_fptr7's offset half until then
+                                ; (kernel size pass 19) - EMS.DRV's too, which
+                                ; rode drv_fptr7's offset half until then. On
+                                ; a refusal this reads a word a few bytes into
+                                ; whatever ES then is, which real mode does
+                                ; harmlessly, and `mov` keeps the CF the `jc`
+                                ; below reads: no `jc .noes` round it (kernel
+                                ; size pass 21, -2). kern_mega keeps it - a
+                                ; null selector there would fault on the read
+.noes:
+    pop es
     jc .none                    ; (pop writes no flag)
     or bp, bp
     jz .none                    ; ...and 0 is THE FENCE: not published, so not

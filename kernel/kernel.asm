@@ -3907,9 +3907,9 @@ api_fdlg_open:
     KDS
                                 ; DS = KERNEL
     call COLD_SEG:fdf_fdlg_open
-    pop si
-    pop ds
-    retf
+    jmp short api_ff_go.tail    ; ...and api_ff_go's `pop si / pop ds / retf`,
+                                ; this stub's own three bytes (kernel size
+                                ; pass 21, -1: a dialog's open, not a listing)
 
 ; -----------------------------------------------------------------------------
 ; api_gfx_save / api_gfx_rest - slots 0x0508 / 0x0510 (SPEC.md 5.3)
@@ -4030,9 +4030,10 @@ api_ff_go:
 %endif
     pop bx
     call COLD_SEG:dsk_find_x
-    pop si
-    pop ds
-    retf
+.tail:                          ; THE SHARED `pop si / pop ds / retf` of the
+    pop si                      ; name stubs - api_fdlg_open's, kern_big's
+    pop ds                      ; api_file_write_sys and api_file_rename jump
+    retf                        ; here; FILE_FIND, the per-entry one, falls in
 
 ; -----------------------------------------------------------------------------
 ; api_file_path - a door cell (X). in ES:DI = the caller's buffer, CX = its
@@ -4073,10 +4074,11 @@ api_file_path equ xm_copy       ; kern_small carries the cell and no walker
                                 ; answer, AX = FERR_NODISK (1) and CF = 1 from
                                 ; a near `ret`, IS xm_copy's bytes, so it is
                                 ; that routine rather than a second copy of it
-                                ; (api_refuse's precedent; -5 on kern_small)
-    nop                         ; ...and ONE byte back, never executed, so
-                                ; every hot routine after this keeps its
-                                ; parity (tests/unit/t_hotpar.py)
+                                ; (api_refuse's precedent; -5 on kern_small).
+                                ; Its parity pad went in kernel size pass 21
+                                ; with vid_reboot's (vidsel.inc), the other odd
+                                ; byte ahead of the hot routines: -2, an even
+                                ; shift for everything after both
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -4121,36 +4123,37 @@ api_file_write_sys:             ; kern_small: the fence refuses EVERY caller,
 api_file_write_sys:
     push ds
     push si
+    call api_cpname             ; caller DS:SI -> KERNEL:api_name, <= 13 bytes
+                                ; (ES - the buffer - and DI kept). FIRST, as
+                                ; api_nb (the N body) does it: the copy reads
+                                ; the name through the caller's DS, so it runs
+                                ; BEFORE anything touches DS. The first
+                                ; version of this stub switched for the fence
+                                ; and never switched back - so it staged 13
+                                ; bytes of KERNEL image as the file name -
+                                ; and the fix was a `push ds / pop ds` round
+                                ; the fence and a second KDS, which staging
+                                ; first does not need (kernel size pass 21,
+                                ; -4; a refused caller's name is staged and
+                                ; dropped, which no file call can see: they
+                                ; are all the UI task's, SPEC.md 20.6 rule 7)
     push bx                     ; the caller's buffer offset: live, and
     mov bx, ds                  ; drv_owns_seg wants a register
-    push ds                     ; ...AND THE CALLER'S DS IS KEPT, because
-    KDS                         ; api_copyname below reads the name through
-                                ; it. The fence needs DS = KERNEL to reach
-    call COLD_SEG:dvf_drv_owns_seg ; drv_tab, and the first version of this stub
-    pop ds                      ; switched and never switched back - so it
-                                ; staged 13 bytes of KERNEL image as the file
-                                ; name and handed that to dskw_write_sys.
-                                ; api_nb (the N body) avoids it by copying BEFORE it
-                                ; touches DS; this one has to put it back
+    KDS                         ; DS = KERNEL: the fence reaches drv_tab
+    call COLD_SEG:dvf_drv_owns_seg
     pop bx
     jc .refuse
-    call api_cpname             ; caller DS:SI -> KERNEL:api_name, <= 13 bytes
-                                ; (ES - the buffer - and DI kept)
-    KDS
-                                ; DS = KERNEL
                                 ; NO V (SPEC.md 19.2.1): the installer names
                                 ; the volume it is building and must not have
                                 ; its own instance's folder put underneath it
     mov si, api_name
     call COLD_SEG:dwf_dskw_write_sys
-.out:
-    pop si
-    pop ds
-    retf
+    jmp short api_ff_go.tail    ; the name stubs' one `pop si / pop ds / retf`
+                                ; (kernel size pass 21, -1)
 .refuse:                        ; DS is already KERNEL; unwind what is left
     mov ax, FERR_PROT           ; the same answer DSKW_PROT gives a package
     stc                         ; that names a system file: it is protected,
-    jmp short .out              ; and from out there that is the whole truth
+    jmp short api_ff_go.tail    ; and from out there that is the whole truth
 %endif                          ; OS88_DRIVERS
 
 ; ...and the two-name case, which needs DI as well and so is written out
@@ -4163,22 +4166,20 @@ api_file_rename:
     call api_cpname0            ; copy, which needs DI itself - the old name,
                                 ; and ES = KERNEL for the second from here
     pop si                      ; SI = the caller's DI = the new name
-    mov di, api_name2
-    call api_copyname           ; new name
-    pop es
+    push di                     ; ...and it lands where the old one's NUL
+    call api_copyname           ; left DI: at most 13 + 13 bytes, which is
+    pop di                      ; api_name and api_name2 (kernel size pass
+    pop es                      ; 21, -4: the two `mov di, api_name2`)
     KDS
                                 ; DS = KERNEL
     call inst_vol_enter         ; V, as the three above (SPEC.md 19.2.1):
                                 ; BOTH names resolve in the calling
                                 ; instance's directory, which is the only
                                 ; reading of a rename that makes sense
-    mov si, api_name
-    mov di, api_name2
+    mov si, api_name            ; DI = the staged new name, from the pop
     call COLD_SEG:dwf_dskw_rename
     pop di
-    pop si
-    pop ds
-    retf
+    jmp short api_ff_go.tail    ; ...and the name stubs' shared three (-1)
 
 ; -----------------------------------------------------------------------------
 ; api_copyname - stage a NUL 8.3 name across the segment boundary
@@ -4313,7 +4314,12 @@ sch_dphc:   db 0, 0             ; digit as a string. The panel ends in `hlt`
                                 ; they live here and not in .bss (kernel size
                                 ; pass 20, -4). Staged names (.text, not .bss: the file
 api_name2:  times 13 db 0       ; slots are not reached before kmain, and
-                                ; by then .bss is zero as well)
+                                ; by then .bss is zero as well). The rename's
+                                ; second name follows the first's NUL, so
+                                ; this is api_name's second 13 bytes
+%if api_name2 - api_name != 13
+  %error "api_file_rename stages two names of up to 13 bytes into api_name's 26"
+%endif
 ; THE BLOB'S FAR POINTER, and there is exactly one of it (SPEC.md 2.9.6). The
 ; loading screen and the boot overlay are two sections of one image at one
 ; address - stage 2 copies the whole rung to HEAP_SEG and publishes the segment
