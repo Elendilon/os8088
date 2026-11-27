@@ -114654,8 +114654,9 @@ package and for `kern_big` - byte for byte what they were - and on
 `fdb_kbtn`, `fdb_bhit`), with `OS88UI_KFAR`'s far primitives. The include is
 still assembled once; the body is what is assembled twice, which is the
 answer to pass 13's refusal. `os88ui_btn_f` does not exist on any kernel
-now (kernel size pass 15 removed `kern_big`'s too); `os88ui_krect` and the
-staging record stay in `.bss`, read through DS.
+now (kernel size pass 15 removed `kern_big`'s too); `os88ui_krect` stays in
+`.bss` and the staging record is in `.text` with its four constant words
+assembled in (kernel size pass 21), both read through DS.
 
 #### 38.0.1 The drop is guarded on the IMAGE, not on the window
 
