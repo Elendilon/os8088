@@ -77,6 +77,9 @@ TS_CLOSEW   equ 10
 ; --- the socket record -------------------------------------------------------
 SKO_ST      equ 0               ; NSK_*: what the PACKAGE is told
 SKO_TS      equ 1               ; TS_*:  what TCP is doing
+%if SKO_ST != 0 || SKO_TS != 1
+  %error "the two states are the record's first WORD: written as one (`mov word [bx], TS << 8 | NSK`, `and word [bx], 0` for both zero - driver size pass 2)"
+%endif
 SKO_LP      equ 2               ; local port, host order
 SKO_RP      equ 4               ; remote port, host order
 SKO_RIP     equ 6               ; the peer, four bytes in WIRE order
@@ -825,8 +828,7 @@ eth_v_gone:
     jz  .nores
     call dns_unres              ; a lookup in flight lets go of it too (AH
 .nores:                         ; is all it spends, and AL is the slot)
-    mov byte [bx+SKO_TS], TS_CLOSED
-    mov byte [bx+SKO_ST], NSK_FREE
+    and word [bx+SKO_ST], 0     ; NSK_FREE and TS_CLOSED, one store
     call sk_ring_put            ; (and sk_idle, from inside it)
 .next:
     SK_NEXT
@@ -1469,7 +1471,10 @@ tcp_out:
     mov [eth_txb+IP_PAY+TCO_CK], ax
     mov [eth_txb+IP_PAY+TCO_URG], ax
 
-    mov cx, [eth_dlen]                  ; the data, from [eth_doff] along
+                                        ; the data, from [eth_doff] along: CX is
+                                        ; still [eth_dlen] - ip_start keeps it and
+                                        ; nothing since writes it (driver size
+                                        ; pass 2: its reload went)
     jcxz .nodata
     mov ax, [eth_doff]
     call sk_txpos                       ; DI = it, AX = the run to the end
@@ -1855,9 +1860,9 @@ tcp_syn:
     call tcp_synout                     ; a CF in there is ARP: the timer
     jmp short .done                     ; retries
 .noring:
-    mov byte [bx+SKO_TS], TS_CLOSED     ; every ring is busy: this is a refusal
-    mov byte [bx+SKO_ST], NSK_FAILED    ; the caller can see, not a connection
-    mov byte [eth_lasterr], NETE_FULL   ; that opens and never moves
+    mov word [bx+SKO_ST], TS_CLOSED << 8 | NSK_FAILED ; every ring is busy: a
+    mov byte [eth_lasterr], NETE_FULL   ; refusal the caller can see, not a
+                                        ; connection that opens and never moves
 .done:
     pop di
     pop si
@@ -1926,10 +1931,10 @@ tcp_match:
 .l:
     cmp byte [bx+SKO_ST], NSK_FREE
     je  .next
-    cmp byte [bx+SKO_TS], TS_LISTEN
-    je  .next
-    cmp byte [bx+SKO_TS], TS_CLOSED     ; a socket still waiting on DNS has a
-    je  .next                           ; port pair and no connection
+    cmp byte [bx+SKO_TS], TS_LISTEN     ; a LISTENER, or CLOSED: a socket still
+    jbe .next                           ; waiting on DNS has a port pair and no
+                                        ; connection. One unsigned compare asks
+                                        ; for both (driver size pass 2)
     cmp dx, [bx+SKO_LP]
     jne .next
     cmp ax, [bx+SKO_RP]
@@ -2090,9 +2095,9 @@ tcp_accept_in:
     clc                                 ; **SET EXPLICITLY, BOTH WAYS**: the
     jmp short .out                      ; pops below do not touch the flags but
 .noring:                                ; tcp_arm's CF is nobody's contract
-    mov byte [bx+SKO_ST], NSK_FREE      ; a slot with no ring cannot receive, so
-    mov byte [bx+SKO_TS], TS_CLOSED     ; it goes straight back and tcp_in RSTs
-    jmp short .full
+    and word [bx+SKO_ST], 0             ; a slot with no ring cannot receive, so
+    jmp short .full                     ; it goes straight back (FREE, CLOSED)
+                                        ; and tcp_in RSTs
 .fullpop:
     pop ax
 .full:
@@ -2163,9 +2168,9 @@ tcp_seg:
     jne .est                            ; peer's final ACK is the only thing
     test byte [bx+SKO_FL], SKF_SYNA     ; that promotes a slot tcp_accept_in
     jnz .est                            ; made, and tcp_ackin has just cleared
-    mov byte [bx+SKO_TS], TS_ESTAB      ; SKF_SYNA if it covered our SYN. SKF_
-    mov byte [bx+SKO_ST], NSK_UP        ; ACPT stays on: eth_v_accept is what
-    call tcp_disarm                     ; hands the handle out
+    mov word [bx+SKO_ST], TS_ESTAB << 8 | NSK_UP ; SKF_SYNA if it covered our
+                                        ; SYN. SKF_ACPT stays on: eth_v_accept
+    call tcp_disarm                     ; is what hands the handle out
 .est:
     mov cx, [eth_seglen]                ; ...and the data
     jcxz .nodata
@@ -2189,19 +2194,19 @@ tcp_seg:
     lea di, [bx+SKO_RNXT]
     call q_inc
     mov byte [eth_adv], 1
-    cmp byte [bx+SKO_TS], TS_ESTAB
+    mov al, [bx+SKO_TS]                 ; (AL is free: the flags are eth_flg's)
+    cmp al, TS_ESTAB
     je  .cw
-    cmp byte [bx+SKO_TS], TS_FINW1
+    cmp al, TS_FINW1
     je  .clsing
-    cmp byte [bx+SKO_TS], TS_FINW2
+    cmp al, TS_FINW2
     jne .acknow
     call tcp_timewait
     jmp short .acknow
 .cw:
-    mov byte [bx+SKO_TS], TS_CLOSEW
-    mov byte [bx+SKO_ST], NSK_CLOSING   ; **NOT an end of stream**: netpkg.inc
-    jmp short .acknow                   ; says the drain to CX = 0 is
-.clsing:                                ; what ends it
+    mov word [bx+SKO_ST], TS_CLOSEW << 8 | NSK_CLOSING ; **NOT an end of stream**:
+    jmp short .acknow                   ; netpkg.inc says the drain to CX = 0
+.clsing:                                ; is what ends it
     mov byte [bx+SKO_TS], TS_CLOSING
 .acknow:
     cmp byte [eth_adv], 0
@@ -2225,8 +2230,7 @@ tcp_seg:
     call be32_get
     lea di, [bx+SKO_RNXT]
     call q_put1
-    mov byte [bx+SKO_TS], TS_ESTAB
-    mov byte [bx+SKO_ST], NSK_UP
+    mov word [bx+SKO_ST], TS_ESTAB << 8 | NSK_UP
     call tcp_disarm
     call tcp_ack
     call tcp_kick
@@ -2337,23 +2341,26 @@ tcp_ackin:
 tcp_finacked:
     push ax
     and byte [bx+SKO_FL], ~SKF_FINS
-    cmp byte [bx+SKO_TS], TS_FINW1
+    mov al, [bx+SKO_TS]
+    cmp al, TS_FINW1
     je  .fw2
-    cmp byte [bx+SKO_TS], TS_CLOSING
+    cmp al, TS_CLOSING
     je  .tw
-    cmp byte [bx+SKO_TS], TS_LASTACK
+    cmp al, TS_LASTACK
     jne .out
     mov al, NSK_CLOSED
     call tcp_abort
     jmp short .out
 .fw2:
-    mov byte [bx+SKO_TS], TS_FINW2
-    jmp short .out
-.tw:
-    call tcp_timewait
+    inc byte [bx+SKO_TS]                ; FIN-WAIT-2
 .out:
     pop ax
     ret
+.tw:                                    ; CLOSING: both FINs are done -
+    pop ax                              ; tcp_timewait, below, keeps AX itself
+%if TS_FINW2 != TS_FINW1 + 1
+  %error "tcp_finacked steps FIN-WAIT-1 to FIN-WAIT-2 with an inc"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; tcp_timewait - both FINs are done: hold the slot briefly (see TCP_TWTMO)
@@ -2388,12 +2395,11 @@ tcp_timers:
     mov [eth_now], ax
     mov bx, sk_tab
 .l:
-    cmp byte [bx+SKO_TS], TS_CLOSED
-    je  .next
-    cmp byte [bx+SKO_TS], TS_LISTEN
-    je  .next
-
-    cmp byte [bx+SKO_TS], TS_TIMEWT     ; the short hold, then the slot goes
+    cmp byte [bx+SKO_TS], TS_LISTEN     ; CLOSED or LISTEN: no clock runs. A
+    jbe .next                           ; free slot pays this one compare, as
+                                        ; it did; the rest read TS once, in AL
+    mov al, [bx+SKO_TS]                 ; (driver size pass 2)
+    cmp al, TS_TIMEWT                   ; the short hold, then the slot goes
     jne .conn
     mov ax, [eth_now]
     sub ax, [bx+SKO_TMO]
@@ -2402,11 +2408,8 @@ tcp_timers:
     call tcp_abort
     jmp short .next
 .conn:
-    cmp byte [bx+SKO_TS], TS_SYNSENT    ; the overall connect deadline
-    je  .ctmo
-    cmp byte [bx+SKO_TS], TS_SYNRCVD
-    jne .rtx
-.ctmo:
+    cmp al, TS_SYNRCVD                  ; SYN-SENT or SYN-RCVD: the overall
+    ja  .rtx                            ; connect deadline
     mov ax, [eth_now]
     sub ax, [bx+SKO_TMO]
     js  .rtx

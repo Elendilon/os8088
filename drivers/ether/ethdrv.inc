@@ -377,8 +377,7 @@ eth_dropall:
 .l:
     call sk_ptr
     call sk_rst                 ; a peer is told (tcp.inc), every register kept
-    mov byte [bx+SKO_TS], TS_CLOSED
-    mov byte [bx+SKO_ST], NSK_FREE
+    and word [bx+SKO_ST], 0     ; NSK_FREE and TS_CLOSED, one store
     inc ax                      ; AL is the slot (never past NET_SOCKS)
     loop .l
     jmp ep_cx

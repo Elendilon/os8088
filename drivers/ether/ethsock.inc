@@ -325,12 +325,14 @@ eth_v_close:
     call sk_shut
     jc  .no
     or  byte [bx+SKO_FL], SKF_ORPH
-    cmp byte [bx+SKO_TS], TS_ESTAB
+    mov al, [bx+SKO_TS]                 ; (AL is the handle, and spent)
+    cmp al, TS_ESTAB
     je  .fin
-    cmp byte [bx+SKO_TS], TS_CLOSEW
+    cmp al, TS_CLOSEW
     je  .fin
-    mov byte [bx+SKO_TS], TS_CLOSED     ; nothing was ever connected, or it is
-    mov byte [bx+SKO_ST], NSK_FREE      ; already over: the slot goes now
+    and word [bx+SKO_ST], 0             ; nothing was ever connected, or it is
+                                        ; already over: the slot goes now (FREE
+                                        ; and CLOSED, one store)
     call sk_ring_put                    ; ...and the ring with it (72.21)
     jmp short .no
 .fin:
@@ -438,8 +440,7 @@ eth_v_listen:
     call sk_alloc
     jc  .full
     mov [bx+SKO_LP], cx
-    mov byte [bx+SKO_TS], TS_LISTEN
-    mov byte [bx+SKO_ST], NSK_LISTEN
+    mov word [bx+SKO_ST], TS_LISTEN << 8 | NSK_LISTEN
     xor ah, ah                  ; (and CF=0: `xor` clears it)
     jmp short .pop
 .full:
