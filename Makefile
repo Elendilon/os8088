@@ -12741,7 +12741,7 @@ ARCADE_SRC := apps/arcade/arcade.asm apps/arcade/arcdefs.inc apps/arcade/arcpm.i
               apps/arcade/arc6502.inc apps/arcade/arcqbs.inc \
               apps/arcade/arcsnd.inc apps/arcade/arcland.inc drivers/sound/sndpkg.inc \
               apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc apps/os88pit.inc \
-              apps/os88ui.inc apps/os88mega.inc
+              apps/os88ui.inc apps/os88mega.inc apps/os88fsxw.inc
 # WHAT SHIPS HAS NO ROM IN IT (docs/plans/ARCADE-RELEASE-PLAN.md 2.1): each
 # translated board's RECIPE (.rcp: its code with the ROM's bytes as holes,
 # and the fill list) and its PC table; Q*bert's N88 core. The ROMs are the
