@@ -251,7 +251,10 @@ asc_inkck:
 ; -----------------------------------------------------------------------------
 ; assoc_glyph_di - where an app slot's 8x8 glyph lives (SPEC.md 54.3)
 ; in:  BL = the app slot (BH is zeroed here, so BL alone is enough)
-; out: DI -> its eight glyph bytes. AX, BX and CX preserved; flags are not
+; out: DI -> its eight glyph bytes, and CF = 0: a slot is < ASSOC_NAPP, so
+;      the product leaves AH 0 (MUL's CF) and the add lands inside the table
+;      (asserted below) - assoc_app_new's ret reads it (kernel size pass 21).
+;      AX, BX and CX preserved; ZF and the rest are not
 ; -----------------------------------------------------------------------------
 assoc_glyph_di:
     push ax
@@ -261,11 +264,16 @@ assoc_glyph_di:
     xchg di, ax                 ; pass 10, -5)
     pop ax
     ret
+%if ASSOC_NAPP * 8 > 255
+  %error "assoc_glyph_di answers CF = 0 out of a byte product: slot * 8 must fit AL"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; assoc_hint_here - this app slot was just SEEN here (SPEC.md 54.4.2 rung 1)
 ; in:  BL = the app slot, BH = 0
-; out: nothing. BX preserved; AX clobbered, which every caller already spent
+; out: CF = 0 - the `shl` of a slot below 8000h, which assoc_locate's .known
+;      answers with (kernel size pass 21). BX preserved; AX clobbered, which
+;      every caller already spent
 ;
 ; The hint is [disk_drive] and [dsk_cwd] - the volume and directory that are
 ; CURRENT at the moment of the call - so it is only ever correct where the
@@ -554,8 +562,11 @@ assoc_reduce:
 ; assoc_glyph_take - a SHIPPED glyph into a slot, unless it is blank
 ;                    (SPEC.md 54.3.2)
 ; in:  ES:SI -> eight glyph bytes, DI -> the slot's eight in the kernel
-; out: CF=0 = copied; CF=1 = they were all zero and nothing was written
-;      (all registers preserved)
+; out: ZF=0 = copied; ZF=1 = they were all zero and nothing was written (all
+;      registers preserved). ZF and not CF (kernel size pass 21, -2: the `stc` and the `clc`):
+;      asc_inkck's ZF is the blank answer as it stands, and the copy ends in
+;      assoc_stage's `inc di`, which cannot reach 0 - DI is past a glyph in
+;      .text
 ;
 ; All-zero is the UNRESOLVED sentinel (54.2) on both sides: in an image the
 ; tool refuses it, and in a cache row it is how a package that ships no glyph
@@ -567,12 +578,11 @@ assoc_glyph_take:
     call kentc_di
     mov cx, 4                   ; NEITHER LOOP IS THIS ROUTINE'S OWN: the
     call asc_inkck              ; blank test is asc_inkck above and the copy
-    stc                         ; is SPEC.md 20.2's staging idiom, which is
-    jz .out                     ; ES:SI -> DS:DI and exactly what a glyph in a
-    call assoc_stage8           ; cache row, a store row or an image needs.
+    jz .out                     ; is SPEC.md 20.2's staging idiom, which is
+    call assoc_stage8           ; ES:SI -> DS:DI and exactly what a glyph in a
+                                ; cache row, a store row or an image needs.
                                 ; Both advance SI and this routine banks it
-    clc                         ; anyway
-.out:
+.out:                           ; anyway. (`pop`s keep the ZF either way.)
     jmp kretc_di
 
 ; -----------------------------------------------------------------------------
@@ -594,9 +604,10 @@ assoc_img_glyph:
     jz .reduce
     add si, LD_H_GLYPH
     call assoc_glyph_take
-    jnc .out
-    sub si, LD_H_GLYPH          ; blank after all: as if it shipped none
-.reduce:
+    jnz .out                    ; ZF = 0: copied
+    pop si                      ; blank after all: as if it shipped none - the
+    push si                     ; header off our own frame (kernel size pass
+.reduce:                        ; 21, -1 against a `sub si, imm8`)
     add si, LD_HDR_SIZE + 32    ; the DATA plane of the embedded icon
     call assoc_reduce
 .out:
@@ -751,11 +762,13 @@ assoc_ext_take:
                                 ; each arm is what it is)
     call assoc_find             ; already claimed?  BX = that row
     jc .fresh
-    test byte [bx+3], ASSOC_STICKY
-    jnz .no
-    cmp [bx+3], dl              ; ...and already this program's: nothing any
-    je .no                      ; window drew is wrong
-    jmp short .set
+    mov al, [bx+3]              ; a STICKY row, or one already this program's
+    xor al, dl                  ; (nothing any window drew is wrong), is left
+    jle .no                     ; alone: DL is a slot, < 80h, so the XOR is 0
+    jmp short .set              ; for the same program and has bit 7 for a
+                                ; sticky one - and `xor` clears OF, so `jle`
+                                ; is exactly those two (kernel size pass 21,
+                                ; -4: a `test`, a `cmp` and a jump)
 .fresh:
     call assoc_ext_new
     jc .no
@@ -1229,12 +1242,10 @@ assoc_locate:
     call assoc_hint_here        ; ...then the AUTHORITATIVE hint for the one
                                 ; program we actually located - AFTER the seed
                                 ; on purpose, so a stale cached cluster for
-                                ; THIS program loses to where it really is
-    clc                         ; explicit, not inherited: the helper's last
-.out:
-    jmp kretc_di
-                                ; store leaves CF as the `shl` left it, which
-                                ; is an accident of the table's size
+                                ; THIS program loses to where it really is.
+                                ; Its CF = 0 is the answer: the `shl` of a
+.out:                           ; slot, which its header now promises (it was
+    jmp kretc_di                ; a `clc` - kernel size pass 21, -1)
 
 ; -----------------------------------------------------------------------------
 ; assoc_run - open the pending document (SPEC.md 54.4)
@@ -1258,9 +1269,9 @@ assoc_run_x:
 
     push es
 
-    mov al, [assoc_dapp]
-    mov byte [assoc_dapp], 0xFF ; consume before running, not after
-    push ax
+    mov al, 0xFF
+    xchg al, [assoc_dapp]       ; consume before running, not after (one
+    push ax                     ; xchg - kernel size pass 21, -2)
     cmp al, ASSOC_FLUSH         ; NOT A DOCUMENT AT ALL (SPEC.md 54.7.6.3): a
     jb .doc                     ; harvest or a search learned something this
     and ax, 7                   ; volume's ASSOC.DAT does not hold. DL = the
@@ -1767,9 +1778,8 @@ assoc_ext_new:
     push di                     ; disk.inc's counted copy (SPEC.md 4), which
     mov di, bx                  ; walks DI - and this routine does not
     mov cx, 3                   ; otherwise touch it
-    call dsk_ncopy
-    pop di
-    clc
+    call dsk_ncopy              ; ...and keeps the flags: CF = 0 is the `je`
+    pop di                      ; that got here (kernel size pass 21, -1)
     ret
 
 ; assoc_app_new - claim a free app slot for the stem in assoc_stemb.
@@ -1810,9 +1820,8 @@ assoc_app_new:
 .zap:
     mov [di], ah                ; AH is 0: AL counted the slots up from
     inc di                      ; `xor ax, ax`, and assoc_glyph_di keeps AX
-    loop .zap
-    clc
-.out:
+    loop .zap                   ; ...and its CF = 0, which neither `inc` nor
+.out:                           ; `loop` writes (kernel size pass 21, -1)
     pop di
     pop si
     pop cx
@@ -1961,7 +1970,8 @@ asc_use_x:
     ; routine's scratch, banked by the KENT and by the `push es` above.
     push ss                     ; ES = LOW_SEG: dsk_secbuf is .lowbss (SPEC.md
     pop es                      ; 2.1), which is exactly what SS names
-    xor ax, ax                  ; 0 = the root
+                                ; AX = 0 = the root, still: .load's zero
+                                ; (kernel size pass 21, -2)
     call dsk_dirw_start_x
 .rfsec:
     call dsk_dirw_get_x         ; either failure is "no cache here" (19.2.1)
@@ -2351,7 +2361,7 @@ asc_gly_pair:
     call assoc_glyph_di         ; DI -> the slot's glyph
     add si, ASC_ROWGLY - ASC_ROWICO
     call assoc_glyph_take
-    jnc .out
+    jnz .out                    ; ZF = 0: the shipped eight were taken
     ; ...REDUCED INSTEAD (SPEC.md 54.7.3), out of the body's DATA plane. This
     ; was asc_body_glyph, split out so a store hit could reach it; the store
     ; hit comes through this walker now (asc_take), so it had one caller and
