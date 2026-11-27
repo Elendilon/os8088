@@ -5758,6 +5758,32 @@ one side and not the other is the kind that costs somebody a day.
 *display's*, and `OSAPI_VIDEO` answers about the primary alone (§39.2.1).
 That distinction is §39.14.8's field bug, one register along.
 
+**…and from the DEEPEST display when the panel can land on another one
+(§5.3.1).**
+
+#### 5.3.1 A straddling window's panel can sit on the deeper card
+
+`OSAPI_WM_DISPLAY` answers a straddling window with the *more restrictive*
+of its two displays (§39.16.4.1), because that is what its frame is sized
+for. Its dropdown is a rect of its own, and it can lie wholly on the OTHER
+display - a window across a Hercules and a VGA whose menu bar is past the
+seam. `OSAPI_GFX_SAVE` accepts that rect, since it straddles nothing, and
+writes **four planes into a buffer sized for one**: past the claim, over the
+heap. The extended-desktop audit (2026-11-27, L2) found the pattern in
+`os88ui_drbank`, `os88ui_mnbank`, Sheet's `sh_mbank` and WIN16's
+`w16_mpsave`.
+
+So a save-under is sized for **`OSAPI_WM_DISPLAY`'s DH, raised to 4 when any
+display on the machine is planar** (`OSAPI_FSX_CAPS` with BX = 1, 2, ...
+names each display's kind; VGA and EGA are planar). `apps/os88ui.inc`'s
+`os88ui_bankpl` is that rule written once (in BX = the window, out BX = the
+planes), and all four sites call it. On a one-display machine, and on a
+two-display one with no planar card, it is DH unchanged; with a VGA beside a
+mono card a bank over a mono window costs four times the bytes it needs,
+which is a short list's few KB of transient claim against an overrun. A
+packed VESA display is never one of two (§120.5's extended-desktop row), so
+DH ≥ 4 is final.
+
 **Software-renderer dispatch (§32/§39.5).** Every public drawing entry above
 (`gfx_pixel` … `gfx_restore`) reaches a `[vid_planes]` test at its raw body,
 below the clip and display hooks, and branches to its `sw_*` twin in
@@ -24806,7 +24832,7 @@ then have `wm_dmg_stale` treat the windows above a `WF_DESK`
 `.text`.
 
 **The drop's bound is the title bar's**, `y + TITLE_H <= [vid_h]`
-(`vid_ymax`), and a widget has no title bar: its grab handle and close box
+(computed at the drop since §39.16.1.1; it was the word `vid_ymax`), and a widget has no title bar: its grab handle and close box
 are in the tag row at the BOTTOM of its face. With `wm_dock_snap`'s
 half-strip rule, a widget can be dropped with only its top 18 rows on the
 glass - card 1, where a press is not a drag - so the tag row, the handle and
@@ -81020,7 +81046,7 @@ or single instructions with no register to spare for the arithmetic:
 `vid_w`, `vid_h`, `vid_wm1`, `vid_hm1`, `vid_wm8`, `vid_cwm1`, `vid_chm1`,
 `vid_cwm8`, `vid_chm8`, `vid_bankmask`, `vid_rseg`, `vid_tseg`, `vid_pw`,
 `vid_ph`, `vid_pwm1`, `vid_phm1`, `vid_dock_y0`, `vid_dock_ty0`,
-`vid_clk_hx`, `vid_ymax`, `vid_desk_zx`, and the bytes
+`vid_clk_hx`, `vid_desk_zx`, and the bytes
 `vid_kind`, `vid_mono`, `vid_planes`, `vid_planes_w`.
 
 **`vid_popmax` left that list and became a CONSTANT.** `[vid_h]` at the point
@@ -81072,7 +81098,9 @@ draw writes past the end of the framebuffer.
 
 `MBAR_H` (20) and `TITLE_H` (18) stay assembly-time constants: they are font
 and chrome dimensions, not screen-derived. Only `SCREEN_H - TITLE_H`
-combined them, and that is the precomputed `[vid_ymax]`.
+combined them, and that was the precomputed `[vid_ymax]` - gone since
+§39.16.1.1, because the drag's bound is the DESKTOP's (`[vid_h]`) and the
+precomputed word was the primary's.
 
 ### 39.2.1 The display's extent and the desktop's — `vid_cw` / `vid_w`
 
@@ -83451,7 +83479,7 @@ monitor is *for*.
 without a special case anywhere. `vid_desk_union` then grows `[vid_w]`,
 `[vid_h]`, `[vid_wm1]` and `[vid_hm1]` past them and touches nothing else —
 which is why every derived chrome word (`[vid_dock_y0]`, `[vid_clk_hx]`,
-`[vid_ymax]`, `[vid_desk_z*]`) is already right: `vid_apply` computed them
+`[vid_desk_z*]`) is already right: `vid_apply` computed them
 before the desktop grew. `[vid_popmax]` is not derived at all any more — it is
 a constant, and §39.2 says why a union cannot change it either. On a machine
 with one display the two sets are the same numbers and nothing above happens
@@ -83601,6 +83629,28 @@ drag therefore crosses the seam** — the frame is clamped only when the origin
 lands somewhere no display has — and a window straddling the two cards is
 drawn by §39.14's split, one fragment per display, with no code in the window
 manager aware of it.
+
+#### 39.16.1.1 The drop's lowest row is the DESKTOP's, and the title bar must be on a display
+
+`ui_drag` bounded a drop's y with `[vid_ymax]`, which `vid_apply` derives as
+`vid_h - TITLE_H` **for the display it is applying** - the primary, last - and
+which `vid_desk_union` never grew. So the one bound that is about the desktop
+was the primary's: in every Below layout no window could be dragged wholly onto
+display 1 (it stopped `TITLE_H` rows above the seam), and in a Right layout
+under a CGA primary the Hercules rows below the CGA's bottom could not be
+reached (audit K1, docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md).
+
+The bound is now computed at the drop from `[vid_h]` - the union on an
+extended desktop, the primary on every other machine, where it is the same
+number `[vid_ymax]` held - and the word is gone (one store and one word fewer
+than the two reads cost, so kern_small and kern_mega pay nothing either).
+
+The union's bound is a bounding box, so it allows a title bar into the dead
+zone below the SHORTER display. `EXT_DEAD` (EXTD.DRV, §39.19.6) is what keeps
+that out, and it now asks about the title bar's LAST row before its first: a
+bar whose bottom row no display holds is clamped into the pointer's display and
+lifted by `TITLE_H - 1`, so the whole bar lands on glass - which `[vid_ymax]`
+used to guarantee on the primary alone and nothing guaranteed on display 1.
 
 #### 39.16.3 …and a window may hang off the DESKTOP, but not into a HOLE in it
 
@@ -103813,13 +103863,18 @@ centred in it by `[tg_bx0]`. A zero cell size is refused, because a zero cell
 makes every rect inside-out and an inside-out rect is a stripe rather than a
 small mistake.
 
-### 49.4 Two colours are chosen at boot, not pinned
+### 49.4 Two colours are chosen by the display, not pinned
 
 §39.4 leaves a 4bpp screen three greys and a 1bpp screen none. On VGA the HUD
 band is `CDGRAY` under `CLGRAY`-bordered matrix; on Hercules and CGA both of
 those land in the **dither** class, and white text on a 50% pattern is
 legible only in principle. `[tg_hudbg]`/`[tg_frcol]` are set from
-`OSAPI_VIDEO`'s `DH`: black band and a solid white border on 1bpp. The HUD
+`OSAPI_WM_DISPLAY`'s `DH` - the WINDOW's display (§39.16.4), asked again by
+`tg_track` before every draw, so a window dragged onto the other card of an
+extended desktop takes that card's pair - black band and a solid white border
+on 1bpp. They were `OSAPI_VIDEO`'s at the entry until the extended-desktop
+audit of 2026-11-27 found a dithered band on a Hercules d1 and a mono one on
+a VGA d1. The HUD
 text itself is `CWHITE` on every adapter — §47's lesson, that a dithered 8x8
 glyph loses the half of each stroke the pattern masks out, so text comes from
 the white class and only a filled *area* may dither.
@@ -158212,10 +158267,11 @@ and Word's (§68.2.1):
 - **`sh_mbank`** runs between `sh_mdrop_geo` and the first draw and calls
   `OSAPI_GFX_SAVE` over the panel's rect. Its size is §13.16.4's formula,
   planes × rows × byte columns, with the plane count from
-  `OSAPI_WM_DISPLAY` (never `OSAPI_VIDEO`, §39.16.4) and taken AS IT COMES,
+  `os88ui_bankpl` (§5.3.1: `OSAPI_WM_DISPLAY`'s DH, never `OSAPI_VIDEO`'s,
+  raised to the deepest display's) and taken AS IT COMES,
   §120.5's package rule: DH ≥ 4 is DH planes, 8 or 16 being the bytes a
-  column on a packed display, and only 1 is one plane. The bottom is clamped
-  to the display's last row, in `[sh_mbky2]`.
+  column on a packed display, and only 1 is one plane. The bottom is the
+  display's last row, found by §81.98.2, in `[sh_mbky2]`.
 - **`sh_mclose`** writes it back with `OSAPI_GFX_REST` and redraws the bar
   so the title is plain again. The full `sh_repaint` it used to make is now
   the REFUSAL path only: no bank (a rect straddling two displays, or one
@@ -158261,6 +158317,36 @@ dragged 24 rows lower, where the panel runs off the screen. Skipping the
 restore fails both comparisons.
 
 **Resident +174 bytes, bss +3** on the build this section first shipped on.
+
+#### 81.98.2 The bank's bottom is the DISPLAY's, found by asking the save
+
+The first `sh_mbank` clamped the panel's bottom to `OSAPI_WM_DISPLAY`'s
+height less one. That height is LOCAL - the display's own rows - and the
+panel's rect is VIRTUAL, so the clamp was right only on display 0. In a
+Below layout display 1 starts at the primary's height: a Hercules primary
+over a VGA put SHEET's bar at y = 477 and its Data panel to 522, the clamp
+cut the bank at 479, and the close left rows 480-522 of the panel on the
+glass (the extended-desktop audit, 2026-11-27, L2). A VGA primary over a
+Hercules had the panel run three rows onto the Hercules, where no bank and
+no repaint of SHEET's window reaches.
+
+No cell answers where a display starts, and none is needed: `OSAPI_GFX_SAVE`
+already refuses a rect that leaves the display holding its top-left. So
+`sh_mbank` saves the whole panel first - the common case, one call - and
+only when that is refused finds the display's last row by asking the same
+question of a ONE-COLUMN rect from the panel's top, halving the interval
+(at most nine probes, each a column of bytes, on the refused path only).
+One more one-pixel probe asks whether the row under that one belongs to
+ANOTHER display. If it does, the panel is **shortened to the whole items
+that fit above the seam, with its frame closed under them**, and banked: it
+never draws onto the other display, and what it banked is all it drew. If it
+does not - the screen's end, or the dead zone beside a shorter monitor - the
+tail is drawn nowhere, so the panel stays whole and the bank stops at the
+last row, which is the old behaviour exactly (`tests/sheetmtail.py`'s
+dragged-down arm). kern_small's save does not refuse a rect past the screen,
+so there the first save succeeds clipped, as before. A refusal across a
+vertical seam (the column fits, the width does not) is the old repaint. The
+plane count is §5.3.1's.
 
 #### 81.98.1 What the VGA machine found
 
@@ -220247,6 +220333,16 @@ exclusive bracket; Escape/Alt+Enter restores the desktop with the game paused.
 VGA selects FSXM_MODEX (320x240); CGA selects FSXM_CGA320 (320x200), black
 background and bright green/red/yellow palette 0 (3D9h=10h). VGA retains
 blue/red/yellow. Unsupported adapters refuse fullscreen with an explanation.
+**The display that plays is asked, not assumed** (§53.1.2): the window's own
+first, then - refused there - each display of an extended desktop in turn,
+`OSAPI_FSX_CAPS` with BX = 1, 2, ... until it says there is none, the first
+offering Mode X or CGA 320 being `[dm_fsdisp]` and the bracket opening on it
+with `OSAPI_FSX_RUN` CH = n. So a window on the Hercules of a Hercules + CGA
+or Hercules + VGA pair plays on the colour card, the window staying where it
+is, and the splash's play label says Enter rather than VGA/CGA. The walk is
+the same `dm_playdisp` the splash's label and the Enter key both ask, at
+every paint and every press, so a window dragged between displays is asked
+again. A lone Hercules still refuses: BX = 1 is that card and BX = 2 is none.
 Original artwork uses offline converted native pixels: 16x12 VGA cells and
 16x10 CGA cells. Cells are horizontally doubled, so VGA batches dirty cells in two passes,
 each writing one stored plane to a plane pair (map masks 3 and 0Ch); cells
@@ -255583,6 +255679,14 @@ kept.
 page: like CGA's, a cut is drawn where it can be seen. Their second page is
 not used yet. An EGA takes the CGA4 bundle in mode 4.
 
+**A display's refusal is the display's.** A play refused because the
+window's display has not the battle's mode ("Needs CGA, EGA or VGA", "Needs
+BATTLEH.VBT on a Hercules") sets `[vb_dispno]`, and `vb_onresize` (§11.98)
+puts Ready back when the window lands on another display of an extended
+desktop (§39.16.3.3), so the word never describes a card the window has
+left; Enter asks the new one. It read "Needs CGA, EGA or VGA" on a VGA d1
+where Enter played, until the extended-desktop audit of 2026-11-27.
+
 **Hardware not yet heard.** The PC speaker (VIDEO-BATTLE-PLAN 3.2) is not
 an output.
 
@@ -259321,6 +259425,12 @@ source no longer assembled. The changes, all mechanical:
   as a black bar on Hercules. Each package picks its ground from
   `OSAPI_VIDEO`'s DH at entry (`bas_ui_ground`, `br_ground`): grey at 4 bpp
   and up, white below.
+- **`SCREENW`, `SCREENH`, `SCREENBPP` and `VIDEOMODE` answer the CONSOLE
+  WINDOW's display** (`bas_video`: `OSAPI_WM_DISPLAY` on `[bas_window]`,
+  §39.16.4), asked at each call. On one display that is `OSAPI_VIDEO`'s
+  answer; on an extended desktop (§39.19) a program whose console stands on
+  the second card is told that card's width, height, depth and kind - it was
+  told the primary's until the extended-desktop audit of 2026-11-27.
 - **Two upstream layout defects fixed.** 2BRES's footer drew the current file
   name unpadded on a partial refresh, so `MIXED.RES` opened over
   `UNTITLED.RES` read `MIXED.RESRES`; it is padded to twelve cells. And its

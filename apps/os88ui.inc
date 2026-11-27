@@ -3055,6 +3055,54 @@ os88ui_sbd_id:   dw 0, 0
 
 %ifndef OS88UI_KERNEL
 
+%ifdef OS88UI_DROP
+ %define OS88UI_BANKPL
+%endif
+%ifdef OS88UI_MENU
+ %define OS88UI_BANKPL
+%endif
+%ifdef OS88UI_BANKPL
+; -----------------------------------------------------------------------------
+; os88ui_bankpl - THE PLANES A SAVE-UNDER IS SIZED FOR (SPEC.md 5.3.1)
+; in:  BX = the window the panel belongs to
+; out: BX = OSAPI_WM_DISPLAY's DH, raised to 4 when any display on the machine
+;      is planar. Every other register preserved; any context
+;
+; A straddling window is answered with the MORE RESTRICTIVE display (SPEC.md
+; 39.16.4.1), and its panel can lie wholly on the other, deeper one - where
+; OSAPI_GFX_SAVE accepts it and writes four planes into a buffer sized for
+; one. OSAPI_FSX_CAPS with BX = n + 1 names display n's kind (CF = 1: none).
+; DH >= 4 is final: a packed VESA display is never one of two (SPEC.md 120.5)
+; -----------------------------------------------------------------------------
+os88ui_bankpl:
+    push ax
+    push cx
+    push dx
+    push si
+    call OSAPI_WM_DISPLAY       ; DH = the window's display's depth
+    mov bx, 1
+.walk:
+    cmp dh, 4
+    jae .done
+    call OSAPI_FSX_CAPS         ; DL = display BX-1's kind; AX, DL only
+    jc .done                    ; past the last display
+    inc bx
+    cmp dl, VID_EGA
+    je .four
+    cmp dl, VID_VGA
+    jne .walk
+.four:
+    mov dh, 4                   ; the deepest there is: no need to look on
+.done:
+    mov bl, dh
+    xor bh, bh
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+%endif                          ; OS88UI_BANKPL
+
 %ifdef OS88UI_ALERT
 ; =============================================================================
 ; THE ALERT (SPEC.md 75.3) - one line of text over up to three buttons, in a
@@ -5023,15 +5071,13 @@ os88ui_drbank:
     mov bx, [ds:bp+OS88UI_DR_WIN]
     or bx, bx
     jz .none
-    push ax                     ; ...and the plane count is banked across the
-    call OSAPI_WM_DISPLAY       ; call: DH = the bpp OF THE DISPLAY WE ARE ON,
-    mov bl, dh                  ; which OSAPI_VIDEO cannot answer on a two-card
-    xor bh, bh                  ; machine (SPEC.md 39.16.4) - and CX comes back
-    pop ax                      ; as the dock's first row (a buffer sized for
-    cmp bl, 4                   ; the wrong one arrives as noise, 39.14.8)
-    jae .planes                 ; 4 planes - or 8 or 16 BYTES a column on
-    mov bx, 1                   ; a packed display, whose save is its
-.planes:                        ; pixels (SPEC.md 120.5): DH AS IT COMES
+    call os88ui_bankpl          ; BX = the planes: the DISPLAY's, never
+                                ; OSAPI_VIDEO's (39.16.4) - and the deepest
+                                ; display's, since a straddling window's list
+                                ; can sit on the other card (SPEC.md 5.3.1).
+                                ; 4 planes - or 8 or 16 BYTES a column on
+                                ; a packed display, whose save is its
+                                ; pixels (SPEC.md 120.5): DH AS IT COMES
     mul bx                      ; DX:AX - 16 x a list on a 1024-wide
     add ax, 15                  ; display passes 64KB, and a claim sized
     adc dx, 0                   ; off AX alone is what the kernel then
@@ -6267,15 +6313,10 @@ os88ui_mnbank:
     mov bx, [ds:bp+OS88UI_MN_WIN]
     or bx, bx
     jz .no
-    push ax
-    call OSAPI_WM_DISPLAY           ; DH = bpp OF THE DISPLAY WE ARE ON, which
-    mov bl, dh                      ; OSAPI_VIDEO cannot answer on a two-card
-    xor bh, bh                      ; machine (SPEC.md 39.16.4)
-    pop ax
-    cmp bl, 4
-    jae .planes                 ; 4 planes - or 8 or 16 BYTES a column on
-    mov bx, 1                   ; a packed display, whose save is its
-.planes:                        ; pixels (SPEC.md 120.5): DH AS IT COMES
+    call os88ui_bankpl              ; BX = the planes - the deepest
+                                    ; display's (SPEC.md 5.3.1): DH AS IT
+                                    ; COMES, 8 or 16 BYTES a column on a
+                                    ; packed display (SPEC.md 120.5)
     mul bx                      ; DX:AX - 16 x a list on a 1024-wide
     add ax, 15                  ; display passes 64KB, and a claim sized
     adc dx, 0                   ; off AX alone is what the kernel then
