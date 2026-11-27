@@ -1556,13 +1556,11 @@ cmz_sizes:
 %ifdef OS88_FAT32
     cmp byte [dsk_fattype], 2   ; FAT32 HAS NO HINT (SPEC.md 19.12.6): @12/@13
     jne .hinted                 ; are its own bytes and @20 its cluster's high
-    push ax                     ; word, so the file's header is read, and
-    push cx                     ; stages the mark, CZH and [dskw_czl] that
-    push dx                     ; the hint's three cells would have held
-    call COLD_SEG:dwf_dskw_czknow
-    pop dx
-    pop cx
-    pop ax
+    push cx                     ; word, so the file's header is read, and
+    push dx                     ; stages the mark, CZH and [dskw_czl] that
+    call COLD_SEG:dwf_dskw_czknow ; the hint's three cells would have held.
+    pop dx                      ; (AX is not banked: the attribute is nobody's
+    pop cx                      ; and `mov ax, cx` is next - driver size pass 2)
 .hinted:
 %endif
     CSDO_ON
