@@ -9,10 +9,15 @@ arena. It is declared movable now, and `os88_onmove` (apps/runcpm/runcpm.c)
 puts right the two words that name it: `rc_zseg`, the C's, and `rc_z.seg`,
 the register file's copy the core loads DS from at the top of every slice.
 
-cmemmove.py's recipe: heapfrag owns the floor, RUNCPM lands above it,
-heapfrag's death opens the floor, and heapfrag re-run makes the claim that
-forces the pass - with the Z80 sitting at the CCP's `A>` prompt, so its RAM
-is still while it is hashed at both addresses.
+tests/emumove.py's layout: Note Pad first (its region the ceiling, its
+document the floor), RUNCPM under and above them, heapfrag LAST so its pinned
+blocks wall nothing; Note Pad closed opens the floor under the Z80, and a key
+in heapfrag posts the region compaction that slides it down - with the Z80
+sitting at the CCP's `A>` prompt, so its RAM is still while it is hashed at
+both addresses. It was cmemmove's recipe (heapfrag owns the floor, closes,
+runs again), which stopped forcing a move once SPEC.md 66.10.6's descending
+pass dissolved the two caches under the Z80 on heapfrag's first run: the
+second run's final claim then fitted the hole they left and nothing moved.
 
 FIVE ASSERTIONS:
 
@@ -88,15 +93,17 @@ def main():
         def prompts(seg):
             return sum(row.count("A>") for row in screen(seg))
 
+        def hf_rn():
+            hseg, _ = pkg_seg(m, S, "Heap")
+            img = u16(m.read(lin(hseg, 8), 2))
+            return u16(m.read(lin(hseg, img + 152), 2))   # heapfrag's hf_rn
+
+        # --- Note Pad first: the ceiling, and a document on the floor -------
+        np = ui.path("A:/APPS/NOTEPAD.O88")
         ui.open_drive("B")
 
-        # --- heapfrag first, so it owns the floor of the arena --------------
-        hf = ui.open("HEAPFRAG.O88")
-        os88marty.until(m, lambda _: heapfrag_ran(m, S),
-                        "heapfrag's suite and its posted pass", poll=0.5,
-                        guest=240)
-
-        # --- then RUNCPM, which lands ABOVE it, to its A> prompt ------------
+        # --- then RUNCPM: its region under Note Pad's, the Z80 bottom-up
+        # above the document, to its A> prompt ------------------------------
         rcw = ui.open("RUNCPM.O88")
         rc_seg, _ = pkg_seg(m, S, "RunCPM")
         os88marty.until(
@@ -122,14 +129,23 @@ def main():
         h0 = hashlib.md5(m.read(base0 * 16, size * 16)).hexdigest()
         n0 = prompts(rc_seg)
 
-        # --- close heapfrag: the floor under RunCPM opens up ----------------
-        ui.close(hf)
-
-        # --- and run it again, whose big claim forces the compaction --------
-        ui.open("HEAPFRAG.O88")
+        # --- heapfrag LAST, so its pinned blocks land above and wall nothing
+        hf = ui.open("HEAPFRAG.O88")
         os88marty.until(m, lambda _: heapfrag_ran(m, S),
                         "heapfrag's suite and its posted pass", poll=0.5,
                         guest=240)
+
+        # --- Note Pad closed opens the floor under the Z80, and a key in
+        # heapfrag posts its region compaction (heapfrag.asm hf_key, SPEC.md
+        # 66.4.3), whose ascending pass slides the Z80 down into it ---------
+        ui.close(np)
+        ui.raise_window(hf)
+        m.key("KeyA")
+        os88marty.until(m, lambda _: hf_rn() >= 4,
+                        "heapfrag's posted region pass and its wake",
+                        poll=0.5, guest=120)
+        os88marty.quiesce(m, lambda: claims(m, S), guest=1.0,
+                          what="the claims after the pass")
 
         rc_seg, rcw = pkg_seg(m, S, "RunCPM")
         base1 = key(rcword(rc_seg, "_rc_zseg"))
