@@ -13,11 +13,15 @@ tk_cmd_play:
     push ax
     push bx
     push cx
+    call tk_adapter                 ; ASKED WHERE IT IS USED: a drag that
+                                    ; moves the centre and not the restrictive
+                                    ; display fires no W_ONRESIZE (85.10.8)
     cmp byte [tk_want], TKB_NONE
     je .out                         ; the same predicate the menu greyed on
     mov ax, tk_fsx_main
     mov bx, [tk_win]
-    xor cx, cx                      ; no worker to keep: this loop IS the game
+    mov cl, 0                       ; no worker to keep: this loop IS the game,
+    mov ch, [tk_fsdisp]             ; on the display tk_adapter found
     call OSAPI_FSX_RUN              ; the kernel repaints the whole desktop on
 .out:                               ; the way out (SPEC.md 53.6), and that
                                     ; repaint is our own W_PAINT - so the new

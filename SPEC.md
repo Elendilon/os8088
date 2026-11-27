@@ -167404,6 +167404,25 @@ machine does being none:
   and the overlay). It costs no image byte, the overlay's own `align 2`
   giving one back.
 
+#### 85.10.8 Two displays, two questions (2026-11-27)
+
+`tk_adapter` answered both questions off `OSAPI_FSX_CAPS`, the display the
+window's CENTRE is on. The first is the attract window's ink. The second is
+the raster Play would take. They are now asked separately:
+
+- **The ink** (`[tk_vidk]`) comes from `OSAPI_WM_DISPLAY`: the display the
+  window is drawn and sized for, which is the more restrictive one of a
+  straddle (§39.16.4.1).
+- **The raster** comes from `fsxw_pick` (§53.1.2.1): Mode X, CGA 320 or
+  Hercules, on the display the window is mostly on when it can, else the
+  first that can. `[tk_fsdisp]` is the bracket's CH.
+
+`tk_cmd_play` runs `tk_adapter` again before the bracket. `W_ONRESIZE`
+fires only when the restrictive display changes. A drag from a Hercules
+until the window's centre was on a VGA kept the Hercules raster, so Play
+opened on the VGA, was refused the Hercules mode, and did nothing. That is
+the case Pixelstein (§97.14.1) had.
+
 ## 86. AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`)
 
 `AUDIO.O88`, "AUDIO PLAYER" in the header name field. Lightweight background

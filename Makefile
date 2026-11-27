@@ -9637,7 +9637,7 @@ $(BUILD)/solitair.o88: $(BUILD)/solitair.bin tools/os88pkg.py $(PKGZSTAMP)
 $(BUILD)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc apps/os88dec.inc \
                     apps/tank/tktmpl.inc \
                     apps/tank/tk3d.inc apps/tank/tkgame.inc \
-                    apps/tank/tkattr.inc apps/tank/tkhs.inc apps/os88data.inc \
+                    apps/tank/tkattr.inc apps/tank/tkhs.inc apps/os88data.inc apps/os88fsxw.inc \
                     apps/tank/tksin.inc apps/tank/tkridge.inc \
                     apps/tank/tktan.inc apps/tank/tknib.inc \
                     apps/tank/tkover.inc apps/tank/tklogo.inc \
@@ -17316,7 +17316,7 @@ $(SMALLAPPDIR)/solitair.o88: $(SMALLAPPDIR)/solitair.bin tools/os88pkg.py $(PKGZ
 $(SMALLAPPDIR)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc apps/os88dec.inc \
                          apps/tank/tktmpl.inc \
                          apps/tank/tk3d.inc apps/tank/tkgame.inc \
-                         apps/tank/tkattr.inc apps/tank/tkhs.inc apps/os88data.inc \
+                         apps/tank/tkattr.inc apps/tank/tkhs.inc apps/os88data.inc apps/os88fsxw.inc \
                          apps/tank/tksin.inc apps/tank/tkridge.inc \
                          apps/tank/tktan.inc apps/tank/tknib.inc \
                          apps/tank/tkover.inc apps/tank/tklogo.inc \
