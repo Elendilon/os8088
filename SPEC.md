@@ -37855,7 +37855,8 @@ CF=1, AX = `FERR_NODISK` (§18.4's gate answer) and loads nothing, because a
 shut gate is exactly the state in which `mod_need`'s `drv_vol_bank` banks the
 BOOT volume's root (§51.5.2.1: a failed mount is not banked), so the load
 would open the gate there and the verb would run on the system disk. On
-`kern_small` that is `dskw_dircall`, AL = the verb. Where §18.9.1.3's media
+`kern_small` that is `dskw_dirb`, one `dskw_wrap7` body for all four verbs,
+entered at the verb's own byte (kernel size pass 21). Where §18.9.1.3's media
 check is built (every kernel but `kern_small`) the tree's dispatch is
 `dskw_dirbody`, a `dskw_wrap7` body like every resident write body's
 (kernel size pass 21): `dskw_wck` asks its media question first - a shut gate

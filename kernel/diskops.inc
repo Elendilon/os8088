@@ -117,6 +117,9 @@ CLV_MKDIR    equ CLV_DIRV
 CLV_RENAME   equ CLV_DIRV + 1
 CLV_RMDIR    equ CLV_DIRV + 2
 CLV_RMTREE   equ CLV_DIRV + 3
+%if CLV_RENAME != CLV_MKDIR + 1 || CLV_RMDIR != CLV_MKDIR + 2 || CLV_RMTREE != CLV_MKDIR + 3
+  %error "diskw.inc's dskw_dirb is entered at the verb's own byte: CLV_MKDIR .. CLV_RMTREE must be consecutive, in this order"
+%endif
 %else                           ; ...elsewhere the tree alone
 CLV_RMTREE   equ CLV_DIRV
 %endif

@@ -476,16 +476,33 @@ dskw_delete_x:
     mov ax, dskw_dbody
     jmp short dskw_wrap7
 
-%ifndef DSKW_DIRMOD
+; THE DIRECTORY MUTATIONS' BODIES (SPEC.md 18.5.3), each a dskw_wrap7 body:
+; resident on every kernel but kern_small - and the tree, which is
+; DISKOPS.DRV's, through dskw_dirbody - and on kern_small all four in
+; DISKOPS.DRV through dskw_dirb, ONE body entered at the verb's own byte
+; (kernel size pass 21: kern_small's dskw_dircall, a ladder of its own, and
+; the four `mov ax, CLV_*` / `jmp` it was reached by, went)
+%ifdef DSKW_DIRMOD
+%define DSKW_B_MKDIR  dskw_dirb
+%define DSKW_B_RENAME (dskw_dirb + 1)
+%define DSKW_B_RMDIR  (dskw_dirb + 2)
+%define DSKW_B_RMTREE (dskw_dirb + 3)
+%else
+%define DSKW_B_MKDIR  dskw_mkbody
+%define DSKW_B_RENAME dskw_nbody
+%define DSKW_B_RMDIR  dskw_rmbody
+%define DSKW_B_RMTREE dskw_dirbody
+%endif
+
 %ifndef KD_BUILD
 ; dskw_rmtree - remove a subdirectory AND EVERYTHING UNDER IT (SPEC.md 18.6;
 ; the full header is below, where the band's comment is). The TREE stays in
 ; DISKOPS.DRV on every kernel (SPEC.md 18.5.3): it is the file manager's
-; folder Delete. dskw_dirbody is its body, and it is one of the ladder's like
-; any resident write body's (kernel size pass 21: dskw_dircall's own seven
-; pushes and its jump back to dskw_wck went)
+; folder Delete. Its body is one of the ladder's like any resident write
+; body's (kernel size pass 21: dskw_dircall's own seven pushes - and on
+; kern_big its jump back to dskw_wck - went)
 dskw_rmtree:
-    mov ax, dskw_dirbody
+    mov ax, DSKW_B_RMTREE
     jmp short dskw_wrap7
 %endif
 ; dskw_mkdir - create a subdirectory in the current directory (SPEC.md 18.5;
@@ -494,9 +511,8 @@ dskw_rmtree:
 ; ladder of its own one push shorter (neither of these two spends BP); two
 ; bytes of stack buy the fifteen of the copy
 dskw_mkdir_x:
-    mov ax, dskw_mkbody
+    mov ax, DSKW_B_MKDIR
     jmp short dskw_wrap7
-%endif
 
 ; -----------------------------------------------------------------------------
 ; dskw_rename - rename a file in place (SPEC.md 18.4, slot 0x00D3)
@@ -505,12 +521,7 @@ dskw_mkdir_x:
 ; clobbers: AX (the output), CF
 ; -----------------------------------------------------------------------------
 dskw_rename_x:
-%ifdef DSKW_DIRMOD
-    mov ax, CLV_RENAME
-    jmp dskw_dircall
-%else
-    mov ax, dskw_nbody
-%endif
+    mov ax, DSKW_B_RENAME
                                 ; ...and THE LADDER, once. Three public
                                 ; wrappers differ only in the body they call;
                                 ; each of them takes SI (rename SI and DI) and
@@ -518,17 +529,14 @@ dskw_rename_x:
                                 ; address in. dskw_rmtree is 500 lines below
                                 ; and reaches this with a near jmp rather than
                                 ; being moved up to it
-DSKW_W7DI    equ 6              ; the caller's DI in dskw_wrap7's frame, as a
-                                ; body entered at depth 0 sees it - the order
-                                ; of the pushes below and of dskw_wrp.pop's
 dskw_wrap7:
     push bx
     push cx
     push dx
     push si
-    push di                     ; ...at [SP+6] in the BODY, which dskw_nbody
-    push bp                     ; reads (DSKW_W7DI): the body's return into
-    push es                     ; this ladder, then ES, BP, DI
+    push di
+    push bp
+    push es
 %ifdef KERN_SMALL
     call ax
 %else
@@ -814,11 +822,8 @@ dwf_dskw_vstat:                 ; THE FAR ENTRY IS THE BODY (SPEC.md 2.6.1):
 ; out: CF=0 AX=0, else CF=1 AX = FERR_*
 ; clobbers: nothing else
 ; -----------------------------------------------------------------------------
-%ifdef DSKW_DIRMOD               ; (elsewhere it is beside dskw_delete_x,
-dskw_mkdir_x:                   ; in dskw_wrap7's short reach)
-    mov ax, CLV_MKDIR
-    jmp dskw_dircall
-%endif
+; (it is beside dskw_delete_x, in dskw_wrap7's short reach: kernel size pass
+; 21)
 
 ; -----------------------------------------------------------------------------
 ; dskw_mounted - the write gate (SPEC.md 18.4): is there a volume to write to?
@@ -1421,11 +1426,9 @@ DSKW_RT_MAX equ 4096            ; iterations: one per entry removed or level
                                 ; callers outside itself are `files.inc` and
                                 ; `filecp.inc`, neither of which is in a
                                 ; kerndos root
-%ifdef DSKW_DIRMOD               ; (elsewhere it is beside dskw_delete_x,
-dskw_rmtree:                    ; in dskw_wrap7's short reach)
-    mov ax, CLV_RMTREE          ; the TREE stays in DISKOPS.DRV on every
-    jmp dskw_dircall            ; kernel (SPEC.md 18.5.3): it is the file
-%endif                          ; manager's folder Delete, 296 bytes
+                                ; (dskw_rmtree itself is beside
+                                ; dskw_delete_x, in dskw_wrap7's short reach:
+                                ; kernel size pass 21)
 
 %endif                          ; KD_BUILD - and `dskw_clok` below is NOT in the
                                 ; band: `dskw_rmdir` asks it too (the header
@@ -3296,12 +3299,12 @@ dskw_nbody:
     jmp dskw_fsop               ; is this cell's own argument order already
 %endif                          ; OS88_REDIR
 .fatn:
-    push si
-    mov si, di                  ; the new name first: parse it, then prove
-    call dskw_name83n           ; it is free
-    pop si
-    jnc .named
-%endif
+    mov bx, si                  ; the new name first: parse it, then prove
+    mov si, di                  ; it is free. BX = the OLD name until the
+    call dskw_name83n           ; `xchg`, and then the NEW one, held to the
+    xchg si, bx                 ; patch below: nothing between spends BX
+    jnc .named                  ; (dskw_find, dskw_gate83 and dskw_imgro
+%endif                          ; keep it; `xchg` writes no flag)
 .badarg:                        ; (dskw_rtbody and dskw_wabody answer here too)
     mov ax, FERR_NAME
 .out:                           ; ...and dskw_size32's stc / ret is this one
@@ -3327,14 +3330,13 @@ dskw_nbody:
                                 ; and the refusal is the delete's own `jmp`,
                                 ; in short reach (kernel size pass 14, -3)
 .patch:
-    mov bp, sp                  ; THE NEW NAME AGAIN, off dskw_wrap7's frame
-    mov si, [bp+DSKW_W7DI]      ; (the caller's DI, banked there: nothing is
-    mov di, dskw_raw            ; pushed in this body), parsed straight into
-    call dskw_name83            ; the staged copy's 11 name bytes - the first
-                                ; parse's answer again, CF = 0. It was copied
-                                ; to a dskw_n83b of its own across the two
-                                ; scans and copied back here (kernel size
-                                ; pass 21: -11, and the 11 bytes of .bss)
+    mov si, bx                  ; THE NEW NAME AGAIN, out of BX, parsed
+    mov di, dskw_raw            ; straight into the staged copy's 11 name
+    call dskw_name83            ; bytes - the first parse's answer again,
+                                ; CF = 0. It was copied to a dskw_n83b of its
+                                ; own across the two scans and copied back
+                                ; here (kernel size pass 21: -12, and the 11
+                                ; bytes of .bss)
     and word [dskw_oldclus], 0  ; the entry store, then dskw_relold's sync -
 %ifdef OS88_FAT32
     and word [dskw_oldclus+2], 0
@@ -7782,18 +7784,18 @@ dskw_foff:    resw 1
     %error "dws_load moves the entry's head and size, dskw_dsec, dskw_doff, dskw_prev and dskw_first as ONE run: keep them adjacent"
 %endif
 %endif
-dskw_n83:     resb 11           ; the 11-byte raw name being looked for
-%ifdef DSKW_DIRMOD               ; (kern_small's module rename: the resident
-dskw_n83b:    resb 11           ; one parses the new name twice and holds
-%endif                          ; none, kernel size pass 21) the rename
-                                ; target's, held across the scan
-                                ; (a dskw_pad was here, for the alignment an
-                                ; 8-bit bus does not charge for. dskw_n83b
-                                ; above is a dskw_copy11 target and
-                                ; dskw_copy11 is `mov cx, 11` + dsk_ncopy,
-                                ; which is a BYTE loop - so no neighbour's
-                                ; store reached into it. Its sibling
-                                ; dskw_pad2 below took a narrowing first)
+dskw_n83:     resb 11           ; the 11-byte raw name being looked for.
+                                ; EVERY WRITER STORES ELEVEN: dskw_name83's
+                                ; pad loop, dskw_copy11 (a BYTE loop) and
+                                ; FSCK.DRV's 5 x stosw + stosb - so nothing
+                                ; reaches dskw_cursec behind it. (dskw_n83b,
+                                ; the rename target's, held across the scan,
+                                ; went in kernel size pass 21: both renames
+                                ; parse the new name a second time, out of
+                                ; the pointer in BX. A dskw_pad after it had
+                                ; gone before, for the alignment an 8-bit bus
+                                ; does not charge for; its sibling dskw_pad2
+                                ; below took a narrowing first)
 dskw_cursec:  resw 1          ; dskw_find: the sector being scanned (its
                                 ; high word is [dsk_c2hi], SPEC.md 18.7.5)
 dskw_fend:    resb 1            ; 1 = that free slot is the 00h terminator
@@ -7865,8 +7867,12 @@ dskw_rt_clus:  CLURES 1         ; ...the entry the scan last named
 dskw_rt_guard: resw 1           ; ...iterations left (DSKW_RT_MAX)
 dskw_rt_attr:  resb 1           ; ...that entry's attribute byte
 dskw_rt_ioerr: resb 1           ; ...the scan ended on a read error
-dskw_rt_name:  resb 12          ; ...the caller's name as 11 RAW bytes (the
-                                ; 12th keeps the buffer even-sized)
+dskw_rt_name:  resb 11          ; ...the caller's name as 11 RAW bytes. A
+                                ; 12th kept the buffer even-sized, for a bus
+                                ; this target has not got; it went in kernel
+                                ; size pass 21 with dskw_n83b's eleven, which
+                                ; keeps every .bss word after them at the
+                                ; parity it had
 %ifdef OS88_FAT32
 dskw_skh:     resw 1            ; a cluster walk's count, HIGH word: a FAT32
                                 ; file can outgrow 65,535 clusters (19.12.3)
@@ -7991,50 +7997,41 @@ dwf_dskw_wat_no:    stc         ; every caller tests CF (SPEC.md 18.4.7.4).
 ; thunk: both bodies are already cold, so branching here costs one far entry
 ; and one `.text` thunk instead of two of each (SPEC.md 18.6).
 %ifndef KD_BUILD            ; ...and AL=1 is the tree arm, gated with it
-%ifndef DSKW_DIRMOD             ; the empty folder is the RESIDENT body,
-dwf_dskw_rmany:         or  al, al              ; the tree DISKOPS.DRV's
-                    mov ax, dskw_rmbody         ; (SPEC.md 18.5.3), and both
-                    jz .go                      ; are dskw_wrap7's bodies
-                    mov ax, dskw_dirbody        ; (`mov` keeps ZF)
+dwf_dskw_rmany:         or  al, al              ; the empty folder or the
+                    mov ax, DSKW_B_RMDIR        ; tree, both dskw_wrap7's
+                    jz .go                      ; bodies (SPEC.md 18.5.3):
+                    mov ax, DSKW_B_RMTREE       ; `mov` keeps ZF
 .go:                call dskw_wrap7
-%else                           ; DSKW_DIRMOD: both in DISKOPS.DRV
-dwf_dskw_rmany:         or al, al
-                    mov ax, CLV_RMDIR
-                    jz .go
-                    mov ax, CLV_RMTREE
-.go:                call dskw_dircall
-%endif                          ; DSKW_DIRMOD
                     retf
 %endif                      ; KD_BUILD - the file manager is the only caller
                             ; and no kerndos root has one
 
 %ifndef KD_BUILD
 %ifdef DSKW_DIRMOD
-; Directory mutation boundary (SPEC.md 18.5.3): the verbs whose bodies are in
-; DISKOPS.DRV - on kern_small (DSKW_DIRMOD) New Folder, Rename, the empty
-; folder and the tree, AL = the verb. Only a new hold is dropped: Compress
-; calls Rename from inside this same image and must retain its code.
-; mod_need/clo_need read and restore the target mount before any verb executes.
-dskw_dircall:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push es
+; dskw_dirb - kern_small's directory mutations (SPEC.md 18.5.3): New Folder,
+; Rename, the empty folder and the tree, all four in DISKOPS.DRV, as ONE
+; dskw_wrap7 body entered at the verb's own byte: wrap7's `call ax` leaves
+; AX = the entry, so the three `nop`s each caller runs fewer of are the verb.
+; Only a new hold is dropped: Compress calls Rename from inside this same
+; image and must retain its code. mod_need/clo_need read and restore the
+; target mount before any verb executes.
+; (diskops.inc asserts that the four CLV_* are consecutive from CLV_MKDIR)
+dskw_dirb:                      ; +0 New Folder
+    nop                         ; +1 Rename
+    nop                         ; +2 the empty folder
+    nop                         ; +3 the tree
+    sub ax, dskw_dirb - CLV_MKDIR   ; AL = the verb, CLV_MKDIR + the entry
+    xchg dx, ax                 ; DL = it (DX is dskw_wrap7's to restore)
     cmp byte [dsk_mntok], 1     ; THE GATE FIRST, before anything loads: a
     jne .nodisk                 ; shut gate makes mod_need bank the BOOT
                                 ; volume's root, and the load would leave
                                 ; the verb standing there with the gate open
-    mov dl, al
     DSKW_DIRRUN                 ; the load, the verb and the drop
-.out:
-    jmp dskw_wrp.pop            ; same seven saved registers in the same order
+    ret
 .nodisk:
     mov ax, FERR_NODISK         ; dskw_gate's own answer (SPEC.md 18.5.3):
     stc                         ; nothing is held yet, so nothing is dropped
-    jmp short .out
+    ret
 %endif
 
 %ifdef DSKW_DIRMOD

@@ -448,21 +448,16 @@ dmo_nbody:
     ret
 %endif
 .fatn:
-    push si
-    mov si, di
+    mov bx, si                  ; the old name, then (xchg) the NEW one, held
+    mov si, di                  ; in BX to .patch: nothing between spends it
     DMO_CALL dskw_name83n
-    pop si
+    xchg si, bx
     jnc .named
 .badarg:
     mov ax, FERR_NAME
     stc
     ret
 .named:
-    push si
-    mov si, dskw_n83
-    mov di, dskw_n83b
-    DMO_CALL dskw_copy11
-    pop si
     DMO_CALL dskw_find
     jc .vacant
     jmp dmo_mkbody.exists
@@ -483,11 +478,9 @@ dmo_nbody:
     jnz .protected
 
 .patch:
-    push si
-    mov si, dskw_n83b
-    mov di, dskw_raw
-    DMO_CALL dskw_copy11
-    pop si
+    mov si, bx                  ; the new name parsed a second time, into the
+    mov di, dskw_raw            ; staged entry: no dskw_n83b (kernel size
+    DMO_CALL dskw_name83        ; pass 21, -11 resident .bss)
     and word [dskw_oldclus], 0
 %ifdef OS88_FAT32
     and word [dskw_oldclus+2], 0
