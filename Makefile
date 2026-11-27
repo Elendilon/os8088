@@ -21944,7 +21944,7 @@ excitebikeload: excitebikedisk $(BUILD)/os8088-360.img
 # SHIPS through APPS_GAMES; `isotrondisk` is its own floppy in all four
 # geometries, carrying the package and its README.
 .PHONY: isotron isotrondisk isotrontest
-$(BUILD)/isotron.bin: apps/isotron/isotron.asm apps/isotron/itrules.inc apps/isotron/itai.inc apps/isotron/itinput.inc apps/isotron/ittest.inc apps/isotron/itcanvas.inc apps/isotron/itwin.inc apps/isotron/itfs.inc apps/isotron/itsweep.inc apps/isotron/itsnd.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88pit.inc | $(BUILD)
+$(BUILD)/isotron.bin: apps/isotron/isotron.asm apps/isotron/itrules.inc apps/isotron/itai.inc apps/isotron/itinput.inc apps/isotron/ittest.inc apps/isotron/itcanvas.inc apps/isotron/itwin.inc apps/isotron/itfs.inc apps/isotron/itsweep.inc apps/isotron/itsnd.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88pit.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/isotron/ -l $(BUILD)/isotron.lst -o $@ $<
 
 $(BUILD)/isotron.o88: $(BUILD)/isotron.bin tools/os88pkg.py $(PKGZSTAMP)
