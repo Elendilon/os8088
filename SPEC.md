@@ -110215,6 +110215,11 @@ in front of `hd_mbr`. `HDDTOOL.DRV` grew ~100 bytes (Format's unmount, the
 installer's reach test, the clamp) and that crossed ITS `hd_mbr` alignment:
 16,153 → 16,665, half a KB more claimed while the tool is open. **No kernel
 byte**: `DRVM_IMG_HDD` and the ceiling are values in words already there.
+Driver size pass 2 took the resident span in front of the `align` from 4,094
+to 3,901 bytes and the file 4,021 → 3,927 - the image stays 4,608, the span
+being 317 bytes above the 3,584 that would give the half-KB back - and the
+tool back under its alignment: 16,665 → 16,231, a 16,384-byte claim again
+(docs/plans/dsp2/hdd.md).
 
 `hdext` is the gate (QEMU's 386, the disk written sector by sector as FDISK
 writes it): C: a primary and an extended partition with two logical drives;
@@ -112737,7 +112742,10 @@ routine or a string across the buffers, never padding. Since driver size pass
 1 the controls (`os88ui.inc`) and `ipkg.inc`'s code are what sit after them,
 and three routines and the install log's strings were moved in front to take
 a pad of 319 to 0: the image 16,508 -> 16,153, a 16,896-byte claim -> 16,384
-(docs/plans/completed/dsp1/hdd.md).
+(docs/plans/completed/dsp1/hdd.md). §52.4.1's code in front made it a pad of
+397 and a 16,665-byte image; driver size pass 2 freed 48 bytes there and moved
+those three routines back out, to the END past the buffers: a pad of 11, the
+image 16,231 and the claim 16,384 (docs/plans/dsp2/hdd.md).
 
 ### 52.12 Every label on both surfaces is one opaque run
 
@@ -112991,7 +112999,8 @@ to the kernel. A `call` there would return into a partition table. Nothing
 outside the run may name a label inside it but `hd_entry`'s two jumps, and the
 routines carry `hd_at_` in their names for that reason.
 
-**`hd_idbuf` is fourteen bytes now** (§52.13.3's union, one step further):
+**`hd_idbuf` is fourteen bytes now** (§52.13.3's union, one step further;
+sixteen since §52.1.5 kept word 49 as well):
 IDENTIFY's words 0..6 are the only ones the probe reads, and the other 249 are
 still read off the data port - the drive holds DRQ until the sector is drained
 - and dropped. **`hd_cfgbuf` is `hd_mbr`'s first 34 bytes**: a blob's
@@ -239998,7 +240007,9 @@ being the image's. The retired form is **+229 bytes of image** (5,679 ->
 `sc_fload`) and **+251** and 4 of bss for the second question (18,175;
 23,944 -> 23,948). §118.8.3's two more kinds of file are **+116 bytes of
 image** (6,176; 5,085 packed) and System Check **+93** (18,268), the kernel
-still byte-identical.
+still byte-identical. Driver size pass 2 found it at 6,294 (5,280 packed) and
+left it at **6,241 (5,239)** - kern_emu 6,230, kern_mega 6,239 - with every
+transfer of a run the same call in the same place (docs/plans/dsp2/hdd.md).
 
 **What a run costs, measured on MartyPC's 4.77MHz 5150 with a 360KB floppy**
 (`tests/fsckdisk.py`): *Check the disk* is 5 seconds; *Check and repair*

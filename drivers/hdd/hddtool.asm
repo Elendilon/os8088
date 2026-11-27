@@ -166,9 +166,9 @@ hd_tinit:
 ; HD_IPKG_TEXT include) moved in front of partw.inc - placed there because
 ; that is where the compressed file came out smallest of the places tried -
 ; and the pad is 0 again. #386 (logical drives, SPEC.md 52.4.1) added ~100
-; bytes in front and a pad of 397 with them; driver size pass 2 freed 50 and
+; bytes in front and a pad of 397 with them; driver size pass 2 freed 48 and
 ; moved the three routines back out here, at the end, where the file packs
-; smallest of four places tried: the pad is 13, the image 16,231 and the
+; smallest of four places tried: the pad is 11, the image 16,231 and the
 ; claim 16,384 again. What is here: os88ui.inc's controls, ipkg.inc's code (and
 ; hd_s_lmbr, the one string that did not fit) and those three routines.
 ; =============================================================================
