@@ -358,7 +358,9 @@ vid_clk_hx  dw (SCREEN_W-(MENU_CLK_W+14)) & 0FFF8h
                                 ; boundary, which is what lets the bar's three
                                 ; segments be whole numbers of 8px cells and
                                 ; font_run's single-pass path reach them
-vid_ymax    dw SCREEN_H-18      ; lowest y a title bar may be dragged to
+                                ; (vid_ymax, the lowest y a title bar may be
+                                ; dragged to, went: ui_drag computes it from
+                                ; the DESKTOP's [vid_h], SPEC.md 39.16.1.1)
 vid_popmax  dw MENU_POPMAX      ; pull-down items that fit under the bar, and
                                 ; a CONSTANT: vid_apply used to compute
                                 ; min((h-22)>>4, MENU_POPMAX) and every
@@ -910,10 +912,11 @@ vid_depth_set:
                                 ; is a byte cheaper than `mov word [m], 0`
 
     mov ax, [vid_h]             ; --- the heights that are NOT the display's
-    sub ax, TITLE_H
-    mov [vid_ymax], ax
+                                ; (vid_ymax, vid_h - TITLE_H, was stored here
+                                ; between two subs that are now one: SPEC.md
+                                ; 39.16.1.1)
 %ifdef DOCK_OPT
-    sub ax, DOCK_H - TITLE_H    ; the BOTTOM strip's band, which is what the
+    sub ax, DOCK_H              ; the BOTTOM strip's band, which is what the
     mov [vid_dock_y0], ax       ; loading screen and an fsx bracket's borrowed
                                 ; geometry want. dock_geom corrects all of it
                                 ; for the strip the user chose, and it is NOT
@@ -921,7 +924,7 @@ vid_depth_set:
                                 ; from the splash's first tick, while dock.inc
                                 ; is still on the floppy
 %else
-    sub ax, DOCK_H - TITLE_H
+    sub ax, DOCK_H
     mov [vid_dock_y0], ax
     add ax, 3
     mov [vid_dock_ty0], ax

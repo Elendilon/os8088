@@ -24832,7 +24832,7 @@ then have `wm_dmg_stale` treat the windows above a `WF_DESK`
 `.text`.
 
 **The drop's bound is the title bar's**, `y + TITLE_H <= [vid_h]`
-(`vid_ymax`), and a widget has no title bar: its grab handle and close box
+(computed at the drop since §39.16.1.1; it was the word `vid_ymax`), and a widget has no title bar: its grab handle and close box
 are in the tag row at the BOTTOM of its face. With `wm_dock_snap`'s
 half-strip rule, a widget can be dropped with only its top 18 rows on the
 glass - card 1, where a press is not a drag - so the tag row, the handle and
@@ -81061,7 +81061,7 @@ or single instructions with no register to spare for the arithmetic:
 `vid_w`, `vid_h`, `vid_wm1`, `vid_hm1`, `vid_wm8`, `vid_cwm1`, `vid_chm1`,
 `vid_cwm8`, `vid_chm8`, `vid_bankmask`, `vid_rseg`, `vid_tseg`, `vid_pw`,
 `vid_ph`, `vid_pwm1`, `vid_phm1`, `vid_dock_y0`, `vid_dock_ty0`,
-`vid_clk_hx`, `vid_ymax`, `vid_desk_zx`, and the bytes
+`vid_clk_hx`, `vid_desk_zx`, and the bytes
 `vid_kind`, `vid_mono`, `vid_planes`, `vid_planes_w`.
 
 **`vid_popmax` left that list and became a CONSTANT.** `[vid_h]` at the point
@@ -81113,7 +81113,9 @@ draw writes past the end of the framebuffer.
 
 `MBAR_H` (20) and `TITLE_H` (18) stay assembly-time constants: they are font
 and chrome dimensions, not screen-derived. Only `SCREEN_H - TITLE_H`
-combined them, and that is the precomputed `[vid_ymax]`.
+combined them, and that was the precomputed `[vid_ymax]` - gone since
+§39.16.1.1, because the drag's bound is the DESKTOP's (`[vid_h]`) and the
+precomputed word was the primary's.
 
 ### 39.2.1 The display's extent and the desktop's — `vid_cw` / `vid_w`
 
@@ -83492,7 +83494,7 @@ monitor is *for*.
 without a special case anywhere. `vid_desk_union` then grows `[vid_w]`,
 `[vid_h]`, `[vid_wm1]` and `[vid_hm1]` past them and touches nothing else —
 which is why every derived chrome word (`[vid_dock_y0]`, `[vid_clk_hx]`,
-`[vid_ymax]`, `[vid_desk_z*]`) is already right: `vid_apply` computed them
+`[vid_desk_z*]`) is already right: `vid_apply` computed them
 before the desktop grew. `[vid_popmax]` is not derived at all any more — it is
 a constant, and §39.2 says why a union cannot change it either. On a machine
 with one display the two sets are the same numbers and nothing above happens
@@ -83642,6 +83644,28 @@ drag therefore crosses the seam** — the frame is clamped only when the origin
 lands somewhere no display has — and a window straddling the two cards is
 drawn by §39.14's split, one fragment per display, with no code in the window
 manager aware of it.
+
+#### 39.16.1.1 The drop's lowest row is the DESKTOP's, and the title bar must be on a display
+
+`ui_drag` bounded a drop's y with `[vid_ymax]`, which `vid_apply` derives as
+`vid_h - TITLE_H` **for the display it is applying** - the primary, last - and
+which `vid_desk_union` never grew. So the one bound that is about the desktop
+was the primary's: in every Below layout no window could be dragged wholly onto
+display 1 (it stopped `TITLE_H` rows above the seam), and in a Right layout
+under a CGA primary the Hercules rows below the CGA's bottom could not be
+reached (audit K1, docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md).
+
+The bound is now computed at the drop from `[vid_h]` - the union on an
+extended desktop, the primary on every other machine, where it is the same
+number `[vid_ymax]` held - and the word is gone (one store and one word fewer
+than the two reads cost, so kern_small and kern_mega pay nothing either).
+
+The union's bound is a bounding box, so it allows a title bar into the dead
+zone below the SHORTER display. `EXT_DEAD` (EXTD.DRV, §39.19.6) is what keeps
+that out, and it now asks about the title bar's LAST row before its first: a
+bar whose bottom row no display holds is clamped into the pointer's display and
+lifted by `TITLE_H - 1`, so the whole bar lands on glass - which `[vid_ymax]`
+used to guarantee on the primary alone and nothing guaranteed on display 1.
 
 #### 39.16.3 …and a window may hang off the DESKTOP, but not into a HOLE in it
 
@@ -91060,6 +91084,26 @@ the row. Two things go with it:
   a user's grow takes it over the strip. §11.93's argument against hanging
   over the dock by default is about every boot; this is about a size somebody
   asked for.
+
+#### 42.9.2 ...and the negotiator asks which display BEFORE it answers
+
+Being `WF_KEEPH` (42.9.1) means the kernel never takes Paint's height in for
+it: a landing on another adapter (§39.16.3.3) proposes the size Paint asked
+for and leaves the cut to `pt_onsize`, which caps the proposal at
+`[pt_cwmax]`/`[pt_chmax]`. Those were `pt_screen`'s facts about the display
+the window was LAST on, because the kernel asks (§11.1) before it notifies
+(§11.98) and `pt_onresize` is what re-read them. So from #365 on, each move
+gave Paint the previous display's height: on `os8088_5150_both_gla`
+(Hercules primary, CGA Right) 300 rows on the 200-row CGA and 200 on the
+Hercules, the audit's K2/K3 (docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md).
+Before #365 the kernel shrank the frame itself and the stale ceiling only
+ever bound a grow, which is why Paint "used to" follow the display.
+
+`pt_onsize` now runs `pt_screen` for its window first. `OSAPI_WM_DISPLAY`
+answers the display the landing latched (§39.16.4.2), so the ceiling is the
+one the window is arriving on. Measured on that machine after the change:
+Hercules 498x300, straddle and CGA 498x200, Hercules again 498x300, and the
+same on every further trip. No kernel bytes; Paint +11 bytes of code.
 
 ### 42.10 A window that resizes itself inside its own paint must re-derive its layout
 
@@ -119825,6 +119869,53 @@ Two bytes of bss, the two helpers in `zio.inc` and a call in each of the four
 waits and the four withdrawal sites. Found on the way and left for its own
 change: `zi_readline`'s echo (`zw_typec`) runs after `zx_park` has dropped the
 gfx lock, although `zwin.inc` documents it as lock-held.
+
+### 61.17 The status line re-entered the text decoder
+
+**A story halted mid-sentence with `unknown opcode 0x1F at 0x00000E15
+es=0000`** (docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md, Severity 1
+#1): four of about seven sessions that dragged Frotz across the seam of an
+extended desktop, never one that stayed on one display. The `es=0000` is not
+evidence - `zx_badseg` is written only by `zx_lost`, and this was `zx_bad`,
+an opcode decoded from the right segment at the wrong address.
+
+**`zt_print_ret` is not reentrant, and `zw_status` called it from inside
+itself.** The decoder's cursor is bss (`zt_al`/`zt_ah`, `zt_ci`, `zt_cw`,
+`zt_end`, the alphabet and the abbreviation bank), because a decode is one
+flat loop and nothing was meant to start a second one while it ran. But a
+character it prints can reach `zw_paint` - a refused `OSAPI_GFX_SCROLL`
+(§61.5's fallback), a pending resize (`zw_sync`), a split - and `zw_paint`
+draws the v1-3 status line, and `zw_status` captures the location's short
+name by DECODING it. The inner decode ran to its end bit, so the outer one
+found its cursor exhausted and stopped mid-word; and an inline `@print`
+resumes at the address `zt_print_ret` answers, which was now the end of the
+object's name in dynamic memory. Measured on MartyPC
+(`os8088_5150_both_gla`, Hercules primary, CGA to the right), the instruction
+ring read `@print` at `0x8527` followed by a PC of `0x0E12`, every time.
+
+The seam is why it showed there: `OSAPI_GFX_SCROLL` refuses a band that
+crosses two displays (§39.14.2), so every line on a straddling window falls
+back to `zw_paint`, and every wrap inside a sentence was a chance. A grow-box
+drag or an adapter switch reaches the same `zw_paint` through `zw_sync`, and
+the UI task's own `W_PAINT` reaches it while the worker waits under `[MORE]`
+mid-sentence - so one display was never immune, only lucky.
+
+**`[zt_busy]` is set for the length of a decode, and `zw_status` does not
+re-capture the name while it is.** The row is still drawn - score, moves and
+the clock are global reads, which touch no cursor - from the name the last
+capture left in `zw_stat`, which is the name on the glass anyway: a location
+does not change in the middle of a sentence about it. One byte of bss and
+fifteen of code, and the worker's stack gains nothing.
+
+**What this does not cover.** The worker's slice reaches 298-300 of its 384
+bytes on a straddle with or without the nest - the depth is the full repaint
+itself, cut per cell at the seam (§39.14.6), which a refused scroll costs on
+every line. And on a VGA primary with the Hercules to the right, dragging a
+straddling window onto the Hercules WHILE the worker is printing still takes
+the machine down (SS = 0, CS:IP in ROM; three runs of three, with and without
+this fix, never with the worker idle); the audit's STACK OVERFLOW panel for
+slot `0C` was on that same pairing. That one is in the kernel's display
+switching and is recorded in the audit's fix notes, not here.
 
 ## 62. NET.DRV — the parallel link (`drivers/net/net.asm`)
 
@@ -233519,7 +233610,13 @@ the name (`np_arg`), so Ctrl+S writes back to the note.
   blue (`CLCYAN`) or white. A 1bpp adapter does not read the pen, so the
   papers are white there, and **the Color menu greys every item `(color
   screen)`** (§47), as it does with no note. The pen is reset after the pad's
-  slabs so the include's tag is drawn in the default one.
+  slabs so the include's tag is drawn in the default one. **"1bpp" is the
+  PAD's display** (`sn_monoask`: `OSAPI_WM_DISPLAY`, §39.16.4), asked at every
+  beat - the menu said again when the answer changes - and at every pick, so
+  a pad dragged onto the mono card of an extended desktop greys the menu
+  there and a pad on the colour one offers it, whichever card is primary
+  (the extended-desktop audit of 2026-11-27 found it decided once, from
+  `OSAPI_VIDEO`).
 
 **A press on the pad** acts only on its controls - `+`, the arrow, `<`, `>`
 and a box; the rest of the card only hands the widget the bar, as the
