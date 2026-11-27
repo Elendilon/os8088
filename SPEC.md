@@ -37853,7 +37853,7 @@ not move. `DISKOPS.DRV` is 265 bytes smaller on `kern_big`, 270 on
 `kern_mega`.
 
 **Kernel size pass 21 made them smaller, with the swapped-floppy check, every
-refusal and every int 13h call as they were** (docs/plans/ksp21/diskw.md):
+refusal and every int 13h call as they were** (docs/plans/completed/ksp21/diskw.md):
 `dskw_rmbody_n83` carries the folder test and the emptiness scan itself
 (`dskw_fdir`, `dskw_isempty` and `dskw_scan1` were its single-caller
 helpers; `dskw_isempty` is left as the pop tail `drvvol.inc` shares); both

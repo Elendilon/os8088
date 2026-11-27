@@ -218,7 +218,69 @@ Each item is in its note's REFUSED or CROSS-FILE list, with the arithmetic.
 
 ## 6. What was run (the final pass, once)
 
-*Filled in at the close: section 6 below the line.*
+Every agent ran on the host only (`make`, which runs the fast tier;
+`make small`, `make emu`, `make mega`; `kernsize`; `stkbalance`; `hotpar`;
+and unicorn A/B harnesses against the base's own bytes, in draw, input, disk
+and sweep). None ran a row. The coordinator gated every merge with `make`,
+and with `make emu mega` after the last three.
+
+- **The deduplicated union of every note's named rows, once**
+  (`tools/os88soak.py`, run `20261127-050324`, 387 soak rows, 55 minutes on
+  4 lanes). Bochs, the C toolchain, the automation-enabled 86Box, QEMU 9 and
+  the wire disk were installed for it. **373 ok, 12 FAIL, 2 SKIP**
+  (`win16file`, `win16mdi`: the Win16 fixtures are not in this container).
+  All twelve failures are accounted for:
+  * **Eight are the harness, and fail at the base:** `hmacold`, `hmahiber`,
+    `hdhiber`, `p2hiber`, `hmadrv`, `cpwide`, `mixersb16` and `mixervesa`.
+    Since `4e2b007`, os88ui's menu reads wait in guest time on every
+    emulator, and QEMU's `Q` has no `status`, so every QEMU row that picks a
+    menu died on AttributeError. `os88marty._Progress` now counts host time
+    on a machine with no guest clock (`3bfd00454`).
+  * **Two were source readers this pass's moves outgrew:**
+    - `assocpage` looked for `assoc_compose:`, which the sweep wrote in at
+      its one call. It now reads `dsk_docpass`'s `ASSOC_COMPOSE` marker.
+    - `kbdlayoutfont` sliced `font_char`'s index arithmetic from its old
+      shape. It now starts at `.rows:`.
+
+    Both are green now, and each went red against a planted break: one
+    run count changed, and `font_base` read wrong.
+  * **One was a registration gap in the base:** `megarehome` loads
+    `build/scribe.o88`. That package is in `all` and on no shipped disk, so
+    the snapshot never built it. It is now in the row's `wants`.
+  * **One passed when re-run alone:** `modcache`. Its `modkeep` VGA leg's
+    first launch of CALC.O88 from B: refused with `LD_EBAD` in the run.
+    - **What the failing run looked like:** `CALC.O88` is fragmented on that
+      disk (cluster 22, then 73-75), the box was carrying 4 lanes, and the
+      soak's boot cache was live.
+    - **It did not come back:** the leg booted alone on base and tip, the
+      same on the snapshot's own build, and `modcache` re-run twice at the
+      tip all opened the Calculator. MartyPC's guest is deterministic; where
+      an injected click lands in guest time is not.
+    - **Status:** recorded as an UNEXPLAINED ONE-OFF, not as a pass. `LD_EBAD`
+      also comes out of the association path (ASSOC-FIND-PLAN), so a press
+      that lands while B:'s listing is still being classified is the first
+      thing to look at if it is seen again.
+- **The twelve, re-run once at the tip with the fixes: 12 ok.**
+- **`test-full`, once: 79 ok, 2 FAIL, 1 SKIP** (`pd360`, which needs
+  PageDesk):
+  * `cswrite`: `kmain`'s `push cs / pop ds / push cs / pop es` (hw item 2)
+    was not registered. It runs in real mode on every kernel, and kern_mega
+    switches only at `kmain`'s foot. Registered in `tests/cswrites.txt` with
+    that reason; green.
+  * `hostwait`: `tests/cpface.py`, `tests/ethcfg.py` and `tests/rdcz.py`
+    each carry a host `poll` wait over their allowance. They are
+    **identical at the base**, `t_hostwait` run in a worktree of
+    `3fc4e9d09`. No file this pass touched; open for whoever owns those
+    rows.
+- **`make budget-check`, at the tip, with no grace:** kern_big 94,720 of
+  100,864 (6,144 spare), kern_small 56,832 of 64,000 (7,168), kern_emu
+  94,720 of 100,864 (6,144), kern_mega 61,440 of 68,096 (6,656).
+  `os88megaseg` reads 3,787 against an allowance set to exactly that.
+- The `kernsize` baseline in docs/KERNEL-MEMORY.md was blessed at the tip on
+  all four kernels.
+- **Not run:** a MartyPC before/after timing pass (`os88hot ab`). Every
+  hot-path item carries its count in its note, and the A/B is the owner's
+  call.
 
 ## 7. Method lessons
 

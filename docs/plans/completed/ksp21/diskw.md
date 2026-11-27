@@ -1,6 +1,6 @@
 # ksp21 agent "diskw" - the directory mutations, the FAT write path, the loader
 
-Kernel size pass 21 (`docs/plans/ksp21/BRIEF.md`, row `diskw`): `diskw.inc`,
+Kernel size pass 21 (`docs/plans/completed/ksp21/BRIEF.md`, row `diskw`): `diskw.inc`,
 `diskmut.inc`, `diskops.inc`, `loader.inc`, `compress.inc`, `ascw.inc`.
 Branch `ksp21-diskw`, base `3fc4e9d09` (the brief). Figures are ASSEMBLED,
 `tools/kernsize.py --json` absolutes on each kernel's own build, and

@@ -229,7 +229,7 @@
 #             mega_r15's KEYBOARD.DRV intercept (+25 in mega.inc), the INT
 #             15h hook the real-mode BIOS calls (SPEC.md 9.16), so `.mega`
 #             cannot hold it; the rest is macros (+8) and keyboard.inc (+4)
-# 2026-11-27: +6, to 3,784, kernel size pass 21 (docs/plans/ksp21/hw.md):
+# 2026-11-27: +6, to 3,784, kernel size pass 21 (docs/plans/completed/ksp21/hw.md):
 #             three kern_big savings kern_mega cannot follow, so the
 #             difference grows with no kern_mega byte added -
 #             osapi_font_glyphs' `les` pair (7: an offset loaded into ES is
@@ -237,7 +237,7 @@
 #             `jc` (2: a refused class with a null ES would fault in
 #             protected mode) and vid_ctx_act's KSEGR (1: kern_mega's is the
 #             data-alias load either way). The 4 bytes of slack went first
-# 2026-11-27: +3 more, to 3,787, kernel size pass 21 (docs/plans/ksp21/draw.md)
+# 2026-11-27: +3 more, to 3,787, kernel size pass 21 (docs/plans/completed/ksp21/draw.md)
 #             - and kern_mega did NOT grow: its kernel segment is 84 bytes
 #             smaller and kern_big's 87. The three are the two things the VGA
 #             rung lets kern_big do that kern_mega's .text cannot: the
@@ -246,7 +246,7 @@
 #             and disk.inc's self-adjusting parity byte takes one of those
 #             back), and ico_core_v's tail `ret` (-1), which kern_mega's
 #             inline planar body already shared with ico_core.none
-# 2026-11-27: +2 more, to 3,789, kernel size pass 21 (docs/plans/ksp21/input.md):
+# 2026-11-27: +2 more, to 3,789, kernel size pass 21 (docs/plans/completed/ksp21/input.md):
 #             kern_mega did not grow - kern_big shrank under it. kern_big's
 #             OSAPI_MOUSE_REL body reads its three cells through CS (-1) and
 #             the PARITY nop after mou_p2_off goes with that odd byte (-1);
@@ -256,7 +256,7 @@
 #             ES = 0 out of a register already 0 (-2 each), where kern_mega
 #             loads its segment-0 selector (MEGA_SEG0) either way. +4 more,
 #             to 3,793
-# 2026-11-27: -6, to 3,787, kernel size pass 21's close (ksp21/sweep.md): the
+# 2026-11-27: -6, to 3,787, kernel size pass 21's close (docs/plans/completed/ksp21/sweep.md): the
 #             three entries above were each taken on one agent's branch and
 #             summed at the merge; the merged tree plus the sweep reads 3,787,
 #             so the slack goes (the gate's own reading, os88megaseg)

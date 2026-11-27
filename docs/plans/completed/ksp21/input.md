@@ -1,6 +1,6 @@
 # ksp21 agent "input" - the keyboard, mouse, serial and font files
 
-Kernel size pass 21 (`docs/plans/ksp21/BRIEF.md`), section 2's `input` row:
+Kernel size pass 21 (`docs/plans/completed/ksp21/BRIEF.md`), section 2's `input` row:
 `mouse.inc`, `mouproto.inc`, `vmmouse.inc`, `vmmabi.inc`, `keyboard.inc`,
 `keymaps.inc`, `keyfont.inc`, `keyfont-data.inc`, `serial.inc`, `font.inc`.
 Branch `ksp21-input`, base `3fc4e9d09` (the brief). Figures are ASSEMBLED

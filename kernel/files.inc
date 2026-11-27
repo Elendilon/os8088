@@ -7433,7 +7433,7 @@ fm_paste_res:
                                 ; one setting it first. A static walk of the
                                 ; calls from fmv_hload and fm_sayerr reaches
                                 ; no writer of it, no gfx_unlock and no
-                                ; wm_draw_win (docs/plans/ksp21/files.md)
+                                ; wm_draw_win (docs/plans/completed/ksp21/files.md)
     call fmv_ifirst
     jc .rdone
 .scan:

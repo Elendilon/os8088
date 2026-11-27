@@ -1,6 +1,6 @@
 # ksp21 agent "wm" - the window manager, its modules' resident halves, and the kernel's os88ui.inc
 
-Kernel size pass 21 (`docs/plans/ksp21/BRIEF.md`), section 2's `wm` row:
+Kernel size pass 21 (`docs/plans/completed/ksp21/BRIEF.md`), section 2's `wm` row:
 `wm.inc`, `winmod.inc`, `extmod.inc`, `deskmod.inc`, `spinner.inc` and the
 kernel's use of `apps/os88ui.inc`. Branch `ksp21-wm`, base `3fc4e9d09` (the
 brief, on `dbc5ef8b4`). Figures are ASSEMBLED, `tools/kernsize.py --json`

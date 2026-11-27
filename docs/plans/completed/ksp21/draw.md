@@ -1,6 +1,6 @@
 # ksp21 agent "draw" - vga12, softgfx, icons, band, blank, splash
 
-Kernel size pass 21 (`docs/plans/ksp21/BRIEF.md`), section 2's `draw` row:
+Kernel size pass 21 (`docs/plans/completed/ksp21/BRIEF.md`), section 2's `draw` row:
 `kernel/vga12.inc`, `kernel/softgfx.inc`, `kernel/icons.inc`,
 `kernel/band.inc`, `kernel/blank.inc`, `kernel/splash.inc`. Branch
 `ksp21-draw`, base `3fc4e9d09` (the brief). Figures are ASSEMBLED bytes,

@@ -1,6 +1,6 @@
 # ksp21 agent "desk" - the desk, the shortcuts, associations, the chooser, the copy engine
 
-Kernel size pass 21 (`docs/plans/ksp21/BRIEF.md`, row `desk`): `desk.inc`,
+Kernel size pass 21 (`docs/plans/completed/ksp21/BRIEF.md`, row `desk`): `desk.inc`,
 `desksc.inc`, `stikmenu.inc`, `assoc.inc`, `fdlg.inc`, `filecp.inc`. Branch
 `ksp21-desk`, base `3fc4e9d09` (the brief). Figures are ASSEMBLED,
 `tools/kernsize.py --json` absolutes on each kernel's own build tree, and

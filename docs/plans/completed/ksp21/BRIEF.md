@@ -10,7 +10,7 @@ hands to), and its brief and agent notes are `docs/plans/completed/ksp20/`.
 
 Each agent works in its own git worktree, created by the coordinator at
 `/home/user/wt/<name>` on a branch `ksp21-<name>` cut from the commit that
-adds this file. Each writes its record to `docs/plans/ksp21/<name>.md`. The
+adds this file. Each writes its record to `docs/plans/completed/ksp21/<name>.md`. The
 coordinator merges the branches. **Agents do not push.**
 
 Read these before writing any code, in this order:
@@ -19,7 +19,7 @@ Read these before writing any code, in this order:
 2. **`docs/plans/completed/ksp14/BRIEF.md` sections 2, 3 and 4**: the
    method, the environment and the note's shape. They carry over UNCHANGED
    except where this file says otherwise. Substitute `ksp21` for `ksp14`,
-   `docs/plans/ksp21/` for its note directory, and `(kernel size pass 21)`
+   `docs/plans/completed/ksp21/` for its note directory, and `(kernel size pass 21)`
    for the commit suffix everywhere. Its section 1 (rules) is replaced by
    section 1 below. **Its permission to run your own rows once is
    WITHDRAWN** (section 3 below);

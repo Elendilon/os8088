@@ -1,6 +1,6 @@
 # ksp21 agent "files" - files.inc and dskwin.inc
 
-Kernel size pass 21 (`docs/plans/ksp21/BRIEF.md`, row **files**): `kernel/files.inc`,
+Kernel size pass 21 (`docs/plans/completed/ksp21/BRIEF.md`, row **files**): `kernel/files.inc`,
 `kernel/dskwin.inc`. Branch `ksp21-files`, base `3fc4e9d09` (the brief). Figures are
 ASSEMBLED, `tools/kernsize.py --json` absolutes on each kernel's own tree, and
 `tools/os88rdiff.py kernel 3fc4e9d09 .` for the routines. Resident = `.text` + `.bss` +

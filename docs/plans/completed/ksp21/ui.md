@@ -1,6 +1,6 @@
 # ksp21 agent "ui" - the UI task, the menu bar, the progress widget, the Dock's basic half, the toast
 
-Kernel size pass 21 (`docs/plans/ksp21/BRIEF.md`), section 2's `ui` row:
+Kernel size pass 21 (`docs/plans/completed/ksp21/BRIEF.md`), section 2's `ui` row:
 `ui.inc`, `menu.inc`, `fprog.inc`, `dock.inc`, `dockmod.inc` and `toast.inc`.
 Branch `ksp21-ui`, base `3fc4e9d09` (the brief). Figures are ASSEMBLED,
 `tools/kernsize.py --json` absolutes on each kernel's own build tree;

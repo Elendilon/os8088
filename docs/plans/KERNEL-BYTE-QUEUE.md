@@ -5,7 +5,7 @@ The byte pass over the merge window (four commits, `-539` sections and a
 verified. This is what it did **not** take, with the arithmetic attached and
 the blockers named, so the next round is work rather than a prompt.
 
-**Status at 2026-11-27 (kernel size pass 21, `docs/plans/ksp21/hw.md`):**
+**Status at 2026-11-27 (kernel size pass 21, `docs/plans/completed/ksp21/hw.md`):**
 item 1 is exhausted in this form. Kernel size pass 19 put the kernel's own
 shims behind the rare door (`KDOOR`, SPEC.md 20.3.4), and 20 shim bodies are
 left on kern_big: the drawing doors, `wm_pkgcall` (it takes BP),
