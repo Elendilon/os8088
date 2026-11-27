@@ -3421,8 +3421,10 @@ dskw_sync_x:
 ; doing the thing.
 ; -----------------------------------------------------------------------------
 dskw_stat_x:
-    push si
-    push di
+%ifdef OS88_REDIR               ; SI for the driver's FSV_STAT alone, which
+    push si                     ; may spend every register: the FAT arm's
+%endif                          ; dskw_name83n and dskw_find keep it
+    push di                     ; (kernel size pass 21, -2 on kern_small)
     cmp byte [dsk_mntok], 1
     jne .nodisk
 %ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
@@ -3468,7 +3470,9 @@ dskw_stat_x:
     stc
 .out:
     pop di
+%ifdef OS88_REDIR
     pop si
+%endif
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3529,8 +3533,12 @@ dskw_read_at_x:
     push bx
     push cx
     push si
-    push di
-    push bp
+%ifdef DSK_STREAM               ; DI is the hot cursor's links (DSK_STREAM)
+    push di                     ; and BP the driver's verb (OS88_REDIR):
+%endif                          ; with neither, nothing here or below writes
+%ifdef OS88_REDIR               ; them - dskw_stat_x, dsk_next_clus_x and
+    push bp                     ; dsk_read_chain_x keep both - so kern_small
+%endif                          ; banks neither (kernel size pass 21, -4)
     mov [dwr_buf], bx
     mov [dwr_cap], cx
     mov [dwr_off], ax
@@ -3583,8 +3591,12 @@ dskw_read_at_x:
     stc                         ; word for that (SPEC.md 20.3)
 .err:
 .out:
+%ifdef OS88_REDIR
     pop bp
+%endif
+%ifdef DSK_STREAM
     pop di
+%endif
     pop si
     pop cx
     pop bx
@@ -4493,21 +4505,22 @@ dws_hlose:
 ; kernel size pass 19 withdrew OSAPI_FILE_APPEND_SYS, which had no caller: a
 ; driver appends to a system file through WRITE_SEQ's WSEQF_SYS.)
 dskw_append_x:
-    push bx
-    push cx
-    push dx
-    mov dx, 0xFFFF              ; "at the END": the body reads the size in
-                                ; place of an offset (AX is don't-care)
+    or word [dwr_off+2], -1     ; "at the END": the body reads the size in
+                                ; place of an offset (the low word is
+                                ; don't-care) - stored straight, ahead of the
+                                ; ladder's pushes, so the caller's DX is
+                                ; what they bank (kernel size pass 21: -1
+                                ; kern_big, -2 kern_small)
 %ifndef KERN_SMALL                 ; the offset door is kern_big's (18.4.7.4)
     jmp short dskw_wat
 dskw_write_at_x:
+    mov [dwr_off], ax           ; THE OFFSET FIRST: dskw_wrp spends DX as the
+    mov [dwr_off+2], dx         ; count's high word, and a count here is one
+%endif                          ; 16-bit number by contract
+dskw_wat:
     push bx
     push cx
     push dx
-    mov [dwr_off], ax           ; THE OFFSET FIRST: dskw_wrp spends DX as the
-%endif                          ; count's high word, and a count here is one
-dskw_wat:                       ; 16-bit number by contract
-    mov [dwr_off+2], dx
     xor dx, dx
     mov ax, dskw_wabody
     jmp dskw_wrp
