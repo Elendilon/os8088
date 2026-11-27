@@ -49,6 +49,11 @@ def source():
         part = font.split(label, 1)[1]
         part = part.split("sub al, FONT_FIRST", 1)[1]
         part = part.split(end, 1)[0]
+        # font_char takes its `sub` FIRST and tests the index once, then
+        # clips; the index arithmetic is at `.rows:`, below the clip (kernel
+        # size pass 21). The slice is the sub, then what follows `.rows:`.
+        if "\n.rows:" in part:
+            part = "\n" + part.split("\n.rows:", 1)[1]
         # Range branches precede the arithmetic in the run walkers. Their
         # bounds have already been established by the requested byte here.
         lines = [l for l in ("sub al, FONT_FIRST" + part).splitlines()

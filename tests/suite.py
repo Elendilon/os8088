@@ -20661,7 +20661,11 @@ SOAK = [
         "from before 14.44 (no OS88_HIGH), or PXSTEIN.O88 from before 14.48: "
         "its I_SPTR comes back a conventional segment. 60s is 41 measured",
         needs=("bochs",),
-        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
+        # scribe.o88 is in `all` and on no shipped disk, so a snapshot that
+        # builds only the declared artefacts had none (kernel size pass 21's
+        # union: FileNotFoundError). The other four ride the shipped disks.
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/scribe.o88")),
     Row("megamod", "soak", py("tests/megamod.py"), 265.0,
         "KERN-MEGA-MEMORY-PLAN MC7: a module and a wavetable bank over 64KB "
         "under kern_mega, where every claim is an LDT selector and the "

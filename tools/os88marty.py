@@ -2882,20 +2882,34 @@ class _Progress:
     a host-clock number happened to allow on the box it was written on.
     """
 
-    __slots__ = ("m", "what", "guest", "c0", "last_c", "last_move", "t0")
+    __slots__ = ("m", "what", "guest", "c0", "last_c", "last_move", "t0",
+                 "host")
 
     def __init__(self, m, what, guest):
         self.m, self.what, self.guest = m, what, guest
+        # A MACHINE WITH NO GUEST CLOCK COUNTS HOST TIME. QEMU (the `Q` that
+        # tools/os88ui.py drives through the same verbs) has no `status` and
+        # no cycle counter, and since os88ui's menu reads began waiting in
+        # guest time on every emulator (4e2b007) every QEMU row that picked a
+        # menu died here on AttributeError - hmacold, hmahiber, hdhiber,
+        # p2hiber, hmadrv, cpwide, mixersb16, mixervesa (kernel size pass 21's
+        # union). QEMU runs its guest far faster than 4.77 MHz, so a host
+        # second is a generous guest second; the stall test cannot fire,
+        # since this clock always moves, and the budget still ends the wait.
+        self.host = not hasattr(m, "status")
+        self.last_move = self.t0 = time.time()
         # The FIRST read is not defended. A Marty that cannot answer `status`
         # at all is not a wait that should start: taking 0 as the baseline
         # would make `spent()` the guest's whole uptime on the next successful
         # read, and the wait would fail on its budget with a number that is
         # not about this wait at all.
         self.last_c = 0
-        self.c0 = self.last_c = int(m.status().get("cycles", 0))
-        self.last_move = self.t0 = time.time()
+        self.c0 = self.last_c = (self._cycles() if self.host
+                                 else int(m.status().get("cycles", 0)))
 
     def _cycles(self):
+        if self.host:
+            return int((time.time() - self.t0) * GUEST_HZ)
         try:
             return int(self.m.status().get("cycles", 0))
         except (MartyError, OSError):

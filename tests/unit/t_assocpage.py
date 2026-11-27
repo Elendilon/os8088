@@ -42,6 +42,7 @@ sys.path.insert(0, HERE)
 from harness import check, eq, done            # noqa: E402
 
 ASSOC = os.path.join(HERE, "..", "..", "kernel", "assoc.inc")
+DISK = os.path.join(HERE, "..", "..", "kernel", "disk.inc")
 
 # The thirty-two words `assoc_page` carried, transcribed from the `dw` lines
 # that F-assoc-09 deleted.  This list is the AUTHORITY - the kernel no longer
@@ -56,7 +57,11 @@ GOLDEN = [
 
 
 def source():
-    return open(ASSOC).read()
+    # The runs moved: assoc_compose had one caller, and kernel size pass 21
+    # wrote it in at that call, in disk.inc's dsk_docpass, under an
+    # `ASSOC_COMPOSE` marker. The seed and the two constants stay in
+    # assoc.inc, so the row reads both files.
+    return open(ASSOC).read() + "\n" + open(DISK).read()
 
 
 def seed(src):
@@ -85,7 +90,8 @@ def runs(src):
     `mov cx, 12` is exactly the edit this row exists to catch, and a constant
     typed here as well would agree with itself.
     """
-    m = re.search(r"^assoc_compose:(.*?)^\s*call assoc_glyph_di", src, re.M | re.S)
+    m = re.search(r"^\s*; --- ASSOC_COMPOSE:(.*?)^\s*call assoc_glyph_di", src,
+                  re.M | re.S)
     if not m:
         return None
     body, out = m.group(1), []
