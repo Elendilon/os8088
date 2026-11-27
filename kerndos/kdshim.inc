@@ -576,7 +576,11 @@ kd_shed:
     call kd_rahpara
     sub cx, ax                  ; CX = the paragraphs this rung releases
     jbe .none                   ; a ladder whose rungs cost the same would spin
-    call dsk_rah_flush          ; no record may name a chunk we are giving away
+    push cx                     ; **dsk_rah_flush CLOBBERS CX** since kernel
+    call dsk_rah_flush          ; size pass 21 (its `loop` leaves 0), and CX
+    pop cx                      ; is what this rung gives back: a ladder that
+                                ; released nothing loaded no BIG.EXE (kdbigexe)
+                                ; no record may name a chunk we are giving away
     mov word [dsk_rah_next], 0  ; ...and no cursor may point past the new width
     mov [dsk_rah_runs], dx
     mov ax, cx                  ; at most 7 * 288 = 2,016, a word

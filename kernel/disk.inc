@@ -8575,7 +8575,9 @@ dsk_rah_pre:
 ;      (which kretc_bp unbanks), dsk_rah_want's and dsk_rah_wanthi's fresh
 ;      claim, CLO_KCALL's cmz_jfresh ("clobbers: BX CX, flags") and HIBER.DRV
 ;      through hbm_cb - so they were banked for nobody (kernel size pass 21,
-;      -7: it preserved every register and the flags)
+;      -7: it preserved every register and the flags) - except kern_dos's
+;      ladder (kerndos/kdshim.inc), whose CX is the rung it releases: it
+;      banks CX itself, which the pass first missed (kdbigexe never READY)
 ;
 ; ALL DSK_RAH_RUNS RECORDS, not [dsk_rah_runs] of them, and that is what makes
 ; every other loop in this file safe at any width (SPEC.md 18.95.5): the table
