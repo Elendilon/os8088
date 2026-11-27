@@ -256389,7 +256389,14 @@ another tag is dropped.
   match has acked it, and resent when an ack is `WL_RESEND` (20) ticks
   late. A receiver applies only the sequence one past the last it applied.
 - **Silence**: 55 ticks without a frame shows LINK LOST, and frames
-  resuming clear it. A HELLO from the peer in the window shows OPPONENT LEFT.
+  resuming clear it. A HELLO from the peer in the window shows OPPONENT LEFT,
+  but only once its match frames have also stopped for `WL_GONEQ` (10)
+  ticks, two SNAPs at the slower rate. A HELLO can arrive late. The two
+  guests both enter on the host's tag, so each one's last lobby HELLO can
+  reach the other after the other has entered. Believing it at once
+  stopped each guest's SNAPs to the other, and those SNAPs were all that
+  cleared the flag. A peer that really left sends a HELLO every 9 ticks
+  and stops its frames, so it is still marked as gone.
   In the lobby a quiet peer is dropped after 55 ticks, and the host
   starts only when every peer it has bound is READY.
 - **Not in this release** (MULTIPLAYER-FPS-PLAN 17.1, 17.4): joining a

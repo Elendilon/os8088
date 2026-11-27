@@ -163,6 +163,13 @@ def run_ip(ms, cable):
                    secs=20)
     by = {m.v('wa_lkme'): m for m in ms}
     check(sorted(by) == [0, 1, 2], 'BY ADDRESS: slots 0..2 (%r)' % sorted(by))
+    # A LATE LOBBY HELLO: B and C both go in on the host's tag, so each one's
+    # last HELLO saying "ready, not in" (state 1) can reach the other AFTER
+    # it went in - a datagram is late whenever the wire is slow, and a loaded
+    # soak made it so. Each then read the other as gone and stopped sending it
+    # SNAPs, which were the one thing that clears gone: neither saw the other
+    # move, ever. Replayed here on purpose, both ways, once both are in.
+    stale(ms, cable)
     L.place_after_spawn([(m, 1000 + 100 * s, 300 + 40 * s, 0)
                          for s, m in by.items()])
     for s, m in by.items():
@@ -175,6 +182,21 @@ def run_ip(ms, cable):
                     'BY ADDRESS: slot %d where it is, on slot %d\'s machine'
                     % (o, s), secs=6)
     wire(cable, {1, 2, 3, 8})
+
+
+def stale(ms, cable):
+    """replay each guest's last lobby HELLO (state < 2) to the other guest,
+    as a late datagram would arrive, once both are in the match"""
+    ips = [bytes([10, 7, 0, 20 + k]) for k in range(N)]
+    for k, j in ((1, 2), (2, 1)):
+        late = [fr for fr in list(cable.observed[k])
+                if len(fr) > 54 and fr[12:14] == b'\x08\x00' and
+                fr[23] == 17 and fr[30:34] == ips[j] and
+                fr[42] == 1 and fr[54] < 2]
+        check(bool(late), 'A LATE HELLO: %s\'s lobby HELLO to %s on the wire'
+              % ('ABC'[k], 'ABC'[j]))
+        if late:
+            cable.send(j, late[-1])
 
 
 def run(ms, cable):

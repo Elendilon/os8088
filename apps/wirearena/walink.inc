@@ -21,6 +21,8 @@ LK_NTYPES   equ 9
 lk_lens:    db 0, 28, 15, 8, 19, 24, 17, 12, 24 ; each type's body, its CRC too
 WL_BEAT     equ 9               ; OS ticks between HELLOs (WireFleet's)
 WL_QUIET    equ 55              ; ticks of silence: gone (lobby), lost (match)
+WL_GONEQ    equ 2 * WL_PSNAPB   ; ...and in the match, before a HELLO saying
+                                ;   "not in" is believed: two SNAPs missed
 WL_EVQ      equ 8               ; events waiting for their ack
 WL_EVSZ     equ 14              ; an event: its kind and thirteen bytes
 WL_RESEND   equ 20              ; sim ticks before the unacked go again: an
@@ -1161,9 +1163,13 @@ wa_lkhtake:
 .st:
     mov [wa_lkps], al
     cmp byte [wa_lkon], 0       ; in the match: a HELLO saying it is not
-    je .lobby                   ; is the peer gone
-    cmp al, 2
-    jae .out
+    je .lobby                   ; is the peer gone - once its match frames
+    cmp al, 2                   ; have stopped too. A LATE one (its lobby
+    jae .out                    ; HELLO, sent before it went in) is not:
+    mov dx, [wa_tkn]            ; gone stops our SNAPs to it, and two guests
+    sub dx, [wa_lkheard]        ; that each read the other's late HELLO so
+    cmp dx, WL_GONEQ            ; never sent the SNAP that clears it again
+    jb .out                     ; (walink4ip)
     mov byte [wa_lkgone], 1
     mov byte [wa_ovd], 1
     ret
