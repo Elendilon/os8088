@@ -4411,10 +4411,8 @@ disk_mount_x:
     ; first entry is listed are one. Each of those sectors still came off the
     ; platter in this mount, in the very transfer that read LBA 0; the chunk is
     ; tagged with THIS disk's signature (.resig) before anything can ask it.
-    cmp byte [dsk_quiet], 0
-    jne .nolist
-    cmp word [dsk_dseg], 0
-    je .nolist
+    call dsk_mquiet             ; (one body for the mount's three asks of
+    jc .nolist                  ; 2b's gate: kernel size pass 21, -9 a site)
     call dsk_rah_flush
     mov byte [dsk_rah_lim], 8   ; the fill's ceiling, lowered to the cap
 .nolist:
@@ -4569,10 +4567,8 @@ disk_mount_x:
     ; volume's. An empty listing is a state the whole kernel already handles;
     ; a wrong one is not. [dsk_lstale] is the debt (dsk_relist paid it; it is
     ; gone, and a loud mount is what clears the flag now).
-    cmp byte [dsk_quiet], 0
-    jne .quiet
-    cmp word [dsk_dseg], 0      ; ...AND A MOUNT WITH NOWHERE TO PUT A LISTING
-    jne .listing                ; IS QUIET TOO (13.1). A listing has no home
+    call dsk_mquiet             ; ...AND A MOUNT WITH NOWHERE TO PUT A LISTING
+    jnc .listing                ; IS QUIET TOO (13.1). A listing has no home
                                 ; of its own: it is written into the store its
                                 ; CALLER supplied through dsk_dest_x, and a
                                 ; caller that supplied none - the boot mount,
@@ -5223,13 +5219,13 @@ disk_mount_x:
                                 ; spends - there is no '..' on a disk here to
                                 ; read one out of (62.9.1)
 
-    cmp byte [dsk_quiet], 0     ; 2b's gate, and 2b's ANSWER: a caller
-    jne .fsquiet                ; switching volumes to READ a file never looks
+    call dsk_mquiet             ; 2b's gate, and 2b's ANSWER: a caller
+                                ; switching volumes to READ a file never looks
                                 ; at the listing, and an EMPTY one is a state
                                 ; the whole kernel handles where a stale one
                                 ; is not (SPEC.md 18.9)
-    cmp word [dsk_dseg], 0      ; **...AND THE SECOND HALF, WHICH THIS COPY DID
-    jne .fslist                 ; NOT HAVE** (SPEC.md 22.6.3.1). The FAT path's
+                                ; **...AND THE SECOND HALF, WHICH THIS COPY DID
+    jnc .fslist                 ; NOT HAVE** (SPEC.md 22.6.3.1). The FAT path's
 .fsquiet:                       ; gate is two tests - no DESTINATION is as quiet
     jmp .quiet                  ; as a quiet mount - and osapi_vol_mount is
                                 ; named in 22.6.3's own table as a caller that
@@ -5893,8 +5889,10 @@ dsk_synth_x:
     ;     species share one range test: a directory we cannot walk is type 0
     ;     (listed, inert, never enterable), and a walkable one keeps the zero
     ;     size dsk_ent_zero left - both halves, a hostile entry can carry
-    ;     either. One test where there were two, and the size stored once
-    mov cx, 2
+    ;     either. One test where there were two, and the size stored once.
+    ;     CL alone: both of dsk_synth_name's exits are a `loop` run out, so
+    ;     CH is 0 already (kernel size pass 21, -1)
+    mov cl, 2
     test byte [es:si+DSK_R_ATTR], 0x10
     jnz .clus
 
@@ -5970,7 +5968,9 @@ dsk_up_open:
     push di
     call dsk_ent_zero           ; the name's NUL padding and the unused tail
     mov word [dsk_ent+0], '..'  ; both fall out of it; then two bytes
-    mov word [dsk_ent+16], 3    ; type 3 = the parent link (SPEC.md 19)
+    mov byte [dsk_ent+16], 3    ; type 3 = the parent link (SPEC.md 19) - a
+                                ; BYTE: dsk_ent_zero zeroed its high one
+                                ; (kernel size pass 21, -1)
 %ifdef OS88_REDIR
     cmp byte [dsk_vkind], DVK_FILE
     mov ax, [dsk_fsup]          ; (loaded either way - `mov` writes no flag -
@@ -6836,9 +6836,11 @@ dsk_free_clus_x:
     shr dx, 1
     rcr ax, 1
     loop .fsshr
-    or dx, dx
-    jz .fsok
-    mov ax, 0xFFFF              ; more free space than a word of sectors can
+    neg dx                      ; CF = a high word left...
+    sbb dx, dx                  ; ...DX = 0FFFFh then, 0 otherwise...
+    or ax, dx                   ; ...so AX saturates: more free space than a
+                                ; word of sectors can carry (pass 21, -1:
+                                ; DX is popped by the shared six, and dead)
 .fsok:                          ; carry. SATURATE rather than wrap: 32MB is
     mov di, ax                  ; already past what the status line's KB
                                 ; figure means, and a wrapped one would read
@@ -9635,6 +9637,23 @@ dsk_chdir_q_x:
     ret                         ; published, no debt added: the listing keeps
                                 ; whatever state it
                                 ; already had, which is what it describes
+
+; -----------------------------------------------------------------------------
+; dsk_mquiet - is this mount QUIET? (SPEC.md 18.9, 22.6.3.1: 2b's gate)
+; out: CF = 1 when [dsk_quiet] is raised OR there is no listing to write
+;      ([dsk_dseg] = 0); CF = 0 a listing mount. Every register kept.
+;
+; disk_mount_x asks it three times - the read-ahead's listing cap, 2b, and
+; the redirected arm's own copy of 2b - and spelt it out each time: fourteen
+; bytes a site, five as a call (kernel size pass 21).
+; -----------------------------------------------------------------------------
+dsk_mquiet:
+    cmp byte [dsk_quiet], 1     ; CF = 1 exactly when it is 0...
+    cmc                         ; ...so CF = 1 now when it is raised
+    jc .r
+    cmp word [dsk_dseg], 1      ; CF = 1 exactly when there is no home
+.r:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dsk_here_ok - is a quiet chdir to (DL, AX) a no-op? (SPEC.md 18.9.1)
