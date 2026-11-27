@@ -183,8 +183,10 @@ section .cold
 ; at all, and os88lz refuses to write one (SPEC.md 20.14.5.3).
 ;
 ; The locals are PUSHED rather than carved with `sub sp`, and the frame is
-; unwound with one `add sp` between `lahf` and `sahf` rather than `mov sp, bp`,
-; so the routine is balanced on every path and tools/stkbalance.py can walk it.
+; unwound with one `lea sp, [bp+N]` rather than `mov sp, bp` - `lea` writes no
+; flag, so the answer's CF rides through it (it was `add sp` between `lahf` and
+; `sahf` until kernel size pass 21) - so the routine is balanced on every path
+; and tools/stkbalance.py, which reads that `lea` as `add sp, N`, can walk it.
 LZ_F_TSI    equ 0               ; the frame, once BP is set: the source
                                 ; checkpoint, the ONLY source bound the arms
                                 ; test - R when K is 0, LZ_CHK when it is not...
@@ -209,7 +211,7 @@ LZ_F_D0     equ 14              ; ...and LZ4'S FAST PATH's (lz_lz4, lz_arm):
                                 ; slow way round (kernel hot-paths pass 1)
 LZ_F_SIZE   equ 16              ; the whole frame, for the unwind
 %if LZ_F_SIZE != 16
-  %error "lz_decomp_big unwinds the frame with a literal `add sp, 16` (tools/stkbalance.py reads it)"
+  %error "lz_decomp_big unwinds the frame with a literal `lea sp, [bp+16]` (tools/stkbalance.py reads it)"
 %endif
 %else
 LZ_F_REMH   equ 12              ; bits
@@ -361,16 +363,21 @@ lz_decomp_big:
     clc                         ; ...whose last compare leaves CF anything
 .fin:
 %ifdef KHP_LZ
-    lahf                        ; drop the eight locals with the CF the arm
-    add sp, 16                  ; answered carried round the `add` in AH -
-                                ; (a literal: tools/stkbalance.py reads it,
-                                ; and LZ_F_SIZE is asserted equal to it)
-    sahf                        ; two bytes shorter than eight pops
+    lea sp, [bp+16]             ; drop the eight locals, and NO flag moves:
+                                ; the CF the arm answered rides through. BP
+                                ; is the frame on every way here - .out reads
+                                ; it, and every arm's exit re-derives it
+                                ; (lz_fsync) - so this is SP's own value plus
+                                ; the frame, where `lahf / add sp, 16 / sahf`
+                                ; carried the flags round the `add`: two
+                                ; bytes and ~8 clocks less (kernel size pass
+                                ; 21). A literal: tools/stkbalance.py reads
+                                ; `lea sp, [bp+N]` as `add sp, N`, and
+                                ; LZ_F_SIZE is asserted equal to it
 %else
-    lahf                        ; drop the seven locals with the CF the arm
-    add sp, 14                  ; answered carried round the `add` in AH -
+    lea sp, [bp+14]             ; drop the seven locals, the same way: BP is
+                                ; never moved by this arm's bodies at all
                                 ; (a literal: tools/stkbalance.py reads it)
-    sahf                        ; two bytes shorter than seven pops
 %endif
     SKIPAL1                     ; mov al, imm8 over the stc: no flag written,
 .early:                         ; and AX is this routine's to clobber (pass 15)                         ; refused before the frame was built
@@ -646,6 +653,44 @@ lz_match:
 ; a copy that bumps the ODD scratch or slides its source, and this one does
 ; neither.
 %endif
+%ifdef KHP_LZ
+;
+; **KHP_LZ's END PATH AND THE TAIL ARE ABOVE THE ENTRY** (lz_l4end, kernel
+; size pass 21), so that one falls into the other. Below the loop the end path
+; was out of a byte's reach of both its jumps - `jae .end` at the top of every
+; token, which NASM spelt `jb $+5 / jmp near` and so paid a TAKEN jump (16
+; clocks) on every token that was not the end, and its own `jb .fast` back -
+; and the LZB arm's `jmp lz_tail` was already near. Up here the token's test is
+; a short `jae` NOT taken (4 clocks), both jumps are two bytes, the refusal is
+; lz_match's `stc / ret` beside it, and the end falls into the tail: -6 bytes,
+; ~12 clocks a token faster. The other arm keeps its end and its tail BELOW
+; the loop, where the LZB arm's `jmp lz_tail` is two bytes: the tail is written
+; twice, once for each arm, and exactly one of the two is assembled.
+; -----------------------------------------------------------------------------
+lz_l4end:
+    call lz_fsync               ; REM exact: lz_tail reads it, and a checkpoint
+                                ; re-arms the budget from it
+    call lz_at                  ; a CHECKPOINT, or the tail (SPEC.md 20.14.5.1)
+    jb lz_lz4.fast              ; ...more source beyond it: go round
+    jne lz_match.bad            ; SI is PAST the tail: a length ran off the end
+                                ; ...and SI AT it falls into lz_tail, BP the
+                                ; frame, which lz_decomp_big reads
+; lz_tail, KHP_LZ's copy: the other arm's, below lz_lz4, is the one documented
+lz_tail:
+    mov cx, [bp+LZ_F_T]
+    call lz_take
+    jc .out                     ; ...with CF already the answer
+    call lz_copy
+    mov ax, [bp+LZ_F_REM]       ; a stream that ends short of the image is a
+    or ax, [bp+LZ_F_REMH]       ; truncated file, not a package - and `neg`
+    neg ax                      ; sets CF exactly when what is left is not 0
+.out:
+    ret
+
+%endif                          ; KHP_LZ (and its copy of lz_tail)
+%endif                          ; LZ_HAVE_LZ4
+
+%ifdef LZ_HAVE_LZ4
 ; -----------------------------------------------------------------------------
 lz_lz4:
 %ifdef KHP_LZ
@@ -657,10 +702,11 @@ lz_lz4:
 .seq:
 %ifdef KHP_LZ
     cmp si, bp                  ; the symbols end where the tail begins, and a
+    jae lz_l4end                ; stream that ran PAST that point is refused -
 %else
     cmp si, [bp+LZ_F_TSI]       ; the symbols end where the tail begins, and a
-%endif
     jae .end                    ; stream that ran PAST that point is refused -
+%endif
 %ifdef KHP_LZ
                                 ; lz_at's own compare says which, below
 %else
@@ -754,9 +800,10 @@ lz_lz4:
     call lz_match               ; ...and the copy, bounded on both
     jnc .seq
 %endif
-.bad:
-    stc
-    ret
+.bad:                           ; CF = 1 on every way in: each is a `jc`, or
+    ret                         ; the fall from lz_match's - the CF = 0
+                                ; refusal past the tail goes to lz_match's own
+                                ; `stc / ret` (kernel size pass 21, -1)
 .litx:
 %ifdef KHP_LZ
     call lz_len                 ; AL = 15: lz_len's cbw, then the extension
@@ -808,26 +855,27 @@ lz_lz4:
 %else
     jmp short .nolit
 %endif
+%ifndef KHP_LZ                 ; (KHP_LZ's is lz_l4end, above the entry)
 .end:
-%ifdef KHP_LZ
-    call lz_fsync               ; REM exact: lz_tail reads it, and a checkpoint
-                                ; going round keeps LIM, which D0 + REM is
-%endif
     call lz_at                  ; a CHECKPOINT, or the tail (SPEC.md 20.14.5.1)
-%ifdef KHP_LZ
-    jb .fast                    ; ...more source beyond it: go round
-%else
     jb .seq                     ; ...more source beyond it: go round
-%endif
-    jne .bad                    ; SI is PAST the tail: a length ran off the end
-%ifdef KHP_LZ
-                                ; ...and SI AT it falls into lz_tail below,
-                                ; BP the frame, which lz_decomp_big reads
-%else
+    jne lz_match.bad            ; SI is PAST the tail: a length ran off the end
+                                ; (lz_match's `stc / ret`, in reach, so this
+                                ; arm's .bad is a bare `ret` - pass 21, -1)
                                 ; ...and SI AT it falls into lz_tail below
 %endif
-%endif
+%endif                          ; LZ_HAVE_LZ4
 
+; KHP_LZ's arm has its copy of lz_tail above lz_lz4 - unless it carries no LZ4
+; arm at all, when this one is the only one
+%ifdef KHP_LZ
+ %ifndef LZ_HAVE_LZ4
+  %define LZ_TAIL_HERE
+ %endif
+%else
+ %define LZ_TAIL_HERE
+%endif
+%ifdef LZ_TAIL_HERE
 ; -----------------------------------------------------------------------------
 ; lz_tail - the raw tail, and the end of the stream (module-internal; the LZ4
 ;           arm falls into it and the LZB arm jumps, both with SI = LZ_F_TSI,
@@ -838,7 +886,10 @@ lz_lz4:
 ; The copy is `rep movsb` from the source's tail onto the output's - which in
 ; place is a copy of bytes onto themselves, the source having been placed
 ; exactly there (the module banner), and anywhere else a forward copy from
-; higher to lower. Either way it is a bounded copy and nothing special.
+; higher to lower. Either way it is a bounded copy and nothing special. TWO
+; COPIES, ONE ASSEMBLED (kernel size pass 21): KHP_LZ's sits under lz_l4end
+; above lz_lz4, so its end falls into it; this one is where the other arm's
+; end falls into it and the LZB arm's `jmp` is two bytes. Change both.
 ; -----------------------------------------------------------------------------
 lz_tail:
     mov cx, [bp+LZ_F_T]
@@ -850,6 +901,7 @@ lz_tail:
     neg ax                      ; sets CF exactly when what is left is not 0
 .out:
     ret
+%endif                          ; LZ_TAIL_HERE
 
 %ifdef LZ_HAVE_LZ4
 ; lz_len - a token nibble AL, extended 255 at a time while it says 15 (module
