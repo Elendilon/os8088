@@ -371,7 +371,7 @@ sk_shut:
 ; eth_v_close hands an ESTABLISHED socket to TCP and keeps the slot until the
 ; FIN handshake finishes, which is right when the peer is still there and
 ; ruinous when it is not: the retransmit timer is TCP_RTMAX doublings, about
-; a minute, and NET_SOCKS is four. The FTP server hit exactly that in the
+; a minute, and NET_SOCKS was four. The FTP server hit exactly that in the
 ; field - a client that timed out mid-upload left its data socket finishing a
 ; handshake with nobody, and the next session's LIST had no slot for
 ; NETV_ACCEPT to make a data connection from, so it sat at its 150 until that

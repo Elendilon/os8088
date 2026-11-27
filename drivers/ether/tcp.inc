@@ -1,7 +1,7 @@
 ; =============================================================================
 ; tcp.inc - TCP (SPEC.md 72.4)
 ;
-; Four connections. **A SEND WINDOW SINCE SPEC.md 72.4.3**: several segments
+; NET_SOCKS (eight) connections. **A SEND WINDOW SINCE SPEC.md 72.4.3**: several segments
 ; may be in flight, up to the peer's window and the send ring, and a
 ; retransmit is GO-BACK-N from the oldest unacknowledged byte. The three
 ; reasons below are why it was stop-and-wait, and 72.4.3 is why the first of
