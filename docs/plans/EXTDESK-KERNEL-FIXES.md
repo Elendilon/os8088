@@ -121,6 +121,40 @@ Notes on the table:
   clip contract (`wm_clip_test`), so it should land as its own reviewed
   item.
 
+### Round 3 status (the owner approved five items)
+
+Measured the same way as round 2, each against the commit before it.
+`.mega` is kern_mega's code above 1MB and is not in any budget.
+
+| commit | item | kern_big | kern_small | kern_emu | kern_mega | EXTD.DRV image |
+|---|---|---:|---:|---:|---:|---:|
+| f8da73906 | **gfx_blit1's row cut** (new; SPEC.md 39.14.7.3): a band crossing a Below seam was dropped with CF = 0 (DeskClok's slab, RealDMG's bands) | +10 | 0 | +10 | +10 | +63 |
+| f8d2ead9c | **gfx_scroll's column cut** (SPEC.md 39.14.7.4): a straddling text window scrolls instead of repainting per line | +14 | 0 | +14 | +14 | +69 |
+| c777e5329 | **P5** (K8, SPEC.md 39.18.4): the pointer stays put after Extend and a bracket | 0 | 0 | 0 | 0 | +77 |
+| 1d0c45cb0 | **P7** (D3, SPEC.md 39.18.5): SR01 screen-off for a VGA running as the CGA, chosen over the AC route by correctness | 0 | 0 | 0 | 0 | +42 |
+| 4c7fbda0b | **P6** (D1, SPEC.md 7.4.6): both `vid_ctx` records' `[vid_seg]` converted for a reflection | 0 | 0 | 0 | +4 (`.mega` +48) | 0 |
+| **round 3** | | **+24** | **0** | **+24** | **+28** | **+251** |
+| **whole effort** | | **+82** | **+2** | **+82** | **+90** | +482 |
+
+What was verified:
+- **Row cut.** MartyPC, vgaherc-herc-below: DeskClok at y = 270 is drawn
+  whole across y = 348. vgaherc-vga-below: RealDMG straddling y = 480 is
+  whole.
+- **Scroll cut.** MartyPC, Frotz straddling, six commands. The worker's
+  stack high water was 260/384, against 300 with slot 15 patched back to
+  `mod_gone` in the same session shape. Text was whole on both cards on
+  vga-right and herc-right. vga-below still refuses and repaints clean.
+- **P5.** MartyPC, VIDEO in a bracket on display 1: the pointer came back
+  at 1000,194 on display 1, where it used to come back at 320,240.
+- **P7.** 86Box (OS88_EMU=86box, vgaherc-cga6-right, which is an XT with a
+  VGA beside a Hercules, so no new profile was needed): the VGA had 0 lit
+  pixels during Tank's bracket, against 184,778 on the parent tree.
+- **P6.** 86Box `286-mega-multimon`, the stall method: the longest stall was
+  50 ms with 0-1% lost, against 900 ms and 18% lost on the parent tree.
+
+Over the estimate: P6's `.mega` (+48 against ~30). Its conventional figure,
++4, is on the estimate.
+
 **P8's second half (K3)** stays as written: it is each package's own fix.
 TeXPad, Word and SysCheck "keeping the other display's shape" should be
 rechecked now that K2's landing gives the natural size back.
