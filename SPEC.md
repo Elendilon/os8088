@@ -84285,6 +84285,30 @@ a window on the secondary went away. The record still holds the fullscreen
 rect at both sites — `wm_fs_drop` has not run yet — so it is the shadow-free
 rect and nothing else.
 
+##### 39.17.1.1 ...from a straddle: the other card is repainted, and the way back is the user's
+
+A window that goes fullscreen while straddling goes to the display it is
+MOSTLY on (`wm_disp_of`, the centre). That follows the owner's rule: *"where
+do I go fullscreen? The one I am more on."* The audit's K7 found two things
+wrong at the edges of that move:
+
+- **The other card kept a stale image of its part of the window,** and once
+  a stale title bar over the dock. `wm_fullscreen` raises the new rect,
+  which is wholly on the target display, and nothing repainted what the old
+  rect left on the other one. `EXTD.DRV`'s `ext_e_fsrect` now damages the
+  saved rect, shadow included and cut to the OTHER display, with
+  `wm_paint_dmg`. It never damages the part on the target display: the raise
+  draws that whole, and a damage pass there would draw it twice.
+- **The window came back somewhere else on exit.** Missile went to (7,40)
+  on display 0, and C64 from (551,20) to (375,20). `wm_fs_drop` refits the
+  saved rect with `wm_fit` for §39.11.2.1's reason (the adapter may have
+  changed underneath). But `wm_fit` is single-display and clamps a legal
+  straddle onto its origin's display. So the fit is skipped when the saved
+  rect straddles (`EXT_STRADS`, CF = 0). One display (`mod_gone`'s CF = 1)
+  still fits, which keeps 39.11.2.1's case.
+
+Cost: 6 bytes resident on kern_big's three kernels, the rest EXTD.DRV.
+
 #### 39.17.2 Zoom follows the window, not the machine
 
 §11.95's "standard state" is *the whole live screen*, and on a virtual desktop
