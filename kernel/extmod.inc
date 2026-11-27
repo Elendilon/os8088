@@ -250,24 +250,40 @@ ext_e_fsrect:                   ; EXT_FSRECT: wm_fs_setrect's arm, UNGATED.
 ; under the hand and [cur_disp] is where the hand is - and 39.15.4 guarantees
 ; the pointer itself is inside a display. UNGATED: the image stays mounted
 ; over a collapsed desktop, hence its own test (ext_one).
+;
+; TWO POINTS, THE TITLE BAR'S LAST ROW FIRST (SPEC.md 39.16.1.1): ui_drag's y
+; bound is the union's bounding box now, so the bar can be dropped with its
+; origin on a display and its bottom rows past that display's end - beside a
+; taller display in a Right layout. Such a bar's last row is clamped into the
+; pointer's display and the origin lifted TITLE_H - 1 above it; then the
+; origin is asked as it always was. DX is the row offset, 17 then 0 - both
+; callees keep it.
 ext_e_dead:
     call ext_one
     jb .out                     ; one display: no dead zone
     push ax
     push bx
     push cx
+    push dx
     push si
     mov si, bx                  ; SI, because vid_disp_find wants BX = y and
-    mov ax, [si+W_X]            ; an 8086 addresses through BX/BP/SI/DI only
+    mov dx, TITLE_H - 1         ; an 8086 addresses through BX/BP/SI/DI only
+.pt:
+    mov ax, [si+W_X]
     mov bx, [si+W_Y]
+    add bx, dx
     EXK vid_disp_find
-    jnc .done                   ; on a display already: nothing to correct
+    jnc .next                   ; on a display already: nothing to correct
     mov cl, [cur_disp]
     EXK vid_pt_clamp
+    sub bx, dx
     mov [si+W_X], ax
     mov [si+W_Y], bx
-.done:
+.next:
+    sub dx, TITLE_H - 1         ; 17 -> 0: ZF, once more for the origin;
+    jz .pt                      ; 0 -> -17: done
     pop si
+    pop dx
     pop cx
     pop bx
     pop ax
