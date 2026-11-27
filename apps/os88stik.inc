@@ -1609,6 +1609,31 @@ stik_seek:
 .out:
     ret
 
+; stik_dbox - BX = a window: the display it is on (OSAPI_WM_DISPLAY's - a
+; straddler's is the restrictive one) in the VIRTUAL coordinates W_X/W_Y are
+; in, its origin OSAPI_WM_DORIGIN's (SPEC.md 39.16.4.3; (0, 0) on one
+; display). AX = its right edge, BX = its bottom (both exclusive), CX = its
+; left, DX = the highest y a widget may take: the menu bar's foot on the
+; primary, the display's own top row anywhere else. Spends SI. Outside
+; STIK_WIDGET: stik_made's restored-y fit calls it for every stik package
+stik_dbox:
+    push bx
+    call OSAPI_WM_DISPLAY       ; AX = width, BX = height (CX DX SI)
+    pop si
+    xchg bx, si                 ; BX = the window, SI = the height
+    push ax
+    call OSAPI_WM_DORIGIN       ; AX = x, DX = y
+    mov cx, ax
+    pop ax
+    add ax, cx
+    mov bx, si
+    add bx, dx
+    cmp dx, MBAR_H
+    jge .r
+    mov dx, MBAR_H
+.r:
+    ret
+
 %ifdef STIK_WIDGET
 ; =============================================================================
 ; THE WIDGET TREATMENT (SPEC.md 110.11) - the face, its tag and its gestures.
@@ -1646,30 +1671,6 @@ stik_org:
     call stik_place
     mov [stik_fx], ax
     mov [stik_fy], dx
-    ret
-
-; stik_dbox - BX = a window: the display it is on (OSAPI_WM_DISPLAY's - a
-; straddler's is the restrictive one) in the VIRTUAL coordinates W_X/W_Y are
-; in, its origin OSAPI_WM_DORIGIN's (SPEC.md 39.16.4.3; (0, 0) on one
-; display). AX = its right edge, BX = its bottom (both exclusive), CX = its
-; left, DX = the highest y a widget may take: the menu bar's foot on the
-; primary, the display's own top row anywhere else. Spends SI
-stik_dbox:
-    push bx
-    call OSAPI_WM_DISPLAY       ; AX = width, BX = height (CX DX SI)
-    pop si
-    xchg bx, si                 ; BX = the window, SI = the height
-    push ax
-    call OSAPI_WM_DORIGIN       ; AX = x, DX = y
-    mov cx, ax
-    pop ax
-    add ax, cx
-    mov bx, si
-    add bx, dx
-    cmp dx, MBAR_H
-    jge .r
-    mov dx, MBAR_H
-.r:
     ret
 
 ; stik_refit - the beat's (SI = the window, ES = KERNEL_SEG, lock held): a

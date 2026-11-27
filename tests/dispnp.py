@@ -15,7 +15,15 @@ from the field with a photo of exactly that, and with the tell that makes the
 diagnosis: a redraw shows the same gap WITHOUT the fragments, because the
 white fill clears the stale pixels and the clamp still stops the text short.
 
-OPEN, AND IT NEVER REACHES THE ASSERTION ABOVE. This row fails at its SETUP:
+SUPERSEDED BY THE OWNER'S MODEL (2026-11-27, SPEC.md 39.16.3.6): a straddler
+is never larger than the smaller display on either axis, so no straddling
+Note Pad is wider than 640 px - 80 cells - and the 90-column case above cannot
+arise. The row now asserts the CAP (grown across the seam, the frame is no
+wider than the smaller display) and that the row it holds is lettered to the
+band, across both cards. Broken on purpose (wm_strad_fit's cap taken out), the
+grow lands wider than 640 and the row goes red on the first assertion.
+
+HISTORY - OPEN, AND IT NEVER REACHED THE ASSERTION ABOVE. This row fails at its SETUP:
 "it does not straddle the seam". The Note Pad opens at (55,60) 260x180, the
 grow drags it to (199,60) and it stays 260 wide - about 32 cells - while the
 seam is at x=720, so there is nothing straddling anything to measure.
@@ -129,9 +137,18 @@ def main(argv):
                                                               cells))
         if not nx < seam < nx + nw - 1:
             sys.exit("dispnp: it does not straddle the seam")
-        if cells <= NP_OLDMAX + 8:
-            sys.exit("dispnp: only %d cells wide - the old clamp was %d, so "
-                     "there is no case in this test" % (cells, NP_OLDMAX))
+        # THE OWNER'S CAP (SPEC.md 39.16.3.6): a straddler is never larger
+        # than the SMALLER display on either axis, because it draws in one
+        # mode for both. So the grow across the seam is held to that width,
+        # and a row wider than NP_OLDMAX cells cannot happen on any straddle
+        # any more - the case this row was written for is gone by design,
+        # and what is left to check is the cap and the lettering under it.
+        priw = u16(ctx, VID_CTX_CW)
+        cap = min(priw, secw)
+        say("the smaller display is %d wide" % cap)
+        if nw > cap:
+            fail.append("the straddler is %d wide, wider than the smaller "
+                        "display's %d (SPEC.md 39.16.3.6)" % (nw, cap))
 
         # a long unbroken row: no spaces, so nothing can wrap early
         mo.click(nx + 60, ny + TITLE_H + 20)
@@ -180,17 +197,17 @@ def main(argv):
                 break
         say("the row's first UNLETTERED cell: %s (band is %d cells)"
             % (brk, lastx))
-        if brk is not None and brk <= NP_OLDMAX + 4:
-            fail.append("the row stops at cell %d - NP_MAXCOL is still bounded "
-                        "by ONE screen, so the tail is dropped and never "
-                        "erased (SPEC.md 27.2.1)" % brk)
+        if brk is not None:
+            fail.append("the row stops at cell %d of %d - a straddling Note "
+                        "Pad's row is not lettered to its band across both "
+                        "cards (SPEC.md 27.2.1)" % (brk, lastx))
 
     print()
     for f in fail:
         print("dispnp: FAIL: %s" % f)
     if fail:
         return 1
-    print("dispnp: a straddling Note Pad letters its whole row - PASS")
+    print("dispnp: a straddling Note Pad is held to the smaller display and letters its whole row - PASS")
     return 0
 
 
