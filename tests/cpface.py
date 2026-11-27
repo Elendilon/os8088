@@ -86,7 +86,7 @@ def _waiter(m, wait):
 
     def w(cond, what, secs):
         try:
-            os88marty.until(m, lambda _: cond(), what, poll=0.2, guest=secs)
+            os88marty.until(m, lambda _: cond(), what, guest=secs)
             return True
         except os88marty.MartyError:
             return False

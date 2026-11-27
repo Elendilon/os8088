@@ -187,7 +187,7 @@ def rd_loaded(ui):
 
 def _wait(ui, cond, what, guest):
     try:
-        os88marty.until(ui.m, lambda _: cond(), what, poll=0.2, guest=guest)
+        os88marty.until(ui.m, lambda _: cond(), what, guest=guest)
         return True
     except os88marty.MartyError:
         return False
