@@ -130395,6 +130395,19 @@ initials entered on game over, the table kept in `CYCLONE.HS` in
 construction (§34.3) and needs no driver; FM would need one loaded and would
 say nothing on the machine this is calibrated against, which has no sound card
 at all (docs/FIELD-MACHINES.md).
+### 67.28 The inks: the window's display, or the bracket's (2026-11-27)
+
+`cy_pal` picks the colour or the mono inks. It asked `OSAPI_FSX_CAPS`, which
+answers for the display the window's CENTRE is on. That is right for the
+full screen, a same-mode bracket on that display. It is wrong for the
+window: a straddling window is sized and drawn for its more restrictive
+display (§39.16.4.1), so its inks came from one monitor and its frame from
+the other.
+
+`cy_pal` now asks `OSAPI_WM_DISPLAY` while `[cy_fsx]` is clear, and
+`OSAPI_FSX_CAPS` once it is set. It is set before the call that precedes
+the bracket, and cleared before the call that follows it.
+
 ## 68. Microsoft Word — the word processor (`apps/word/word.asm`)
 
 A faithful native reimplementation of Microsoft Word for Windows 1.1a

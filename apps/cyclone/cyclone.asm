@@ -508,8 +508,21 @@ cy_shapes:
 cy_pal:
     ; Preserves nothing: every caller is a spine or a callback that reloads
     ; what it uses on the next line (SPEC.md 67.5.5).
+    ; TWO DISPLAYS (SPEC.md 67.28): the WINDOW draws for its
+    ; more restrictive display (OSAPI_WM_DISPLAY), and the full screen - a
+    ; same-mode bracket on the display the window is mostly on - for that
+    ; one, which OSAPI_FSX_CAPS answers. [cy_fsx] is set before the call
+    ; that precedes the bracket
     mov bx, [cy_win]
+    cmp byte [cy_fsx], 0
+    je .win
     call OSAPI_FSX_CAPS             ; DL = that display's VID_* kind
+    jmp short .kind
+.win:
+    push si
+    call OSAPI_WM_DISPLAY           ; DL = the window's display's kind
+    pop si
+.kind:
     mov al, CY_C_ENEMY2
     mov ah, CY_C_ESHOT
     cmp dl, VID_VGA
