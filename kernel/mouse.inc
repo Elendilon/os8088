@@ -3253,8 +3253,9 @@ kbd_down:
     mov bx, KBD_MAPSZ
 .z:
     dec bx
-    mov byte [kbd_dnmap+bx], 0  ; a store leaves the flags alone, so the jnz
-    jnz .z                      ; below is still testing the dec
+    mov [kbd_dnmap+bx], bh      ; a store leaves the flags alone, so the jnz
+    jnz .z                      ; below is still testing the dec. BH is 0 (BX
+                                ; is 15..0): a byte under the immediate (pass 21)
     mov byte [kbd_armed], 1     ; ...and only NOW may the ISR write here
     jmp short .go
 
@@ -3432,7 +3433,8 @@ kbd_ovflow:
 ; -----------------------------------------------------------------------------
 kbd_ovspend:
     push ax
-    xor al, al
+.banked:                        ; kbm_poll0's tail, its own AX bank already
+    xor al, al                  ; on the stack: one pop/push pair the fewer
     xchg al, [kbd_ovb]          ; read-and-clear in one, kbm_p5spend's idiom
     or al, al                   ; and for its reason
     jz .out
@@ -3504,12 +3506,12 @@ kbm_poll0:                      ; and kbm_pollm's own bank is the same push
                                 ; BIOS that delivers keypad 5 the call above
                                 ; has already claimed it and cleared the flag
                                 ; (SPEC.md 9.6.4), and this finds nothing
-    dec byte [kbm_in]           ; ...and out of it
-    pop ax                      ; ...and a modal loop is exactly where the
-    jmp kbd_ovspend             ; buffer overruns unheard otherwise: ui_task's
-                                ; ladder is not running (SPEC.md 9.8). A TAIL
-                                ; JUMP: kbd_ovspend keeps every register and
-                                ; ends in the ret this needs (size pass 10)
+    dec byte [kbm_in]           ; ...and out of it - and a modal loop is
+    jmp kbd_ovspend.banked      ; exactly where the buffer overruns unheard
+                                ; otherwise: ui_task's ladder is not running
+                                ; (SPEC.md 9.8). A TAIL JUMP (size pass 10)
+                                ; past kbd_ovspend's `push ax`, whose `pop ax`
+                                ; is this bank's (kernel size pass 21, -1)
 
 
 ; mou_evfill - stamp an event record at DS:SI and queue it

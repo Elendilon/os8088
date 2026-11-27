@@ -185,13 +185,10 @@ vmm_poll:
                                 ; header says "all registers preserved" only
                                 ; below
 .go:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    call kent_bp                ; AX..BP (kernel size pass 21: -4 - the KENT
+                                ; ladder's ~95 8088 cycles are nothing on the
+                                ; hypervisor this runs on, against the
+                                ; backdoor's own trapping `in`)
     push es                     ; mou_apply's tail is written for ISR context,
                                 ; where every register was saved on entry -
                                 ; cur_move spends SI/DI/BP and loads ES for
