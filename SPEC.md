@@ -260025,7 +260025,7 @@ inner dimension derives from the content box, so both sizes are one layout):
 
 | element | where | drawn as |
 |---|---|---|
-| page list | x 0..119 (`CPW_LW` 120), y 0 to the status rule | white ground in spans; a heading every group (`SYSTEM`, `HARDWARE`, `APPEARANCE`: dark grey words padded to 14 cells, 13 rows with the air); a row every page (20 px pitch: a 19-row bar, the 16×16 icon at x 6, the name at x 26); the selection a blue bar with white text |
+| page list | x 0..119 (`CPW_LW` 120), y 0 to the status rule | white ground in spans; a heading every group (`SYSTEM`, `HARDWARE`, `APPEARANCE`: dark grey words and the rest of their rows ONE fill - padded to 14 cells until driver size pass 2, the same pixels and 18 glyph cells fewer a list - 13 rows with the air); a row every page (20 px pitch: a 19-row bar, the 16×16 icon at x 6, the name at x 26); the selection a blue bar with white text |
 | rule | x 120, y 0 to the status rule | 1 px black |
 | header strip | x 121 (`CPW_PX`) to the right edge, y 0..43 (`CPW_HDRH`) | the page's 32×32 icon at (PX+8, 5); its list name at (PX+48, 10) and a one-line description at (PX+48, 24), each padded with its paper to the right edge; a 1 px rule at y 41 |
 | page area | x 121.., y 44 (`CPW_BY`).. | the hosted page (below), or a wide page |

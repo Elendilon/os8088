@@ -412,6 +412,7 @@ cpk_tabs:
     push dx
     push si
     push di
+    push bp
     mov ah, al                  ; AH = the chosen, AL = the tab being drawn
     xor al, al
 .t:
@@ -423,8 +424,7 @@ cpk_tabs:
     mov di, (CBLUE << 8) | CWHITE
 .c:
     push ax
-    mov [es:CPK_S_X], cx
-    mov [es:CPK_S_Y], dx
+    mov bp, cx                  ; BP = this tab's left
     mov ax, di
     mov [gfx_color], ah
     mov ax, cx                  ; the left margin, full height
@@ -441,16 +441,13 @@ cpk_tabs:
     xor bl, bl
     call cpw_run                ; CX = past it
     pop bx
-    push si                     ; (SI past the label: the next one)
-.sk:
+.sk:                            ; (SI past the label: the next one)
     inc si
     cmp byte [cs:si-1], 0
     jne .sk
-    mov [es:CPK_S_I], si
-    pop si
     mov ax, di                  ; the rows above and below the label
     mov [gfx_color], ah
-    mov ax, [es:CPK_S_X]
+    mov ax, bp
     add ax, 4
     dec cx                      ; (CX = its last column)
     mov dx, bx
@@ -463,7 +460,7 @@ cpk_tabs:
     call cpw_fill
     mov ax, cx                  ; the right margin, full height
     inc ax
-    mov bx, [es:CPK_S_Y]
+    sub bx, 11                  ; (BX = the strip's top again)
     add cx, 4
     mov dx, bx
     add dx, CPK_TABH - 1
@@ -474,11 +471,11 @@ cpk_tabs:
     call cpw_fill
     inc cx                      ; CX = the next tab's left
     mov dx, bx
-    mov si, [es:CPK_S_I]
     pop ax
     inc al
     jmp .t
 .out:
+    pop bp
     pop di
     pop si
     pop dx
@@ -661,11 +658,11 @@ cpk_tbclick:
     push dx
     push si
     mov si, bx                  ; SI = the block
-    mov ax, cx
-    sub ax, [es:si+CPKT_X]
+    mov bx, cx
+    sub bx, [es:si+CPKT_X]
     jl .no
-    cmp ax, [es:si+CPKT_W]
-    jge .no
+    sub bx, [es:si+CPKT_W]      ; BX = x - left - width: -width..-1 inside,
+    jge .no                     ; -CPK_SBW and up the scroll bar
     mov ax, dx
     sub ax, [es:si+CPKT_Y]
     jl .no
@@ -675,12 +672,7 @@ cpk_tbclick:
     pop dx
     cmp ax, [es:si+CPKT_NV]
     jae .no
-    push ax
-    mov ax, cx
-    sub ax, [es:si+CPKT_X]
-    add ax, CPK_SBW
-    cmp ax, [es:si+CPKT_W]
-    pop ax
+    cmp bx, -CPK_SBW
     jge .bar
     add ax, [es:si+CPKT_TOP]    ; a row
     cmp ax, [es:si+CPKT_N]
@@ -688,6 +680,7 @@ cpk_tbclick:
     clc
     jmp short .out
 .bar:
+    mov bx, si
     call cpk_tbsb               ; BX = os88ui_ksb
     add cx, [es:CPW_W_OX]       ; os88ui_sbhit takes the point absolute
     add dx, [es:CPW_W_OY]

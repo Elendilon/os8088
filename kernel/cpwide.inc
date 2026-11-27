@@ -89,7 +89,6 @@ CPW_WSZ     equ cpw_dat         ; CPWIDE.DAT's first byte, ES-relative: every
 ; --- the page list (SPEC.md 135.3), content-relative --------------------------
 CPW_LT0     equ 4               ; the first heading's top
 CPW_HH      equ 13              ; a heading's height: 3 rows, its words, 2
-CPW_HCH     equ 14              ; ...its words padded to this many characters
 CPW_HG      equ 3               ; ...and the air under it
 CPW_RH      equ 20              ; a row's pitch: a 19-row bar and one of air
 CPW_GG      equ 6               ; the air between one group and the next
@@ -244,11 +243,14 @@ cpw_open:
 ; -----------------------------------------------------------------------------
 ; cpw_close - CWV_CLOSE: a Test... reverts, and the compact template goes back
 ; in:  ES = the image's data view. out: nothing
+;
+; cpw_dseg is NOT zeroed here: cp_wclose drops MOD_CPW straight after this
+; event, and the drop zeroes the bss tail it is in (a kept image, SPEC.md
+; 2.8.3) or frees the image - so the next open finds 0 either way, and no
+; event can reach this image between the two (its slots are disarmed)
 ; -----------------------------------------------------------------------------
 cpw_close:
     call cpv_quit               ; a Test... running reverts first (135.9.3)
-    xor ax, ax
-    CSDO mov [CSEG cpw_dseg], ax
     mov word [cp_tpl], CP_TX    ; the compact face's template back, so a
     mov word [cp_tpl + 2], CP_TY ; panel opened next on CGA (or after a
     mov word [cp_tpl + 4], CP_TW ; refusal) is the window SPEC.md 31.1 pins
@@ -313,6 +315,14 @@ cpw_sty:
     sub ax, CPW_STH
     ret
 
+; cpw_sty2 - DX = the last row above the status line's rule (its top - 2,
+; content-relative): the page list's and the page area's bottom. Keeps the
+; rest
+cpw_sty2:
+    mov dx, [es:CPW_W_CH]
+    sub dx, CPW_STH + 2
+    ret
+
 ; -----------------------------------------------------------------------------
 ; cpw_paint - CWV_PAINT: the whole window
 ; in:  SI = the window (gfx lock held). out: nothing
@@ -323,10 +333,7 @@ cpw_paint:
     jb cpw_small
     call cpw_lbuild
     call cpw_list
-    call cpw_sty                ; the rule between the list and the page
-    mov dx, ax
-    dec dx
-    dec dx
+    call cpw_sty2               ; the rule between the list and the page
     mov byte [gfx_color], CBLACK
     mov ax, CPW_LW
     xor bx, bx
@@ -524,40 +531,35 @@ cpw_list:
     xchg bx, ax
     add bx, bx
     mov si, [cs:bx + cpw_heads]
-    mov cl, CPW_HCH
-    call cpw_pad                ; ES:CPW_W_STR = it, padded
     mov byte [gfx_color], CWHITE
     xor ax, ax
     mov bx, dx
     mov cx, 3
     add dx, 7
     call cpw_fill               ; the margin left of the run...
-    mov ax, 4 + CPW_HCH * 8
-    mov cx, CPW_LW - 1
-    call cpw_fill               ; ...and right of it
     mov cx, 4
     mov dx, bx
-    mov si, CPW_W_STR
     mov ax, (CWHITE << 8) | CDGRAY
-    mov bl, 2
-    call cpw_run
-    pop cx
-    pop si
+    xor bl, bl
+    call cpw_run                ; ...the words alone (CX = past them)...
+    mov byte [gfx_color], CWHITE ; (a renderer may leave the pen at the ink)
+    xchg ax, cx
+    mov cx, CPW_LW - 1
+    mov bx, dx
+    add dx, 7
+    call cpw_fill               ; ...and the rest of their rows, ONE fill
+    pop cx                      ; where the words were padded to 14 cells
+    pop si                      ; (driver size pass 2: 18 glyph cells a list)
     mov bx, [es:si+2]
     add bx, CPW_HH - 2          ; the ground resumes under the words
 .gn:
     add si, 4
     loop .g
 .tail:
-    call cpw_sty                ; ...and the last span, to the rule above
-    mov dx, ax                  ; the status line
-    dec dx
-    dec dx
-    mov ax, bx
-    cmp ax, dx
+    call cpw_sty2               ; ...and the last span, to the rule above
+    cmp bx, dx                  ; the status line
     jg .rows
     mov byte [gfx_color], CWHITE
-    mov bx, ax
     call .band
 .rows:
     mov byte [es:CPW_W_FULL], 1 ; --- and every row's icon and name
@@ -611,13 +613,11 @@ cpw_lrow:
     mov al, [es:si+1]           ; AL = its record
     mov di, (CWHITE << 8) | CBLUE   ; DI = ink : ground, selected...
     cmp al, [cp_sel]
-    je .bar
+    je .full
     mov di, (CBLACK << 8) | CWHITE  ; ...or not
+.full:
     cmp byte [es:CPW_W_FULL], 0
-    jne .icon                   ; the ground is down already
-.bar:
-    cmp byte [es:CPW_W_FULL], 0
-    jne .icon                   ; (a full paint laid the selected bar too)
+    jne .icon                   ; a full paint laid the ground and the bar
     push ax
     push dx
     mov ax, di
@@ -767,8 +767,7 @@ cpw_hdr:
     mov si, di
     mov cx, CPW_PX + CPW_HTX
     mov dx, CPW_HDY
-    mov ax, (CWHITE << 8) | CBLACK
-    xor bl, bl
+    xor bl, bl                  ; (AX: cpw_runp keeps it)
     jmp cpw_runp
 
 ; -----------------------------------------------------------------------------
@@ -807,10 +806,7 @@ cpw_page:
 
 ; cpw_under - the ground under the hosted rect, to the status line's rule
 cpw_under:
-    call cpw_sty
-    mov dx, ax
-    dec dx
-    dec dx
+    call cpw_sty2
     mov byte [gfx_color], CWHITE
     mov ax, CPW_PX
     mov bx, CPW_HB
@@ -958,35 +954,6 @@ cpw_strcat:
     inc di
     jmp short .c
 .z:
-    pop ax
-    ret
-
-; cpw_pad - the image string at CS:SI into ES:CPW_W_STR, padded with spaces
-; to CL characters (cut at CL). Keeps every register but CL
-cpw_pad:
-    push ax
-    push si
-    push di
-    mov di, CPW_W_STR
-.c:
-    or cl, cl
-    jz .z
-    mov al, [cs:si]
-    or al, al
-    jz .sp
-    inc si
-    jmp short .put
-.sp:
-    mov al, ' '
-.put:
-    mov [es:di], al
-    inc di
-    dec cl
-    jmp short .c
-.z:
-    mov byte [es:di], 0
-    pop di
-    pop si
     pop ax
     ret
 
