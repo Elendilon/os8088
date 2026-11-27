@@ -815,7 +815,7 @@ def snapw(w, flush=False, x=None, screen=None):
     return down if down > c else w
 
 
-def snapx(x, nosnap=False, span=False):
+def snapx(x, nosnap=False, span=False, vx1=None):
     """Where a frame asked to sit at `x` ACTUALLY lands (SPEC.md 11.94).
 
     `span` IS THE CASE snapw's docstring said no test subject was. SPEC.md
@@ -846,6 +846,11 @@ def snapx(x, nosnap=False, span=False):
 
     `nosnap` is W_FLAGS bit 4 (WF_NOSNAP), whose sense is inverted - a window
     that OPTS OUT is not snapped at all.
+
+    `vx1` is display 1's VX on an EXTENDED desktop (None otherwise). Its left
+    edge is the x = 0 case again (SPEC.md 11.94): a round-down to VX - 1 goes
+    RIGHT to VX + 7 instead, as the 0..6 arm does - the refusal caveat above
+    applying to it the same way.
     """
     if nosnap:
         return x
@@ -853,6 +858,8 @@ def snapx(x, nosnap=False, span=False):
         return x & 0xFFF8           # no left border: the content origin IS
                                     # the frame's, so 0 stays 0
     c = ((x + 1) & 0xFFF8) - 1
+    if vx1 is not None and c + 1 == vx1:
+        c += 8
     return c if c >= 0 else c + 8
 
 

@@ -23093,6 +23093,23 @@ Three consequences worth naming:
   right edge is re-tested. A window too wide for that is **left unsnapped**
   rather than made illegal: it simply misses the fast path, which is a normal
   path and not a failure.
+- **Display 1's left edge is the same case as x = 0** (§39.16, Right
+  layout). Its origin `VX` is a multiple of 8, so a candidate x in
+  `VX .. VX + 6` rounds LEFT to `VX - 1`: one column onto the display to its
+  left. The window then straddles, and the straddle sizes it for the more
+  restrictive display (§39.16.3). That was the audit's K4 and K5. Every
+  snapped window dragged to display 1's left edge, and every zoom there,
+  landed one pixel short. So when `[vid_ndisp]` > 1 and the rounded content
+  origin equals display 1's `VX`, the snap moves RIGHT to `VX + 7`, exactly
+  as the `x = 0..6` arm does. The right-edge test that follows is the same
+  test, so a window spanning display 1 is refused that move and stays at
+  `VX`. There `wm_flush_ck` already says it spans its display
+  (§11.95.2.1), so it drops its left border and its content origin is `VX`,
+  which is aligned. **This is not §11.95.2's rule taking effect; it is the
+  snap breaking that rule.** A zoom on display 1 committed `x = VX`, and the
+  snap then moved it to `VX - 1`, where it neither spans its display nor
+  sits on it. The gate on `[vid_ndisp]` is there because a collapsed desktop
+  leaves display 1's record stale.
 - **Dragging becomes 8-pixel steps horizontally** — **on every adapter now,
   VGA included**, which is the whole of what removing the `[vid_mono]` gate
   costs. It is cheaper than it sounds because `ui_drag` drags an XOR *outline*
@@ -103812,6 +103829,32 @@ cycles (-0.70%)**, median frame 134,439 -> 131,919, the same 33 frames over
 one tick, the same end state (`C3B7`) and the same final screen
 (`91e91066db9890ee`). It is the same game, drawn the same way, a little faster.
 
+### 48.27 Two displays, two questions (2026-11-27)
+
+The extended-desktop audit (K6) found Missile taking its depth from one
+display and its frame size from another. `mc_adapter` asked
+`OSAPI_FSX_CAPS` for both `mc_mono` and Mode X, and that answers the
+display the window's CENTRE is on. The frame is sized by the kernel for the
+MORE RESTRICTIVE display of a straddle (§39.16.4.1). So a window straddling
+a Hercules and a VGA, centre on the VGA, was sized 634x303 for the Hercules
+and drew the colour ramp, with half its pixels on the 1bpp card.
+
+Now each question asks the display it is about:
+
+- **The depth** (`mc_mono`, `mc_ecoarse`, `mc_expfr`) comes from
+  `OSAPI_WM_DISPLAY`'s kind, `[mc_wkind]`. That is the display the window is
+  drawn and sized for. In the §11.2 full-screen surface the window lies
+  wholly on one display, so it is that display's answer.
+- **Mode X** is a full-screen mode, so it is asked of the full-screen target
+  (§53.1.2.1, `fsxw_pick`): the display the window is mostly on when it has
+  Mode X, else the first display that does. `mc_cmd_modex` hands
+  `OSAPI_FSX_RUN` that display as CH (`[mc_fsdisp]`). The item is offered on
+  a Hercules with a VGA beside it, and greyed only on a machine with no VGA.
+
+`mc_dispck` already ran every frame for exactly this reason: no callback
+says the window moved. It now compares both answers and re-runs
+`mc_adapter` when either changed.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
@@ -113240,6 +113283,42 @@ MODE-SETTING bracket should take a CH**: a same-mode bracket (§53.7) draws
 through the desktop's own slots and is told the rect it owns, so on another
 display than its window's it would paint where it has no window - the
 Video Player asks for CH only on the fullscreen path, which sets a mode.
+
+### 53.1.2.1 Full screen goes to a display the content can use (2026-11-27)
+
+**The owner's rule: if the content runs on display type A and not on type B,
+going full screen is never a refusal because of where the window happens to
+stand. It goes to a screen of the type the content supports, if the machine
+has one.** The extended-desktop audit (docs/reports/EXTENDED-DESKTOP-AUDIT-2026-11-27.md,
+K6) found Pixelstein and Lemmings refusing Full Screen with the right card
+one inch away, and DrMarco refusing on the owner's own 5150 arrangement.
+
+Two questions about a straddling window have two answers, and both are right:
+
+- **Where full screen goes** is the display the window is MOSTLY on - its
+  centre, which is what `OSAPI_FSX_CAPS` and `OSAPI_FSX_RUN` with CH = 0 ask
+  (§39.17) - when that display can set one of the package's modes. Otherwise
+  it is the first display, walked `OSAPI_FSX_CAPS` BX = 1, 2, ..., that can,
+  and `OSAPI_FSX_RUN` takes it with CH = n. Only when no display on the
+  machine can is it a refusal, and the menu says so.
+- **How the window sizes and draws** is the MORE RESTRICTIVE display
+  (`OSAPI_WM_DISPLAY`, §39.16.4.1): one window cannot draw in two modes at
+  once.
+
+A package's full-screen mode menu describes the first answer and its
+in-window colour or face describes the second. **Both are asked where they
+are used**: a drag that moves the centre across the seam without changing
+the restrictive display fires no `OSAPI_WM_ONRESIZE`, so a mode row banked
+only in the notice is stale exactly when it matters. The bracket's entry
+asks again, and a package with a worker re-asks between frames.
+
+`apps/os88fsxw.inc`'s `fsxw_pick` is the walk written once (in: BX = the
+window, DX = the FSXM_* bits the content can use; out: AX = what the target
+can set of those, DL = its kind, CH = the bracket's display, CF = 1 when no
+display can). It returns CH = 0 whenever the window's own display answers,
+which keeps `kern_small` (whose door refuses any CH) and every one-display
+machine on the path they always took. A same-mode bracket (§53.7) may not
+take a CH and does not use it. C packages have it as `os88_fsx_pick()`.
 
 ### 53.2 The freeze — a whitelist, not `sch_lock` (binding)
 
@@ -207192,6 +207271,23 @@ spare) is not reached. The eager run is **112 unpacked sectors of 128**
 the recipe allows (48,335 after wave 4). The kernel is unchanged. *Wave 6's
 figures are 97.15's: part 0 59,378, the run 116, the file 50,476.*
 
+#### 97.14.1 The Mode row describes the full-screen target (2026-11-27)
+
+The Mode menu and Full Screen follow §53.1.2.1. `px_adapter` asks
+`fsxw_pick` for Mode X, CGA 320 or Hercules: the display the window is mostly
+on when it has one of them, else the first display that does. The two Mode
+items name that display's modes, and `[px_fsdisp]` is the CH that
+`px_go_fsx` hands `OSAPI_FSX_RUN`. The Colour item still asks
+`OSAPI_WM_DISPLAY`, the restrictive display, because it is about the window.
+
+The audit's case was a VGA-and-Hercules desktop with the window dragged from
+the Hercules until its centre was on the VGA. The restrictive display stayed
+the Hercules, so no `W_ONRESIZE` came. The Mode row still said Hercules, and
+Full Screen opened on the VGA, asked it for the Hercules mode, was refused,
+and did nothing. Now `px_adapter` runs at the top of `px_go_fsx` and in the
+worker's `px_back_ck` between frames, as well as in the notice, so the row
+and the bracket agree with the window as it stands.
+
 ### 97.15 What shipped: the final frame table, the machines, the price of wave 6
 
 Wave 6's (the plan's last): the dog (97.4, 97.6, 97.8), the Tab map
@@ -229396,6 +229492,26 @@ Rejected, with ISOTRON-PLAN 8.1's reasons: 13h, Mode X and 12h on the VGA,
 C160 and 640 x 200 composite on the CGA, and direct planar writes on the
 EGA's own desktop mode (ISOTRON-PLAN 18 item 3, an owner's decision).
 
+##### 108.12.1.1 …on the display that can, when the window's cannot (2026-11-27)
+
+The display is the full-screen target of §53.1.2.1, not only the window's.
+`it_fs_pick` asks `fsxw_pick` for 0Dh, CGA 320 or Hercules: the display the
+window is mostly on when it can set its kind's mode, else the first display
+that can. Then it picks the table row above for that display's kind.
+`[it_fsdisp]` is the CH `it_fs_go` hands `OSAPI_FSX_RUN`. "Full Screen (no
+mode)" now means no display on the machine has one.
+
+`it_fs_go` stores the surface in `[it_fsk]` before the bracket opens, and
+`it_fs_setup` reads it rather than asking again. Inside a bracket on another
+display, the machine has collapsed onto that display (§39.18.3). An EGA's
+same-mode row needs CH = 0, so an EGA reached by the walk is set to CGA 320
+like a CGA.
+
+**Colours stays the window's.** It greys while the window's own picture is
+mono. A straddling window draws for its more restrictive display
+(§39.16.4.1), so it is greyed on a straddle that touches a Hercules. C
+still changes the look inside a colour bracket.
+
 #### 108.12.2 The looks
 
 **CGA**, an id's ink at an even x / an odd x (palette 1: 0 black, 1 cyan,
@@ -238431,6 +238547,24 @@ rather than a greyed control:
   addition, not the 1991 game. Lemmix's own `F` (skip one minute) goes with
   them, which is what leaves the letter free for §11.2.1's fullscreen door.
 - **Custom / Lemmini level loading, the level finder, and any level editor.**
+
+#### 116.8.1 The Mode row describes the full-screen target (2026-11-27)
+
+The Mode row and Play follow §53.1.2.1. `lem_probe_mode` asks
+`os88_fsx_pick()` for 320x200x16, CGA 320 or Hercules: the display the
+launcher is mostly on when it can set one of them, else the first display
+that can. `lem_vidkind` and `lem_caps` are that display's, so the row's
+caption, the second screen's mode (`ovl_scr_id`) and the bracket's mouse map
+all describe it. `lem_fsdisp` is the display `os88_fsx_run()` is handed.
+
+The audit (K6) had the launcher straddling a Hercules and a VGA with its
+centre on the VGA. No `W_ONRESIZE` came, because the restrictive display was
+still the Hercules. The row said "Hercules 720x348", the bracket opened on
+the VGA, was asked for the Hercules mode and refused, and Play did nothing.
+So the probe now also runs before every Play and in every `W_PAINT`
+(`lem_reprobe`, which lays the window out again only when the answer
+changed). A drop repaints the window, so the row is right when it is next
+seen.
 
 ### 116.9 The names, and the four disks
 
