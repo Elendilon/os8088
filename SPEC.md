@@ -133025,13 +133025,14 @@ and it is stated rather than hidden.
 **The depth is asked in `te_layout` and not once at launch**, which is the
 same argument one level down: `te_layout` re-derives everything the live
 content box implies on every paint, click, key and worker draw, so the answer
-is never older than the last event. It is `OSAPI_VIDEO`'s `DH`, and that is
-**the PRIMARY's depth** by that slot's own contract — on an extended desktop
-with a mono card beside a colour one it is the wrong question for the far
-display, and there is no per-display depth published to ask instead (§39.14
-has none). Stated rather than hidden; `OSAPI_FSX_CAPS` answers `DL` per
-display but a `VID_*` kind is not a depth, and inventing a slot for one
-package is what CLAUDE.md's index exists to prevent.
+is never older than the last event. It is `OSAPI_WM_DISPLAY`'s `DH` for
+[te_win] - the depth of the display the WINDOW is on (§39.16.4) - and
+`OSAPI_VIDEO`'s only before the window exists. It was `OSAPI_VIDEO`'s, the
+PRIMARY's, written when no per-display depth was published; the
+extended-desktop audit (2026-11-27) found iCE Colours still live on a
+Hercules beside a VGA primary and greyed on a VGA beside a Hercules one. The
+Session menu's iCE item is re-labelled in the same `te_layout`, so it follows
+the drag.
 
 #### 70.8.6 Two hundred and fifty-six glyphs, and where they come from
 
@@ -189483,7 +189484,7 @@ every paint:
 | `[con_topy]` | **0**: §96.32's band origin is the text's origin, where Telnet's is the window's and its own chrome is above |
 | `[con_vcols]`/`[con_vrows]` | `[dos_concols]`/`[dos_conrows]` |
 | `[con_vtop]` | **`[con_cy] + 1 - [con_vrows]`, floored at 0** — the window FOLLOWS THE CURSOR (§96.33.8). It was `CON_ROWS - [con_vrows]`, the bottom of the buffer, which is the same number only once the console has filled and is a blank screen before that |
-| `[con_mono]` | `OSAPI_VIDEO`'s `DH`, asked here and not at launch (§11.96.12) |
+| `[con_mono]` | `OSAPI_WM_DISPLAY`'s `DH` for `[dos_win]`, asked here and not at launch (§11.96.12) - the WINDOW's display, since `OSAPI_VIDEO` is the primary's (§39.16.4; it was, until the extended-desktop audit of 2026-11-27) |
 
 **`con_open` is called once, from the entry proc**, and it is not optional: the
 loader zeroes bss (§21 step 5), so an unopened console has attribute 0 — black
