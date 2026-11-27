@@ -106,6 +106,7 @@ int   os88_wm_damage(void *win, struct os88_rect *r);
 int   os88_wm_clip_set(void *win);
 
 void  os88_menu_set(void *win, struct os88_menuset *set);
+void os88_wm_prefer(void *win, const int *table);
 void  os88_about_card(void *win, const char **lines);
 void  os88_about_card_d(void *win, const char **lines);
 int   os88_fullscreen(void *win, int enter);

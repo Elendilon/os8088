@@ -477,6 +477,7 @@ int os88_fullscreen(void *win, int enter)
     clip_armed = 0;
     return 0;
 }
+void os88_wm_prefer(void *win, const int *table) { (void)win; (void)table; }
 void os88_menu_set(void *win, struct os88_menuset *set)
 { (void)win; (void)set; h_menu_set = 1; }
 
@@ -622,6 +623,14 @@ int os88_fsx_caps(void *win, int *kind)
     if (kind)
         *kind = h_fsx_kind;
     return h_fsx_mask;
+}
+/* one display in the harness: the window's own answers, or none does */
+int os88_fsx_pick(void *win, int want, int *kd)
+{
+    (void)win;
+    if (kd)
+        *kd = h_fsx_kind;
+    return h_fsx_mask & want;
 }
 
 /* ...AND IT MODELS SPEC.md 53.6 STEP 4, WHICH IS THE HALF THE FIRST STUB LEFT
