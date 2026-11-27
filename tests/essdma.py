@@ -25,7 +25,7 @@ from unicorn.x86_const import (UC_X86_INS_IN, UC_X86_INS_OUT, UC_X86_REG_AX,
     UC_X86_REG_SS, UC_X86_REG_EFLAGS)
 
 SEG, BASE, RET = 0x1000, 0x10000, 0xFFF8
-CPU_INFO = 0x0060 * 16 + 0x0155         # OSAPI_CPU_INFO's far cell
+CPU_INFO = 0x0060 * 16 + 0x0101         # OSAPI_CPU_INFO's far cell (apps/os88api.inc; 0x0155 before the #365 flag day)
 FAILS = []
 CHECKS = 0
 QUIET = False                           # the broken arm's failures are expected
