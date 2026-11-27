@@ -596,9 +596,12 @@ gfx_clip_query:
 ; .text with real initialisers: -f bin zeroes nothing, and every drawing call
 ; in the machine reads these - including the first, before anything has run.
 gfx_dnest   db 0                ; whole-shape hooks in effect (SPEC.md 39.14.2)
-%ifndef NOBLITCUT
 EXT_BCUT    equ 13              ; gfx_blit4's cut is EXTD.DRV's entry 13 (kernel
-                                ; size pass 13; extmod.inc's header asserts it)
+                                ; size pass 13; extmod.inc's header asserts it;
+                                ; defined with NOBLITCUT too, the slot refusing)
+EXT_B1CUT   equ 14              ; ...and gfx_blit1's ROW cut, entry 14 (SPEC.md
+                                ; 39.14.7.3)
+%ifndef NOBLITCUT
 gfx_blit_fd db 0                ; SPEC.md 39.14.7.2: 0 = gfx_blit4 resolves its
                                 ; own display, d+1 = this call is one HALF of a
                                 ; cut and the display is NAMED.
@@ -6124,7 +6127,7 @@ gfx_blit1_x:
     cmp byte [gfx_dnest], 0
     jne .spanok                 ; an outer whole-shape hook already chose one
     call KERNEL_SEG:cw_vid_span_wh  ; the band's rect, still VIRTUAL
-    jc .pcq                     ; it crosses a seam: per band column, each
+    jc .scq                     ; it crosses a seam: per band column, each
 %endif
 .spanok:                        ; resolving its own display (SPEC.md 39.14.6)
 
@@ -6139,7 +6142,10 @@ gfx_blit1_x:
     cmp byte [gfx_dnest], 1     ; whole-shape hook, whose rect is a display's
     jae .rows                   ; and not the region's virtual space
     jmp .frags
-.pcq:
+.scq:                           ; ...but a ROW seam first (SPEC.md 39.14.7.3):
+    EXTCALL EXT_B1CUT           ; on the Below layout every column of the band
+    jnc .okq                    ; crosses it too and would be DROPPED - CF = 1
+.pcq:                           ; is Right, no crossing row, or no image
     jmp .percol                 ; (two exits in short reach of the guards on
 .okq:                           ; either side, below the one unconditional
     clc                         ; jump there is: a `jcc` of two bytes, not

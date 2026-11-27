@@ -6463,7 +6463,9 @@ valid for exactly the lock hold the blit runs inside.
    untranslated**, each column resolving its own display: §39.14.6's answer for
    `font_run` ("a run that does not fit one display goes per CELL and
    untranslated"), one granularity coarser. It is NOT refused, and the caller
-   never re-letters the row in another face.
+   never re-letters the row in another face. **A band crossing a ROW seam
+   (the Below layout) is first cut at that row** (§39.14.7.3), because every
+   column of it would cross too.
 5. **Only then the PEN** (§5.4.2.2), on the display this band — or this column
    of it — is actually going to. It was resolved up in step 1's company, which
    on a two-card desktop is the very defect step 2 exists to prevent: §5.4.2.4.
@@ -82938,6 +82940,43 @@ one byte of `gfx_blit4`'s block that is READ BEFORE IT IS WRITTEN — the gate
 sits above every store in the routine. A stale non-zero there is a display
 index handed to `vid_ctx_act` that indexes past a two-record array.
 
+#### 39.14.7.3 …and a BAND is cut at a row seam too
+
+`gfx_blit1`'s straddle path (§5.4.2 step 4) goes per 8-pixel column, and that
+is a cut for exactly one seam: a COLUMN, the Right layout's. On the **Below**
+layout the seam is a ROW, so every column of a band that crosses it crosses it
+too. Each column re-entered, was refused a second time, and met the "already
+one column" exit, which answers CF = 0 and draws nothing. **The whole band was
+dropped, silently.** The extended-desktop audit found it twice: Desk Clock at
+y = 270 on a VGA over a Hercules lost its 64-row slab (rows 334 to 397), and
+RealDMG lost every band crossing y = 480.
+
+So a refused band is first offered to `EXT_B1CUT` (`EXTD.DRV`'s `ext_b1cut`),
+which is §39.14.7.2's `.cutv` for a band. On the Below layout, with the seam
+strictly inside the band's rows, it draws the rows above the seam as one
+`gfx_blit1` and the rows from the seam down as another. The second one's
+source is `n` strides along. As in the blit's cut, `BP` may be negative and
+`mul` gives the low sixteen bits that matter. Each half re-enters the whole
+routine, so it resolves its own display, its own clip and its own pen. A half
+that still does not fit (it hangs into the dead zone across the other axis)
+goes per column as before, and there each column does fit or is not there.
+CF = 1 from the slot sends the band down the per-column path unchanged: the
+Right layout, a band that does not cross the seam row, or no image.
+
+**Cost.** 10 resident bytes on kern_big, kern_emu and kern_mega: 6 of
+`.cold` at the refusal and the slot's 4 of `.bss`. kern_small has no second
+display. The rest is in `EXTD.DRV`. The stack the halves add is the slot's
+far frame, `ext_b1cut`'s two words and one `EXK` hop, and only a straddling
+band pays it.
+
+**The other primitives were checked for the same drop.** `gfx_blit4` has had
+the row cut since §39.14.7.2 (`.cutv`). `gfx_fill` and everything built on it
+(`gfx_frame`, `gfx_xor_fill`) split per display through `gfx_disp_run`, in
+both axes. `gfx_blitp` REFUSES a straddle with CF = 1 (a plane byte carries no
+x), which its callers already handle. `font_run` goes per cell and the cell has
+its own cut (§39.14.11). Only the band's per-column path answered "drawn"
+for a shape it had not drawn.
+
 
 #### 5.4.3.4 …and `gfx_blitp` asked HOW DEEP before it asked WHICH DISPLAY
 
@@ -85246,6 +85285,7 @@ every register kept (§2.8.1) — and every call site is either behind a
 | 11 | `EXT_YLOW` — `ui_ylow`'s arm | `ui_drag`, GATED (the release) | never reached; the caller loaded `MBAR_H` into SI |
 | 12 | `EXT_FCUT` — `ext_fcut`, §39.14.11's cell cut | `font_ch_spill`, GATED (`[gfx_dnest]` = 1) | never reached; CF = 1 would be §39.14.2's whole-cell drop |
 | 13 | `EXT_BCUT` — `ext_bcut`, §39.14.7.2's blit cut | `gfx_blit4`, GATED (`[vid_ndisp]` > 1, a straddle) | never reached; CF = 1 (and an ODD cut) is §39.14.7's run-splitting path |
+| 14 | `EXT_B1CUT` — `ext_b1cut`, §39.14.7.3's band row cut | `gfx_blit1_x`, GATED (`[vid_ndisp]` > 1, `vid_span_wh` refused) | never reached; CF = 1 (Right, or no crossing row) is §5.4.2 step 4's per-column path |
 
 `mod_init_x` rests the slots on `mod_gone` before `wm_init`, which is before
 the first of these can run; the early `vid_disp_init` in `kmain_o`, before

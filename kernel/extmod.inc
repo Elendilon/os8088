@@ -99,7 +99,7 @@ section .modx
     call exk_go
     dw %1
 %endmacro
-EXT_NENT    equ 14
+EXT_NENT    equ 15
 modx_hdr:
     dw 0x384F                   ; MOD_H_MAGIC
     db MOD_VER, MOD_EXT         ; MOD_H_VER, MOD_H_ID
@@ -139,8 +139,9 @@ modx_hdr:
 %else
     dw ext_refuse
 %endif
-%if EXT_DEAD != 3 || EXT_PHASE != 10 || EXT_YLOW != 11 || EXT_NENT != 14
-  %error "extmod: EXT_DEAD is entry 3, EXT_PHASE 10, EXT_YLOW 11, EXT_FCUT and EXT_BCUT 12 and 13, the last (kernel.asm)"
+    dw ext_b1cut                ; EXT_B1CUT  gfx_blit1's row cut (39.14.7.3)
+%if EXT_DEAD != 3 || EXT_PHASE != 10 || EXT_YLOW != 11 || EXT_B1CUT != 14 || EXT_NENT != 15
+  %error "extmod: EXT_DEAD is entry 3, EXT_PHASE 10, EXT_YLOW 11, EXT_FCUT and EXT_BCUT 12 and 13, EXT_B1CUT 14, the last (kernel.asm, vga12.inc)"
 %endif
 %ifdef SEAMCUT
  %if EXT_FCUT != 12
@@ -1734,6 +1735,60 @@ ext_bcut:
     retf                        ; 39.14.7's path (CF = 1, which is mod_gone's)
 
 %endif
+
+; -----------------------------------------------------------------------------
+; ext_b1cut - gfx_blit1's ROW cut (SPEC.md 39.14.7.3), ext_bcut's .cutv for a
+; band. gfx_blit1_x's straddle path goes per 8px COLUMN, which cuts a column
+; seam (Right) and no other: on Below every column crosses the row seam too,
+; and each one was refused, met "already one column" and was dropped with
+; CF = 0. Here the band is drawn as the rows above the seam and the rows from
+; it, each a whole gfx_blit1 that resolves its own display, clip and pen - and
+; a half that still does not fit (the dead zone across x) goes per column
+; there, where each column fits or is not there.
+;
+; in:  gfx_blit1's arguments, VIRTUAL: AX = x, BX = y, CX = w, DX = rows,
+;      ES:SI = the band, BP = its stride (signed); refused by vid_span_wh
+; out: CF = 0 drawn (both halves); CF = 1 not a row cut - Right, or the seam
+;      row is not strictly inside the band - and the caller goes per column.
+;      Every register preserved
+; -----------------------------------------------------------------------------
+ext_b1cut:
+    push di
+    mov di, vid_ctx + VID_CTX_SZ    ; display 1's record
+    cmp word [di+VID_CTX_VX], 0 ; a non-zero VX is the RIGHT layout (39.19.2),
+    jne .no                     ; whose seam the columns already cut
+    mov di, [di+VID_CTX_VY]
+    sub di, bx                  ; DI = n, the band's rows above the seam
+    jle .no
+    cmp di, dx
+    jge .no
+    push dx
+    mov dx, di                  ; --- the top n rows, on display 0
+    EXK gfx_blit1               ; (every register back)
+    pop dx
+    push si
+    push dx
+    push ax
+    mov ax, di                  ; --- the rest, from the seam: n strides along
+    mul bp                      ; (low word: right for a NEGATIVE stride too)
+    add si, ax
+    pop ax
+    pop dx
+    push dx
+    push bx
+    add bx, di
+    sub dx, di
+    EXK gfx_blit1
+    pop bx
+    pop dx
+    pop si
+    pop di
+    clc
+    retf
+.no:
+    pop di
+    stc
+    retf
 
 %ifndef SEAMCUT
  %define EXT_REFUSE_WANTED
