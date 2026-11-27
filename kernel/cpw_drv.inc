@@ -224,10 +224,7 @@ cpd_paint:
 cpd_ground:
     mov bx, CPW_BY
 cpd_groundb:
-    call cpw_sty
-    xchg ax, dx
-    dec dx
-    dec dx
+    call cpw_sty2               ; DX = the last row above the rule
     mov byte [gfx_color], CWHITE
     mov ax, CPW_PX
     mov cx, [es:CPW_W_CW]
@@ -268,7 +265,8 @@ cpd_build:
 .take:
     cmp ch, [es:CPD_SELR]
     jne .ns
-    lea si, [bp - CPD_ROWS]
+    lea si, [bp - (CPD_ROWS - cpw_bss + MODV_IMG)] ; (CPD_ROWS as a NUMBER:
+                                ; it is a bss label of the image now)
 .ns:
     mov [es:bp], ch
     inc bp

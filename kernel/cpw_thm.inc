@@ -367,7 +367,7 @@ cpt_elems:
 .p:
     add ax, [es:bx]
     push ax
-    xor bx, CPT_X0 ^ CPT_Y0
+    xor bx, (CPT_X0 - cpw_bss + MODV_IMG) ^ (CPT_Y0 - cpw_bss + MODV_IMG)
     loop .c
     pop dx
     pop cx

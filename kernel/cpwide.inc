@@ -796,23 +796,14 @@ cpw_page:
     dec cx
     mov dx, CPW_HB - 1
     call cpw_fill
-    call cpw_under              ; ...and the ground under it
+    mov bx, CPW_HB              ; ...and the ground under it: the pages'
+    call cpd_groundb            ; ground from the hosted rect's foot
     mov bx, [es:CPW_W_WIN]
     mov ah, CPG_HPAINT
     jmp cpw_gate
 .vid:
     mov byte [es:CPW_D_ON], 0
     jmp cpv_page
-
-; cpw_under - the ground under the hosted rect, to the status line's rule
-cpw_under:
-    call cpw_sty2
-    mov byte [gfx_color], CWHITE
-    mov ax, CPW_PX
-    mov bx, CPW_HB
-    mov cx, [es:CPW_W_CW]
-    dec cx
-    jmp cpw_fill
 
 ; -----------------------------------------------------------------------------
 ; cpw_dsync - after a hosted page acted: the Drivers page comes back when its
