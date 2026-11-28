@@ -182269,7 +182269,7 @@ WC_PKGFMT with ITS OWN `PKG_FMT`, which needs nothing from the kernel: a
 running package's format IS the kernel's, or the loader would not have
 started it (§20.2.0). Higher greys both buttons with `Needs a newer os8088 -
 update the system disk`, lower with `Made for an older os8088`; a WC_NEEDW
-above `WIRE_LEVEL` (8) greys them with `Needs a newer Wire - update the
+above `WIRE_LEVEL` (9) greys them with `Needs a newer Wire - update the
 system disk`. 0 in either is a catalog from before the bytes and is not
 judged. **Every Wire released before these bytes reads none of them** - the
 reader never looked past +252 - so the bytes protect machines from the
@@ -182295,7 +182295,7 @@ disk beside its kernel, so `Needs a newer Wire - update the system disk` is
 the true sentence for it too. The rows are `WIRE_CELL_LEVELS` in
 `tools/os88wire.py`.
 
-**A new `PKG_FMT` starts a new generation, and `PKG_FMT` 13 has one row.**
+**A new `PKG_FMT` starts a new generation, and `PKG_FMT` 13 has two rows.**
 A row describes a RELEASED kernel at this format; every older package is
 fenced by WC_PKGFMT whatever its level. Kernel size pass 19's flag day moved
 `PKG_FMT` 10 -> 13 and renumbered the table (§20.3.4), so the rows that
@@ -182307,6 +182307,11 @@ format), its table ending at 0x023C, so `OSAPI_KEYBOARD` (§9.16), the first
 cell appended after it, cuts the first row: `(0x023C, 8)`. `WIRE_LEVEL` did
 not restart at 3 - it is also the reader's capability (the archive formats,
 §92.13.1), which the generation does not reset - so the row is level 8.
+v1.0.20261120 (and 20261123) then released the table ending at 0x0244, so
+`OSAPI_WM_DORIGIN` (§39.16.4.3), appended there, cuts the second:
+`(0x0244, 9)`. `os88ui.inc`'s dialogs and the Sticky App library call it to
+open on the asking window's display, so most packages with a dialog are
+level 9 - which is right, since a level-8 machine's kernel has no such cell.
 
 **A DOOR cell needs no level.** A rare cell is an index into the kernel's
 door table (§20.3.4), and a kernel with no word for an index REFUSES it - CF
@@ -182319,10 +182324,11 @@ image carrying data spells `CD 81 FF` by chance.
 of the last release** (the rule the PKG_FMT 10 rows were cut by: two
 releases shared that format and both Wires were level 2, so one byte had to
 hold both back, and the older table decided).
-`WIRE_TABLE_END` (0x0244: the flag day's `osapi_table_end` with `OSAPI_FILE_FIND_SEQ` (§19.7.1.1),
+`WIRE_TABLE_END` (0x0247: the flag day's `osapi_table_end` with `OSAPI_FILE_FIND_SEQ` (§19.7.1.1),
 `OSAPI_MOUSE_REL` (§9.14) and `OSAPI_KEY_MAP` (§9.7.3) appended before any kernel at `PKG_FMT` 13 was released - a cell added to an UNRELEASED generation moves the
 end and cuts no row - which made 0x023C, and then `OSAPI_KEYBOARD` (§9.16)
-appended after that table was released, which cut the level-8 row) is the
+appended after that table was released, which cut the level-8 row, and
+`OSAPI_WM_DORIGIN` (§39.16.4.3) after the next, which cut the level-9 row) is the
 end of the table the TOP level's kernel has. **A call at or past `WIRE_TABLE_END` is refused** by `--verify
 --pkgdir`, because no Wire in the field can be told about it: the release
 that first publishes such a package adds a row (the next level, its first
