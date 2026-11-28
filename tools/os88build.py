@@ -958,13 +958,22 @@ def _why(out, err):
     advice about rebuilding. The lines that matter are make's own error and
     nasm's, and they are findable by name.
     """
-    keep = []
+    # TWO TIERS, because the second one is build chatter as often as not: a
+    # whole-tier freeze prints cc8086's `frame _a2_refuse_kb` lines and
+    # a2uitest's "refused a HOME-shaped screen", and those twelve crowded
+    # make's own `error:` out of the window - the soak said "could not
+    # freeze" and showed only advice (2026-11-28, glyphbn). make's and nasm's
+    # lines always survive; the looser ones fill what is left.
+    hard, soft = [], []
     for line in (err + "\n" + out).splitlines():
-        if re.search(r"\*\*\* |error:|Error \d|No rule to make|"
-                     r"refus|cannot |not found|Traceback", line):
-            keep.append(line)
+        if re.search(r"error:|Error \d|No rule to make|Traceback", line):
+            hard.append(line)
+        elif re.search(r"\*\*\* |refus|cannot |not found", line):
+            soft.append(line)
+    keep = hard[-12:]
+    keep = soft[-(12 - len(keep)):] + keep if len(keep) < 12 else keep
     tail = (err.strip() or out.strip()).splitlines()[-12:]
-    return "\n".join(keep[-12:] or tail)
+    return "\n".join(keep or tail)
 
 
 def use_build(sub):

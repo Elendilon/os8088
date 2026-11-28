@@ -242,12 +242,14 @@
     push dx                         ; so bank them all. A pop writes no flags,
     push si                         ; which is what lets the answer survive
     push di
+  %ifdef OS88UI_BIMG                ; os88ui_bwin exists only with pictures:
     mov bx, [os88ui_bwin]           ; ...and THE BUTTON'S WINDOW'S display,
     or bx, bx                       ; not the primary (SPEC.md 13.8.9.1): a
     jz %%prim                       ; window on a mono second monitor beside a
     call OSAPI_WM_DISPLAY           ; VGA drew its cut picture inverted.
     jmp short %%ask                 ; A record that never met os88ui_btninit
 %%prim:                             ; has no window: the primary, as before
+  %endif                            ; without them (glyphbn) it is the primary
     call OSAPI_VIDEO
 %%ask:
     cmp dh, 4                       ; 1 is mono, ZF = 0 as it always was; 4
