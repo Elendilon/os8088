@@ -9288,7 +9288,7 @@ SOAK = [
         "OSAPI_KEY_MAP (0x0239) COPIES THE WHOLE KEY-STATE MAP (SPEC.md 9.7.3). "
         "Each built kernel's own bytes under Unicorn - the jump cell, kbd_track "
         "(the int 09h writer) and the kbd_down slot: the cell jumps to the body "
-        "and the table ends at 0x0244; with the map unarmed and poisoned one "
+        "and the table ends at the Wire's WIRE_TABLE_END; with the map unarmed and poisoned one "
         "call ARMS it and answers 16 zero bytes; scancodes fed through "
         "kbd_track (makes, breaks, E0-prefixed grey keys on the keypad bits) "
         "copy out as bit s&7 of byte s>>3 into an odd offset of a foreign DS, "
