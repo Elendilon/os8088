@@ -238,16 +238,50 @@ dm_onkey:
     RESTORE
     ret
 
-dm_launch:
+; dm_playdisp - which display plays (SPEC.md 100, 53.1.2): the window's own
+; first; refused there, each display in turn, OSAPI_FSX_CAPS with BX = 1, 2,
+; ... until CF says there is none. Out AX = the play modes it offers (0: none
+; does), [dm_fsdisp] = 0 the window's or n display n-1 (OSAPI_FSX_RUN's CH),
+; BX = [dm_win]
+DM_PLAYMODES equ (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
+dm_playdisp:
+    mov byte [dm_fsdisp], 0
     mov bx, [dm_win]
+.ask:
+    push bx
     call OSAPI_FSX_CAPS
-    test ax, (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
+    pop bx
+    jc .none
+    and ax, DM_PLAYMODES
+    jnz .got
+    cmp bx, 15                      ; a window pointer is far past 15: the
+    jbe .next                       ; walk starts at display 0
+    xor bx, bx
+.next:
+    inc bx
+    jmp short .ask
+.got:
+    cmp bx, 15
+    ja .out
+    mov [dm_fsdisp], bl
+    jmp short .out
+.none:
+    xor ax, ax
+.out:
+    mov bx, [dm_win]
+    ret
+
+dm_launch:
+    call dm_playdisp
+    test ax, ax
     jz .out
     xor ax, ax
     call OSAPI_WM_TIMER
     call dm_audio_quiet
     mov ax, dm_fullscreen
-    mov cx, FSXF_FASTTICK
+    mov cl, FSXF_FASTTICK
+    mov ch, [dm_fsdisp]
+    mov bx, [dm_win]
     call OSAPI_FSX_RUN
     ; Enter can beat the first artwork timer. Resume its deferred load after
     ; gameplay, while leaving the saved game music paused on the desktop.
@@ -272,6 +306,12 @@ dm_fullscreen:
     jmp .release
 .mode:
     mov bx, [dm_win]
+    mov al, [dm_fsdisp]             ; the display the bracket opened on
+    test al, al
+    jz .caps
+    cbw
+    xchg ax, bx
+.caps:
     call OSAPI_FSX_CAPS
     mov byte [dm_cga], 0
     mov al, FSXM_MODEX
@@ -509,6 +549,7 @@ VAR dm_fronty,2
 VAR dm_frontscale,1
 VAR dm_frontcolor,1
 VAR dm_frontplay,1
+VAR dm_fsdisp,1
 VAR dm_frontheight,2
 VAR dm_frontrow,2
 VAR dm_frontend,2

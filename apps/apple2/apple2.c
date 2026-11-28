@@ -407,6 +407,13 @@ extern unsigned a2_opbase;
  * model's last scan line is never on the glass. */
 #define A2_W_H     (OS88_TITLE_H + A2_CONT_H + 1)           /* 237 */
 
+/* the frame on each adapter kind (os88_wm_prefer, SPEC.md 11.100.1): KEPT by
+ * the kernel, so a static - the template's on all three, clamped by each
+ * display, so a drag onto a 200-row CGA refits it (the audit's K3) */
+static int a2_pref[6] = {
+    A2_W_W, A2_W_H, A2_W_W, A2_W_H, A2_W_W, A2_W_H
+};
+
 #define A2_ROWS  24                         /* character rows */
 #define A2_COLS  40                         /* ...and cells across */
 #define A2_GROUPS 5                         /* = A2_COLS / 8; 8 cells = 56
@@ -2744,6 +2751,7 @@ void *os88_main(void)
         return 0;
     }
     a2_win = win;
+    os88_wm_prefer(win, a2_pref);           /* ...and every other display's */
     os88_menu_set(win, (struct os88_menuset *)&a2_menus);
     /* ...and the document a double-click named (SPEC.md 54.5). BANKED, not
      * read: the wake is where the floppy is touched and where an ovl_ can be

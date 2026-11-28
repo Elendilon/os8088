@@ -439,13 +439,29 @@ TK_KS     equ 0x1F              ; S - back
 tk_adapter:
     push ax
     push bx
+    push cx
     push dx
+    push si
+    ; TWO DISPLAYS, TWO QUESTIONS (SPEC.md 85.10.8). The attract window's ink
+    ; is the WINDOW's display - the more restrictive one of a straddle, which
+    ; its frame is sized for (OSAPI_WM_DISPLAY, SPEC.md 39.16.4.1); before
+    ; the window exists, the primary's
     mov bx, [tk_win]
-    call OSAPI_FSX_CAPS             ; AX = settable ids, DL = that display's
-    mov [tk_vidk], dl               ; VID_* kind - which is also the attract
-                                    ; window's ink question, and it is asked
-                                    ; HERE so that a window dragged to the other
-                                    ; card of a two-card machine re-answers it
+    or bx, bx
+    jz .prim
+    call OSAPI_WM_DISPLAY           ; DL = the kind
+    jmp short .wk
+.prim:
+    call OSAPI_VIDEO
+.wk:
+    mov [tk_vidk], dl
+    ; ...and the RASTER is the FULL-SCREEN TARGET's: the display the window
+    ; is mostly on when it can set one of the three, else the first that can
+    ; (os88fsxw.inc, SPEC.md 53.1.2.1); [tk_fsdisp] is the bracket's CH
+    mov bx, [tk_win]
+    mov dx, (1 << FSXM_MODEX) | (1 << FSXM_CGA320) | (1 << FSXM_HERC)
+    call fsxw_pick                  ; AX = the target's modes of those
+    mov [tk_fsdisp], ch
     ; THE LAST TEST TO PASS WINS, so they run in the reverse of the preference
     ; - VGA's Mode X, the only mode here with a spare page in it, then the 1983
     ; port's own CGA mode, then Hercules - and [tk_want] and [tk_fsxm],
@@ -473,7 +489,9 @@ tk_adapter:
     mov dx, tk_s_playn
 .ok:
     mov [tk_mi_game + 0], dx
+    pop si
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -765,6 +783,7 @@ tk_tpl:
     ZBYTE tk_fsxm
     OS88_ADJACENT tk_want, tk_fsxm, 1   ; tk_adapter writes the pair as a word
     ZBYTE tk_vidk                   ; the VID_* kind of the display we are on
+    ZBYTE tk_fsdisp                 ; the full-screen target, FSX_RUN's CH
     ZBUF  tk_numbuf, 14
     ZBYTE tk_ctry
     ZBYTE tk_espread
@@ -1117,6 +1136,7 @@ tk_kx equ tk_kxrows - TK_NEARZ * 2  ; the projection table (85.5.3): sclx over
 %define GFXE_PT_BUF tk_pts
 %define GFXE_PT_MAX TK_PTMAX
 %include "os88gfx.inc"
+%include "os88fsxw.inc"             ; fsxw_pick (SPEC.md 53.1.2.1)
 
 ; =============================================================================
 ; THE ENTRY OVERLAY (SPEC.md 85.10.6): the entry proc lies under tk_spjunk

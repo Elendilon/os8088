@@ -1929,6 +1929,10 @@ MEMC_WHATIF_P equ 2              ; AH: MEMC_WHATIF in PARAGRAPHS - the same
 ;
 ;   bytes = planes * (y2-y1+1) * ((x2>>3) - (x1>>3) + 1)
 ;
+; A STRADDLING window is answered with its more restrictive display, and its
+; panel can lie wholly on the other, deeper one: size for the DEEPEST display
+; (SPEC.md 5.3.1) - apps/os88ui.inc's os88ui_bankpl is that rule, once.
+;
 ; ...with planes = DH AS IT COMES: 4 on VGA and EGA, 1 on a 1bpp card, and 8
 ; or 16 on a packed VESA display (SPEC.md 120.5), where the save is the pixels
 ; themselves and DH is the BYTES a column. Never fold it to 4-or-1: a package
@@ -7048,6 +7052,22 @@ KBDL_US equ 1
 KBDL_ES equ 2
 KBDL_LA equ 3
 KBDL_FR equ 4
+
+; The ORIGIN of the display a window is on (SPEC.md 39.16.4.3).
+%define OSAPI_WM_DORIGIN KERNEL_SEG:0x0244 ; BX = your window. Out AX = x, DX = y
+                                 ; of the display's top-left corner in the
+                                 ; VIRTUAL coordinates your W_X/W_Y and every
+                                 ; drawing slot use; every other register kept.
+                                 ; The same display OSAPI_WM_DISPLAY answers
+                                 ; the size of, so the display's own rect is
+                                 ; AX, DX, that cell's AX x BX - which is what
+                                 ; a widget comparing its position with "the
+                                 ; edge of my screen" needs (on display 1 of
+                                 ; an extended desktop it is NOT at 0,0). One
+                                 ; display: (0, 0). No lock, any context.
+                                 ; Appended past the released table (SPEC.md
+                                 ; 92.2's cell fence): needs a kernel from
+                                 ; this table on.
 
 
 ; ---- BEGIN CELL KINDS (SPEC.md 20.3.3) -----------------------------------------

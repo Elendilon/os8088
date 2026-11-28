@@ -156,9 +156,8 @@ n_exclusive:
     call OSAPI_FSX_WAIT
     jmp .release
 .mode:
-    mov bx, [n_win]
-    call OSAPI_FSX_CAPS
-    mov byte [n_cga], 0
+    mov dl, [n_fskind]              ; the target's kind, banked by n_launch on
+    mov byte [n_cga], 0             ; the desktop (SPEC.md 101.2.2)
     mov al, FSXM_MODEX
     cmp dl, VID_VGA
     je .set
@@ -323,6 +322,7 @@ n_msgresume: db 'P TO RESUME',0
 %define OS88UI_ABOUT
 %define OS88UI_NOBTN
 %include "os88ui.inc"
+%include "os88fsxw.inc"             ; fsxw_pick (SPEC.md 53.1.2.1)
 %assign NBSS OP_BSS                 ; the parts standard's bss comes first
 %macro VAR 2
     %1 equ os88_image_end + NBSS
@@ -346,6 +346,8 @@ VAR n_seed,2
 VAR n_error,1
 VAR n_infs,1
 VAR n_cga,1
+VAR n_fskind,1                       ; the full-screen target's kind (n_launch)
+VAR n_fsdisp,1                       ; ...and its display, FSX_RUN's CH
 VAR n_profile,1
 VAR n_sound,1
 VAR n_state,1

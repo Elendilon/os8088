@@ -1,6 +1,6 @@
 {
  "DRV_VER": {
-  "fingerprint": "c2262cf856aa1c0756df812f36e8ec251ed44afbbe49b6f25b3995149710bd54",
+  "fingerprint": "04e84329fddd1237d2bb1e913393694dff9feb92db27a596f4144bb129a2bdab",
   "version": 14
  },
  "HD_ABI_VER": {
@@ -8,7 +8,7 @@
   "version": 7
  },
  "PKG_FMT": {
-  "fingerprint": "b3dee7e8aea9c5b4d52affdb03eaaf41f075bc84c2ec54e56dee4fa41579f2cc",
+  "fingerprint": "273f970900a6ef7f9d1d6dddc6835edf99557348c86c462b3d6995f4837a2432",
   "version": 13
  },
  "VX_ABI_VER": {
@@ -2504,6 +2504,48 @@
    "from": 14,
    "guard": "DRV_VER",
    "reason": "PCIETHER.DRV sized by driver size pass 2 (17,432 -> 17,233): DRVM_CEIL_NET_PCI 40 -> 39, a caption ceiling DOS.O88 quotes. No cell moved, no DRV_VER bump (the driver size pass 1 precedent, SPEC.md 72.4.3)",
+   "to": 14
+  },
+  {
+   "fingerprint": "f05e33001d0422b64390ee6c8a9519560337c18305f1800e091cba822f3a16c7",
+   "from": 13,
+   "guard": "PKG_FMT",
+   "reason": "C SDK: os88_fsx_pick() added (SPEC.md 53.1.2.1) - a new thunk, nothing built before changes",
+   "to": 13
+  },
+  {
+   "fingerprint": "616ef99c437543006db3c45e693e2d6839e25b027250f9df7db39c505d3311cd",
+   "from": 13,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_WM_DORIGIN (JCELL 0x0244, SPEC.md 39.16.4.3) appended at the end of the table and the C SDK's os88_wm_dorigin - an addition, every package built before still runs",
+   "to": 13
+  },
+  {
+   "fingerprint": "0ddc589f802cdd428e19350334ab6b5432a86ef2c42f33f0ba551d9ef047ef0c",
+   "from": 14,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_WM_DORIGIN (JCELL 0x0244, SPEC.md 39.16.4.3) appended at the end of the table and the C SDK's os88_wm_dorigin - an addition, every package built before still runs",
+   "to": 14
+  },
+  {
+   "fingerprint": "01bfc8e9575cb11ab4e8dab9233939eebe3fb5f175902581d1209700b0d0c211",
+   "from": 13,
+   "guard": "PKG_FMT",
+   "reason": "C SDK: os88_wm_prefer() added (SPEC.md 11.100.1) - a new thunk, nothing built before changes",
+   "to": 13
+  },
+  {
+   "fingerprint": "273f970900a6ef7f9d1d6dddc6835edf99557348c86c462b3d6995f4837a2432",
+   "from": 13,
+   "guard": "PKG_FMT",
+   "reason": "merge of the extended-desktop work (OSAPI_WM_DORIGIN cell added at the end, C thunks os88_fsx_pick/os88_wm_prefer/os88_wm_dorigin) with elendilon's driver size pass 2; nothing built before changes, no bump",
+   "to": 13
+  },
+  {
+   "fingerprint": "04e84329fddd1237d2bb1e913393694dff9feb92db27a596f4144bb129a2bdab",
+   "from": 14,
+   "guard": "DRV_VER",
+   "reason": "merge of the extended-desktop work (OSAPI_WM_DORIGIN cell added at the end, C thunks os88_fsx_pick/os88_wm_prefer/os88_wm_dorigin) with elendilon's driver size pass 2; nothing built before changes, no bump",
    "to": 14
   }
  ]

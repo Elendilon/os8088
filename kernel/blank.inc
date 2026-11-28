@@ -162,10 +162,11 @@ ss_secs     db 30               ; seconds one mode runs before another is
 ss_mins     db SS_MINS          ; minutes of idle before it starts; 0 = never
 ss_post     db 0                ; the settings window changed something and
                                 ; the UI task owes it work (SPEC.md 79.7)
-%else
-            db 0                ; PARITY on kern_small (kernel size pass 13):
-%endif                          ; three bytes out here would leave wm_clip_rows
-                                ; and ui_task at an odd shift
+%endif                          ; (kern_small's PARITY byte that stood here
+                                ; went with wm_box: SPEC.md 39.17.2.1's
+                                ; wm_resize_nb is one byte shorter there, and
+                                ; the two together keep wm_clip_rows and
+                                ; ui_task at an even shift)
 
 ss_idle     dw BLK_IDLE         ; [ss_mins] in TICKS, which is the unit
                                 ; blk_pass compares in. Derived, by

@@ -8,7 +8,7 @@
 # the glass:
 #   - opening is a LOOK: every game's state from where its .ROM is, and no
 #     game read (11.1) - on a display without VGA's 640x480 the two VGA
-#     games say NEEDS VGA;
+#     games say NEEDS VGA (a bit over their ROM NEEDED: state 3);
 #   - the keys move the selection (Down, End, Home, a letter);
 #   - a move redraws in one pass: m.flicker() sees no pixel changed and
 #     changed back inside the window (11.3);
@@ -100,8 +100,14 @@ def main():
         st = list(rd('af_state', n))
         want = [0] * n
         if not vga:
-            want[5:7] = [2] * (n - 5)
-        print('arcface: %d games, states %s (0 READY, 1 ROM NEEDED, 2 NEEDS VGA)' % (n, st))
+            # NEEDS VGA (2) is a BIT ORed onto the look's READY / ROM NEEDED
+            # since ARCADE-SPEC 11.1's extended-desktop rework (6b44be6d8): a
+            # window dragged onto a VGA must get the look's answer back, so
+            # the look is kept under the bit. This disk carries neither VGA
+            # game's .ROM, so both read ROM NEEDED | NEEDS VGA = 3; a 2 would
+            # mean the bit REPLACED the look, which is the old shape
+            want[5:7] = [1 | 2] * (n - 5)
+        print('arcface: %d games, states %s (0 READY, 1 ROM NEEDED, +2 NEEDS VGA)' % (n, st))
         if st != want:
             bad.append('states %s, wanted %s' % (st, want))
         # the keys

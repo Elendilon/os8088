@@ -992,13 +992,14 @@ stik_made:
     jle .rec                    ; DRAGGED half over it is left there on
     push ax                     ; purpose (wm_dock_snap) - and that is the
     push bx                     ; place the user chose. Give back what the fit
-    call OSAPI_WM_DISPLAY       ; took, down to the lowest y whose frame and
+    call stik_dbox              ; took, down to the lowest y whose frame and
     mov cx, bx                  ; shadow are on this display - wm_fit's own
     pop bx                      ; floor for a KEEPH window, ph - h - 1 - and
     pop ax
-    sub cx, [es:bx+W_H]         ; never past it (SPEC.md 110.5.2). The window
-    dec cx                      ; is not shown yet; x is clamped the same
-    cmp ax, cx                  ; either way and is not touched
+    sub cx, [es:bx+W_H]         ; never past it (SPEC.md 110.5.2), the
+    dec cx                      ; display's own bottom (39.16.4.3). The window
+    cmp ax, cx                  ; is not shown yet; x is clamped the same
+                                ; either way and is not touched
     jle .put
     mov ax, cx
 .put:
@@ -1608,6 +1609,31 @@ stik_seek:
 .out:
     ret
 
+; stik_dbox - BX = a window: the display it is on (OSAPI_WM_DISPLAY's - a
+; straddler's is the restrictive one) in the VIRTUAL coordinates W_X/W_Y are
+; in, its origin OSAPI_WM_DORIGIN's (SPEC.md 39.16.4.3; (0, 0) on one
+; display). AX = its right edge, BX = its bottom (both exclusive), CX = its
+; left, DX = the highest y a widget may take: the menu bar's foot on the
+; primary, the display's own top row anywhere else. Spends SI. Outside
+; STIK_WIDGET: stik_made's restored-y fit calls it for every stik package
+stik_dbox:
+    push bx
+    call OSAPI_WM_DISPLAY       ; AX = width, BX = height (CX DX SI)
+    pop si
+    xchg bx, si                 ; BX = the window, SI = the height
+    push ax
+    call OSAPI_WM_DORIGIN       ; AX = x, DX = y
+    mov cx, ax
+    pop ax
+    add ax, cx
+    mov bx, si
+    add bx, dx
+    cmp dx, MBAR_H
+    jge .r
+    mov dx, MBAR_H
+.r:
+    ret
+
 %ifdef STIK_WIDGET
 ; =============================================================================
 ; THE WIDGET TREATMENT (SPEC.md 110.11) - the face, its tag and its gestures.
@@ -1664,18 +1690,18 @@ stik_refit:
     jz .r
     push si
     mov bx, si
-    call OSAPI_WM_DISPLAY       ; BX = the display's height (AX CX SI DX)
+    call stik_dbox              ; BX = the display's bottom, DX its top
     pop si
     mov ax, [es:si+W_Y]
     add ax, [es:si+W_H]
     cmp ax, bx
     jle .r                      ; on the glass
     sub bx, [es:si+W_H]
-    cmp bx, MBAR_H
+    cmp bx, dx
     jge .y
-    mov bx, MBAR_H              ; a face taller than this display (the
-.y:                             ; layout is the PRIMARY's) goes up to the bar
-    cmp bx, [es:si+W_Y]         ; ...and ONLY up, once: at the bar already, it
+    mov bx, dx                  ; a face taller than this display (the
+.y:                             ; layout is the PRIMARY's) goes up to its top
+    cmp bx, [es:si+W_Y]         ; ...and ONLY up, once: at the top already, it
     jge .r                      ; is left where it is, never re-shown a beat
     push bx
     mov bx, si
@@ -2347,34 +2373,35 @@ stik_resize:
 .poke:
     mov [es:si+W_W], cx
     mov [es:si+W_H], dx
-    push cx
-    push dx
-    call OSAPI_WM_DISPLAY       ; AX = its width, BX = height (CX DX SI)
-    pop dx
-    pop cx
-    mov si, di
-    push bx
+    mov bp, cx                  ; BP = the new width
+    push dx                     ; ...and its height
+    call stik_dbox              ; AX = the display's right, BX its bottom, CX
+    mov si, di                  ; its left, DX its top: VIRTUAL, so a widget
+    push bx                     ; on the second display stays there (39.16.4.3)
     mov bx, [es:si+W_X]          ; the RIGHT edge on the display, the face
-    add bx, cx                  ; kept on the byte grid (W_X = 7 mod 8)
-    cmp bx, ax
+    add bx, bp                  ; kept on the byte grid (W_X = 7 mod 8; every
+    cmp bx, ax                  ; display's left is a multiple of 8)
     jle .xok
-    sub ax, cx
+    sub ax, bp
     and ax, 0FFF8h
     dec ax
-    jns .xs
-    mov ax, 7
+    cmp ax, cx
+    jge .xs
+    mov ax, cx                  ; ...and never left of the display
+    add ax, 7
 .xs:
     mov [es:si+W_X], ax
 .xok:
-    pop bx                      ; ...and the BOTTOM, at the bar at worst
+    pop bx                      ; ...and the BOTTOM, at its top at worst
+    pop bp
     mov ax, [es:si+W_Y]
-    add ax, dx
+    add ax, bp
     cmp ax, bx
     jle .yok
-    sub bx, dx
-    cmp bx, MBAR_H
+    sub bx, bp
+    cmp bx, dx
     jge .ys
-    mov bx, MBAR_H
+    mov bx, dx
 .ys:
     mov [es:si+W_Y], bx
 .yok:

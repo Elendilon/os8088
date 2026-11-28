@@ -1021,6 +1021,7 @@ it_ab8:      db 'Contributed by Jorge Gonzalez', 0
 %define OS88UI_NOBTN
 %include "os88ui.inc"
 %include "os88alt.inc"              ; Alt+Enter in the bracket (os88alt_edge)
+%include "os88fsxw.inc"             ; fsxw_pick: the full-screen target (53.1.2.1)
 
 ; --- strings ------------------------------------------------------------------
 it_s_player: db 'PLAYER ', 0
@@ -1219,6 +1220,7 @@ it_s_nomem3: db ' KB.', 0
 ; --- full screen (itfs.inc, SPEC.md 108.12) -------------------------------------
     BYTEV it_fsm                    ; a bracket is up
     BYTEV it_fsk                    ; ...its surface, FSK_*
+    BYTEV it_fsdisp                 ; ...its display, OSAPI_FSX_RUN's CH
     BYTEV it_fsq                    ; ...asked to end
     BYTEV it_fsega                  ; ...borrowed the windowed geometry (EGA)
     BYTEV it_fsret                  ; ...ended: the exit paint owes the picture

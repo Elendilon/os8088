@@ -3540,7 +3540,11 @@ rmk_11:           ; (a real-mode bracket keeps it: fsx_rkeep)
                                   ;          with the held keys' bits; CF = 0
 rmk_11e:          ; (a real-mode bracket keeps it: fsx_rkeep)
     OSAPI_SLOT osapi_keyboard     ; 0x023C - optional native input (9.16)
-osapi_table_end:                  ; 0x0244 today (0x0239 before KEY_MAP;
+    OSAPI_JCELL osapi_wm_dorigin  ; 0x0244 - OSAPI_WM_DORIGIN: the ORIGIN of
+                                  ;          the display a window is on, in
+                                  ;          virtual coordinates (39.16.4.3)
+osapi_table_end:                  ; 0x0247 today (0x0244 before WM_DORIGIN;
+                                  ; 0x0239 before KEY_MAP;
                                   ; 0x0236 before MOUSE_REL;
                                   ; 0x0233 before FIND_SEQ;
                                   ; 0x046D before kernel size
@@ -3590,8 +3594,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 46*8 + 15*7 + 8*3 + 6 + 7*5 + 3*6 + 8
-%error "os8088 API jump table must be exactly 0x0234 bytes: 46 SLOT (8, the yield's YSLOT among them), 15 XCELL (7, OSAPI_FILE_READ_SEQ's NCELL among them), 8 JCELL (3, OSAPI_KEY_MAP the last), 1 FCELL (6), 11 ICELL (7 of 5, 3 of 6, 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14). Kernel size pass 19's T5 moved every RARE cell behind the door (SPEC.md 20.3.4) - the table holds no six-byte cell any more - and promoted OSAPI_GFX_DESK to a SLOT (V7)"
+%if OSAPI_TABLE_LEN != 46*8 + 15*7 + 9*3 + 6 + 7*5 + 3*6 + 8
+%error "os8088 API jump table must be exactly 0x0237 bytes: 46 SLOT (8, the yield's YSLOT among them), 15 XCELL (7, OSAPI_FILE_READ_SEQ's NCELL among them), 9 JCELL (3, OSAPI_WM_DORIGIN the last), 1 FCELL (6), 11 ICELL (7 of 5, 3 of 6, 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14). Kernel size pass 19's T5 moved every RARE cell behind the door (SPEC.md 20.3.4) - the table holds no six-byte cell any more - and promoted OSAPI_GFX_DESK to a SLOT (V7)"
 %endif
                                 ; (THE PARITY PAD kernel size pass 19 left
                                 ; here went with OSAPI_FILE_FIND_SEQ's three
@@ -3607,6 +3611,9 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
                                 ; went again with OSAPI_KEY_MAP's (9.7.3): the
                                 ; table is EVEN with both cells and no pad.
                                 ; The next three-byte cell brings it back
+    nop                         ; ...and it is back, for OSAPI_WM_DORIGIN's
+                                ; three (SPEC.md 39.16.4.3): PARITY, never
+                                ; executed - nothing falls through the table
 
 %ifdef KERN_MEGA
 ; kern_mega's DATA SEGMENT WORD (KDS/KES above, kernel/mega.inc), and it is

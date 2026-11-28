@@ -1530,8 +1530,9 @@ zi_readline:
     mov [zi_line + bx], al
     inc bx
     mov [zi_linen], bx
-    call zw_typec                   ; echo, drawn NOW - not held in the wrap
-    jmp short .wait                 ; buffer until a space arrives (zwin.inc)
+    mov di, zw_typec                ; echo, drawn NOW - not held in the wrap
+    call zi_echo                    ; buffer until a space arrives (zwin.inc)
+    jmp short .wait
 
 .back:
     mov bx, [zi_linen]
@@ -1539,7 +1540,8 @@ zi_readline:
     jz .wait
     dec bx
     mov [zi_linen], bx
-    call zw_rubc                    ; zwin removes the last cell of the line
+    mov di, zw_rubc                 ; zwin removes the last cell of the line
+    call zi_echo
     jmp short .wait
 
 .ext:
@@ -1552,8 +1554,8 @@ zi_readline:
 
 .enter:
     mov al, 13
-    call zw_newline                 ; "a carriage return is printed, so the
-                                    ; cursor moves to the next line"
+    mov di, zw_newline              ; "a carriage return is printed, so the
+    call zi_echo                    ; cursor moves to the next line"
 .fin:
     push ax                         ; bank the terminating character
     call zi_script_echo             ; the command into the transcript too
@@ -1566,6 +1568,31 @@ zi_readline:
     pop dx
     pop cx
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; zi_echo - one of the line editor's draws, UNDER THE GFX LOCK (SPEC.md 61.18)
+; in:  DI = zw_typec, zw_rubc or zw_newline; AL = its character; the lock NOT
+;      held (zxo_read parked it before the wait)
+; out: nothing; preserves SI and ES (the PC's segment), as zx_lock does
+;
+; The three were called bare, with the lock that zwin.inc documents them as
+; holding already dropped by zx_park - so the worker drew lock-free while the
+; UI task drew under the lock. On an extended desktop that is not a smear: the
+; kernel's display context is the lock holder's (SPEC.md 39.14.3), and a drag
+; switching it under a half-drawn row sent the rest of the row through the
+; other card's geometry - the machine went wild (SPEC.md 61.18).
+; -----------------------------------------------------------------------------
+zi_echo:
+    push si
+    push es
+    push ax                         ; AL is the character: an OSAPI slot owes
+    call OSAPI_GFX_LOCK             ; us DS and nothing else (SPEC.md 20.5)
+    pop ax
+    call di
+    call OSAPI_GFX_UNLOCK
+    pop es
+    pop si
     ret
 
 ; -----------------------------------------------------------------------------

@@ -2337,6 +2337,8 @@ sh_x_sh_clearcell:                  ; and the block clipboard, 81.18)
     CHX sh_clearcell
 sh_x_sh_formula_copyshift:          ; ...and a moved formula's own references
     CHX sh_formula_copyshift        ; follow it, Sort's own rule (81.61)
+sh_x_os88ui_centre:                 ; 75.3.4: where the module's dialogs open
+    CHX os88ui_centre
 sh_x_os88line_set:                  ; 81.71.5: the widgets Data ▸ Form draws
 
     CHX os88line_set
@@ -2634,6 +2636,7 @@ sh_ovshims:
     dw sh_x_k_file_here, sh_x_k_file_goto_qm, sh_x_k_file_find
     dw sh_x_k_file_delete, sh_x_k_m2read, sh_x_k_m2write
     dw sh_x_k_keyboard                                               ; 83.7
+    dw sh_x_os88ui_centre                                            ; 75.3.4
 SH_OVSHIMS_N equ ($ - sh_ovshims) / 2  ; ...asserted against SH_NVEC there
 sh_entry:
     push ax
@@ -9008,10 +9011,12 @@ sh_mclose:
 ; (Copy and Paste stage through it and the clipboard is the OS's; the
 ; chart's staged series are there too, so Chart Gallery rescans rather than
 ; re-rendering them), and no command runs while a menu is up.
-; [sh_mbanked] = 1 with the rect's bottom, clamped to the display, in
-; [sh_mbky2]; or 0 when anything refused, and sh_mclose repaints as before.
-; The size is SPEC.md 13.16.4's: planes * rows * byte columns, the plane
-; count from OSAPI_WM_DISPLAY (never OSAPI_VIDEO: 39.16.4)
+; [sh_mbanked] = 1 with the rect's bottom in [sh_mbky2]; or 0 when anything
+; refused, and sh_mclose repaints as before. The size is SPEC.md 13.16.4's:
+; planes * rows * byte columns, the planes os88ui_bankpl's (SPEC.md 5.3.1).
+; A panel that runs past its DISPLAY's last row is SHORTENED to the items
+; that fit above it (81.98.2): that row is found by asking OSAPI_GFX_SAVE
+; itself, which refuses a rect leaving the display that holds its top-left.
 ; -----------------------------------------------------------------------------
 sh_mbank:
     push ax
@@ -9022,16 +9027,6 @@ sh_mbank:
     push di
     push es
     mov byte [sh_mbanked], 0
-    mov bx, [sh_ownwin]
-    call OSAPI_WM_DISPLAY             ; BX = height, DH = bits per pixel
-    dec bx
-    mov ax, [sh_mry2]
-    cmp ax, bx
-    jbe .y2
-    mov ax, bx
-.y2:
-    mov [sh_mbky2], ax
-    mov di, ax                        ; DI = the last row, kept across mul
     mov ax, [sh_mrx2]
     mov cl, 3
     shr ax, cl
@@ -9039,32 +9034,76 @@ sh_mbank:
     shr bx, cl
     sub ax, bx
     inc ax                            ; AX = byte columns
-    mov bx, di
+    mov bx, [sh_mry2]
     sub bx, [sh_mry1]
-    inc bx                            ; BX = rows
-    push dx
+    inc bx                            ; BX = rows, the whole panel's
     mul bx                            ; DX:AX = one plane
-    pop bx                            ; BH = bits per pixel
-    cmp bh, 4
-    jb .one                           ; 4 planes - or 8 or 16 BYTES a column
-    or dx, dx                         ; on a packed display (SPEC.md 120.5):
-    jnz .out                          ; DH AS IT COMES, never == 4
-    mov cl, bh
-    xor ch, ch
-    mul cx                            ; DX:AX = planes * one plane
-.one:
     or dx, dx
     jnz .out
-    cmp ax, SH_STAGE_MAX
-    ja .out
+    mov bx, [sh_ownwin]
+    call os88ui_bankpl                ; BX = planes - or 8 or 16 BYTES a
+    mul bx                            ; column on a packed display (SPEC.md
+    or dx, dx                         ; 120.5): AS IT COMES, never == 4
+    jnz .out
+    cmp ax, SH_STAGE_MAX              ; every save below is this rect or a
+    ja .out                           ; shorter one, so this bounds them all
     mov es, [sh_stgseg]
-    xor di, di
     mov ax, [sh_mrx1]
     mov bx, [sh_mry1]
     mov cx, [sh_mrx2]
-    mov dx, [sh_mbky2]
-    call OSAPI_GFX_SAVE               ; CF=1: the rect straddles two displays
+    mov dx, [sh_mry2]
+    call .save                        ; the common case: one call
+    jnc .took
+    mov cx, ax                        ; refused: find the display's last row
+    call .save                        ; (81.98.2) with ONE-COLUMN rects. The
+    jnc .out                          ; column fits whole: the refusal was
+    mov si, bx                        ; the width's, a vertical seam - repaint
+    mov dx, bx                        ; SI = a row known in, DI = one known out
+    call .save
+    jc .out                           ; the top itself is in no display
+    mov di, [sh_mry2]
+.halve:
+    mov dx, si
+    add dx, di
+    shr dx, 1                         ; DX = between them
+    cmp dx, si
+    je .found                         ; adjacent: SI is the last row
+    call .save
+    jc .high
+    mov si, dx
+    jmp short .halve
+.high:
+    mov di, dx
+    jmp short .halve
+.found:
+    lea bx, [si+1]                    ; is the row under it ANOTHER display's?
+    mov dx, bx                        ; Nothing there (the screen's end, a
+    call .save                        ; dead zone) draws the tail nowhere, so
+    mov bx, [sh_mry1]                 ; bank to the last row and draw the
+    mov dx, si                        ; panel whole, as one display always
+    jc .clip                          ; did
+    mov ax, si                        ; whole items above it, frame closed
+    sub ax, [sh_mry1]                 ; under them: sh_mdrop_geo's
+    sub ax, 3                         ; mry2 = mry1 + n * SH_MI_H + 3
+    jb .out
+    xor dx, dx
+    mov cx, SH_MI_H
+    div cx                            ; AX = the items that fit
+    or ax, ax
+    jz .out
+    mov [sh_mcnt], ax
+    mul cx
+    add ax, [sh_mry1]
+    add ax, 3
+    mov [sh_mry2], ax                 ; the panel is that tall now, and never
+    mov dx, ax                        ; drawn on the other display
+.clip:
+    mov ax, [sh_mrx1]
+    mov cx, [sh_mrx2]
+    call .save
     jc .out
+.took:
+    mov [sh_mbky2], dx
     mov byte [sh_mbanked], 1
 .out:
     pop es
@@ -9074,6 +9113,13 @@ sh_mbank:
     pop cx
     pop bx
     pop ax
+    ret
+; AX/BX/CX/DX = x1/y1/x2/y2 into ES:0, every one kept; CF = 1 refused
+.save:
+    push di
+    xor di, di
+    call OSAPI_GFX_SAVE
+    pop di
     ret
 
 ; -----------------------------------------------------------------------------
@@ -14273,16 +14319,11 @@ sh_fdlg_open:
 .tallenough:
     add ax, SH_DLG_BMARG + TITLE_H + 1
     mov [sh_fdlg_tpl + WT_H], ax
-    call OSAPI_VIDEO                  ; centre on the LIVE screen, the same
-    sub ax, SH_FDLG_W                 ; way os88ui_ask does (apps/os88ui.inc)
-    sar ax, 1
+    mov ax, SH_FDLG_W
+    mov dx, [sh_fdlg_tpl + WT_H]
+    mov bx, [sh_ownwin]               ; on the asking window's display
+    SHOUT os88ui_centre               ; (SPEC.md 75.3.4)
     mov [sh_fdlg_tpl + WT_X], ax
-    sub bx, [sh_fdlg_tpl + WT_H]
-    sar bx, 1
-    cmp bx, MBAR_H + 8
-    jge .placed
-    mov bx, MBAR_H + 8                ; never under the menu bar
-.placed:
     mov [sh_fdlg_tpl + WT_Y], bx
     mov si, sh_fdlg_tpl
     SHK wm_create
@@ -15253,16 +15294,11 @@ sh_bdlg_open:                          ; AL = SH_BK_* (81.106)
     mov bl, [sh_a1style]
     mov [sh_bdlg_sel], bl
 .place:
-    call OSAPI_VIDEO
-    sub ax, SH_BDLG_W
-    sar ax, 1
+    mov ax, SH_BDLG_W
+    mov dx, SH_BDLG_H
+    mov bx, [sh_ownwin]               ; on the asking window's display
+    SHOUT os88ui_centre               ; (SPEC.md 75.3.4)
     mov [sh_bdlg_tpl + WT_X], ax
-    sub bx, SH_BDLG_H
-    sar bx, 1
-    cmp bx, MBAR_H + 8
-    jge .placed
-    mov bx, MBAR_H + 8
-.placed:
     mov [sh_bdlg_tpl + WT_Y], bx
     mov si, sh_bdlg_tpl
     SHK wm_create
@@ -17425,16 +17461,11 @@ sh_idlg_open:
     mov byte [si + LN_FOCUS], 1
     mov di, sh_idlg_buf
     SHOUT os88line_set                  ; sets LEN/CAR/VIEW from the content
-    call OSAPI_VIDEO
-    sub ax, SH_IDLG_W
-    sar ax, 1
+    mov ax, SH_IDLG_W
+    mov dx, SH_IDLG_H
+    mov bx, [sh_ownwin]               ; on the asking window's display
+    SHOUT os88ui_centre               ; (SPEC.md 75.3.4)
     mov [sh_idlg_tpl + WT_X], ax
-    sub bx, SH_IDLG_H
-    sar bx, 1
-    cmp bx, MBAR_H + 8
-    jge .placed
-    mov bx, MBAR_H + 8
-.placed:
     mov [sh_idlg_tpl + WT_Y], bx
     mov si, sh_idlg_tpl
     SHK wm_create
@@ -18700,16 +18731,11 @@ sh_ldlg_open:
     mov word [sh_ldlg_items], sh_nameptr
     mov [sh_ldlg_count], cx
 .have:
-    call OSAPI_VIDEO                  ; centred the same way every other
-    sub ax, SH_LDLG_W                 ; dialog here is
-    sar ax, 1
+    mov ax, SH_LDLG_W
+    mov dx, SH_LDLG_H
+    mov bx, [sh_ownwin]               ; on the asking window's display
+    SHOUT os88ui_centre               ; (SPEC.md 75.3.4)
     mov [sh_ldlg_tpl + WT_X], ax
-    sub bx, SH_LDLG_H
-    sar bx, 1
-    cmp bx, MBAR_H + 8
-    jge .placed
-    mov bx, MBAR_H + 8
-.placed:
     mov [sh_ldlg_tpl + WT_Y], bx
     mov si, sh_ldlg_tpl
     SHK wm_create                      ; the window comes back in BX, NOT SI -
@@ -20035,16 +20061,11 @@ sh_ndlg_open:
     mov byte [si + TX_FOCUS], 1
     mov di, sh_notetext
     call os88text_set                  ; sets LEN/CAR from the buffer's content
-    call OSAPI_VIDEO
-    sub ax, SH_NDLG_W
-    sar ax, 1
+    mov ax, SH_NDLG_W
+    mov dx, SH_NDLG_H
+    mov bx, [sh_ownwin]               ; on the asking window's display
+    SHOUT os88ui_centre               ; (SPEC.md 75.3.4)
     mov [sh_ndlg_tpl + WT_X], ax
-    sub bx, SH_NDLG_H
-    sar bx, 1
-    cmp bx, MBAR_H + 8
-    jge .placed
-    mov bx, MBAR_H + 8
-.placed:
     mov [sh_ndlg_tpl + WT_Y], bx
     mov si, sh_ndlg_tpl
     SHK wm_create
@@ -20682,16 +20703,11 @@ sh_docmd_form:
     mov word [si + LN_MAX], SH_EDITMAX
     mov byte [si + LN_FOCUS], 1
     call sh_df_loadfld
-    call OSAPI_VIDEO
-    sub ax, SH_DF_W
-    sar ax, 1
+    mov ax, SH_DF_W
+    mov dx, SH_DF_H
+    mov bx, [sh_ownwin]               ; on the asking window's display
+    SHOUT os88ui_centre               ; (SPEC.md 75.3.4)
     mov [sh_df_tpl + WT_X], ax
-    sub bx, SH_DF_H
-    sar bx, 1
-    cmp bx, MBAR_H + 8
-    jge .placed
-    mov bx, MBAR_H + 8
-.placed:
     mov [sh_df_tpl + WT_Y], bx
     mov si, sh_df_tpl
     SHK wm_create
@@ -40235,19 +40251,10 @@ sh_dbx_open:
     mov [sh_dbx_tpl + WT_H], dx
     mov byte [sh_dbx_done], 0
     mov byte [sh_dbx_cls], 0          ; nothing owed from the LAST dialog
-    call OSAPI_VIDEO                  ; centred, below the menu bar - and it
-    sub ax, [sh_dbx_tpl + WT_W]       ; answers the size in AX/BX while
-    sar ax, 1                         ; CLOBBERING CX and DX (the dock row,
-    jns .x                            ; the adapter), so the size is read
-    xor ax, ax                        ; back from the template and not from
-.x:                                   ; the registers it came in
+    mov ax, cx                        ; centred, below the menu bar, on the
+    mov bx, [sh_ownwin]               ; asking window's display (SPEC.md
+    call os88ui_centre                ; 75.3.4); DX is the height already
     mov [sh_dbx_tpl + WT_X], ax
-    sub bx, [sh_dbx_tpl + WT_H]
-    sar bx, 1
-    cmp bx, MBAR_H + 8
-    jge .y
-    mov bx, MBAR_H + 8
-.y:
     mov [sh_dbx_tpl + WT_Y], bx
     mov si, sh_dbx_tpl
     call OSAPI_WM_CREATE
@@ -57430,6 +57437,7 @@ sh_s_dif_eod:  db '-1,0', 13, 10, 'EOD', 13, 10, 0
 ; sh_macro_msg bss field below sizes itself from OS88UI_AMAX, which this
 ; needs to have already defined.
 %define OS88UI_ALERT
+%define OS88UI_BANKPL                ; sh_mbank's planes (SPEC.md 5.3.1)
 %define OS88UI_AEXTRA                ; Step/Halt/Continue and OK/Cancel (81.86)
 %define OS88UI_SCROLL               ; stage 3.0a+: SPEC.md 13.10's shared
                                      ; scroll bar - OPT IN, and without it
@@ -57536,7 +57544,7 @@ section .text                          ; fragment, so nothing lands after this
 ; bss (loader-zeroed, SPEC.md 21 step 5) - small now: the grid itself lives
 ; in claimed heap segments, not here.
 ; =============================================================================
-    OS88_BSS 9497                     ; +1 for 81.120's sh_prom; +4 for SHK keyboard's vector (83.7, os88kbd.inc's HOLD from the chart module); +2 for sh_m2dseg, the macro module as DATA under kern_mega (MC7); +3 for KERN-MEGA-MEMORY-PLAN MC7: OP_BSS grew by op_at's second window and op_seg's verb; +102 for 82.16.12: the parts standard's own OP_BSS, at the chain's head (the two modules are parts of SHEET.O88 now); +48 for 82.16.11: twelve vectors, CHOUT and the SHK kernel slots; +2 for sh_df_dirty, the Data Form's typed-in flag (81.71.5); +2 for sh_pstk0, the parser's stack anchor (81.3); +2 for ch_ovfail, the chart module's failure latch (82.16.5); +38 for 81.118's ask-before-discard (sh_modified, sh_pend and sh_askmsg's OS88UI_AMAX+2); +4 at the 2026-10-20 merge for 13.18's sh_v_os88ui_sbwheel (the Paste list's wheel is in the chart module, so it reaches the resident bar library through a shim); +9 for 81.114.10 (sh_tbl_isres, sh_tbl_idx and the 7-byte DATATABLE-written bitmap); +1 for 81.114.8's re-entrancy guard; +30 for 81.114.7 (the table list, the selection and table rectangles sh_tbl_overlap compares, and sh_prot_blocked's two bytes); +67 for 81.114 Data > Table; +8 at the 2026-10-14 merge for ch_v_dec_s16/ch_v_dec_u16, os88dec.inc being resident here now (20.5.2); 81.111: Find left the vectors, sh_btfix joined; +24 for 81.108's Reference scratch;
+    OS88_BSS 9501                     ; +4 for os88ui_centre's vector (75.3.4); +1 for 81.120's sh_prom; +4 for SHK keyboard's vector (83.7, os88kbd.inc's HOLD from the chart module); +2 for sh_m2dseg, the macro module as DATA under kern_mega (MC7); +3 for KERN-MEGA-MEMORY-PLAN MC7: OP_BSS grew by op_at's second window and op_seg's verb; +102 for 82.16.12: the parts standard's own OP_BSS, at the chain's head (the two modules are parts of SHEET.O88 now); +48 for 82.16.11: twelve vectors, CHOUT and the SHK kernel slots; +2 for sh_df_dirty, the Data Form's typed-in flag (81.71.5); +2 for sh_pstk0, the parser's stack anchor (81.3); +2 for ch_ovfail, the chart module's failure latch (82.16.5); +38 for 81.118's ask-before-discard (sh_modified, sh_pend and sh_askmsg's OS88UI_AMAX+2); +4 at the 2026-10-20 merge for 13.18's sh_v_os88ui_sbwheel (the Paste list's wheel is in the chart module, so it reaches the resident bar library through a shim); +9 for 81.114.10 (sh_tbl_isres, sh_tbl_idx and the 7-byte DATATABLE-written bitmap); +1 for 81.114.8's re-entrancy guard; +30 for 81.114.7 (the table list, the selection and table rectangles sh_tbl_overlap compares, and sh_prot_blocked's two bytes); +67 for 81.114 Data > Table; +8 at the 2026-10-14 merge for ch_v_dec_s16/ch_v_dec_u16, os88dec.inc being resident here now (20.5.2); 81.111: Find left the vectors, sh_btfix joined; +24 for 81.108's Reference scratch;
                                        ; +1 for 81.107's own-RETURN byte;
                                        ; +1 for 81.106's check-box kind;
                                        ; +21 for 81.103's window caption;
@@ -58631,7 +58639,7 @@ sh_v_sh_acc_fromudw          equ sh_v_sh_idlg_after + 4
 sh_v_sh_monlen               equ sh_v_sh_acc_fromudw + 4
 sh_v_sh_bt_findcell          equ sh_v_sh_monlen + 4
 sh_v_sh_bt_removecell        equ sh_v_sh_bt_findcell + 4
-SH_NVEC       equ 164                  ; +12 for 82.16.11 (CHOUT, SHK); +1 SHK keyboard (83.7)
+SH_NVEC       equ 165                  ; +12 for 82.16.11 (CHOUT, SHK); +1 SHK keyboard (83.7); +1 os88ui_centre (75.3.4)
 sh_v_sh_pnow                 equ sh_v_sh_bt_removecell + 4
 sh_v_sh_macro_arm            equ sh_v_sh_pnow + 4
 sh_v_sh_nt_get               equ sh_v_sh_macro_arm + 4
@@ -58655,7 +58663,8 @@ sh_v_k_file_delete           equ sh_v_k_file_find + 4
 sh_v_k_m2read                equ sh_v_k_file_delete + 4
 sh_v_k_m2write               equ sh_v_k_m2read + 4
 sh_v_k_keyboard              equ sh_v_k_m2write + 4  ; 83.7
-sh_v_end      equ sh_v_k_keyboard + 4
+sh_v_os88ui_centre           equ sh_v_k_keyboard + 4  ; 75.3.4
+sh_v_end      equ sh_v_os88ui_centre + 4
 %if (sh_v_end - sh_v_first) != SH_NVEC * 4
   %error "SH_NVEC must count the sh_v_* chain (sh_ovbind fills SH_NVEC)"
 %endif

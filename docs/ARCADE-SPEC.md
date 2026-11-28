@@ -1233,7 +1233,28 @@ game in the list gets one STATE:
 |---|---|---|
 | READY | its `.ROM` was found and this display runs it | `READY` |
 | ROM NEEDED | no `.ROM` found | `ROM NEEDED` |
-| NEEDS VGA | Pac-Man and Q\*bert, on a display without `FSXM_VGA12` (`OSAPI_FSX_CAPS`, a fact) | `NEEDS VGA` |
+| NEEDS VGA | Pac-Man and Q\*bert, on a machine with no display that has `FSXM_VGA12` (`OSAPI_FSX_CAPS`, a fact) | `NEEDS VGA` |
+
+NEEDS VGA is a fact about the MACHINE, not about the display the window
+happens to be on (SPEC.md 53.1.2.1, the owner's rule: full screen goes to a
+screen the content supports, if there is one). `af_vgamark` asks `fsxw_pick`
+(`apps/os88fsxw.inc`) for VGA12: the window's display first, then every
+other. It runs at every whole paint and at every Play. The tag is still a bit
+beside the look's answer (`AFS_NOVGA` ORed onto READY or ROM NEEDED). Only
+the launch moves the selection onto a READY game; a later ask leaves it where
+the user put it.
+
+#### 11.1.1 Play goes to the display that can (2026-11-27)
+
+`ar_play` picks the bracket's display before it opens. It asks `fsxw_pick`
+for the board's modes: VGA12 for Pac-Man and Q\*bert, and VGA12, Hercules or
+CGA 640 for the Invaders boards (`inv_setup`). The answer is the window's own
+display when that one can, else the first display that can. The bracket
+takes it as CH. The board's setup reads the banked `[ar_fscaps]` rather than
+asking `OSAPI_FSX_CAPS` again, because inside the bracket the machine has
+collapsed onto that display (SPEC.md 39.18.3). So Q\*bert opened from a
+window on the Hercules plays on the VGA beside it. Before, the audit had it
+saying NEEDS VGA, or READY and then a silent refusal.
 
 A game is LOADED (read, checked, built: 1.4, 2.4 of the plan) when it is
 played, and stays loaded until another one is. **Play** on a game that is
@@ -1265,7 +1286,9 @@ after it (`af_vgacheck`).
 ### 11.3 Drawing
 
 Two themes, as role tables (`af_tcol`, `af_tmono`): colour where
-`OSAPI_VIDEO` answers DH > 1, black and white otherwise - a dark cabinet,
+`OSAPI_WM_DISPLAY` - the WINDOW's display, asked at every whole paint
+(`af_disp`), so the cabinet follows a drag onto the other card (SPEC.md
+39.16.4) - answers DH > 1, black and white otherwise - a dark cabinet,
 white on black, the selected row the one inverted field (SPEC.md 39.4: no
 grey, no dither in a 1bpp face). MEASURED (rows `arcface`, `arcfaceherc`,
 `arcfacecga`): a move of the selection is 4 to 6 displayed frames with no

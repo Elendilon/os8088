@@ -1673,8 +1673,18 @@ Either says its new state (`rw_lossyt`) and the next draw is whole.
   with the game (`rw_dmgclaim`); a buffer that held the other format, a
   reset and full screen all start the next draw from every line. The buffer remembers which
   it holds, and a paint on the other kind of display (the window moved
-  between two) is white until the worker's next frame. A refusal dithers
-  until the next paint asks BLITP again.
+  between two) is white until the worker's next frame - which draws then
+  even while Pause holds the machine, so a paused picture is never left
+  white. A refusal dithers until the next paint asks BLITP again.
+  **"Every line" means every line MARKED, not only composed**
+  (`rw_renderw`): `RDG_DFULL` composes all 144 but `rdg_renderd` marks only
+  the lines whose pixels differ from the last frame's, and a buffer of the
+  other format needs every one converted and put up. Before that, a move
+  onto a straddle whose `OSAPI_WM_DISPLAY` is the colour card (an extended
+  desktop with the second card Below, whose more restrictive WIDTH is the
+  VGA's) but whose BLITP refuses left the window white with only the moving
+  lines drawn on it - the status bar never came back (the extended-desktop
+  audit's RB1, 2026-11-27).
 - **Alt+Enter** is Machine > Full Screen (SPEC.md 11.2.1.1, `apps/os88alt.inc`):
   the window's W_ONKEY takes the kernel's synthesised `KEY_ALTENTER`, and the
   bracket's loop polls `os88alt_edge` to leave, seeded so the press that got

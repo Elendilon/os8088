@@ -120,6 +120,7 @@ int  os88_key_down(int scan);
 #define OS88_SCAN_ENTER 0x1C
 #define OS88_SCAN_ALT   0x38
 void os88_menu_set(void *win, struct os88_menuset *set);
+void os88_wm_prefer(void *win, const int *table);
 
 void os88_wm_destroy(void *win);
 int  os88_task_spawn(void *win);

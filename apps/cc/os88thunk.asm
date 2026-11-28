@@ -719,6 +719,23 @@ _os88_wm_display:
     ret
 %endif
 
+; void os88_wm_dorigin(void *win, struct os88_pt *o) - BX = win; out AX/DX =
+; the origin of the display os88_wm_display() describes, virtual coordinates
+; (SPEC.md 39.16.4.3). OSAPI_WM_CONTENT's point convention, so the same body.
+CC_GATE _os88_wm_dorigin
+%ifdef CC_U__os88_wm_dorigin
+_os88_wm_dorigin:
+    push bp
+    mov bp, sp
+    mov bx, [bp+4]
+    call OSAPI_WM_DORIGIN
+    mov bx, [bp+6]
+    mov [bx], ax
+    mov [bx+2], dx
+    pop bp
+    ret
+%endif
+
 ; int os88_wm_damage(void *win, struct os88_rect *r) - from inside your own
 ; os88_paint(). Returns 1 = draw the WHOLE content, 0 = draw exactly r, which
 ; may be EMPTY (x1 > x2) meaning draw nothing. Requires os88_wm_ownbg(win, 1);
@@ -804,6 +821,27 @@ _os88_wm_minsize:
     mov cx, [bp+6]
     mov dx, [bp+8]
     call OSAPI_WM_MINSIZE
+    pop bp
+    ret
+%endif
+
+; void os88_wm_prefer(void *win, const int *table) - BX = win, SI = the
+; offset of a 12-byte table, three (w, h) pairs in VGA, Hercules, CGA order
+; (SPEC.md 11.100.1); 0 withdraws it. THE KERNEL KEEPS THE OFFSET and reads
+; the table through the window's segment at every landing, so the table must
+; be a STATIC that outlives the window - never an automatic, which is a
+; stack offset read through the package segment (SPEC.md 73.5). It registers
+; AND applies, and preserves the flags (os88api.inc).
+CC_GATE _os88_wm_prefer
+%ifdef CC_U__os88_wm_prefer
+_os88_wm_prefer:
+    push bp
+    mov bp, sp
+    push si
+    mov bx, [bp+4]
+    mov si, [bp+6]
+    call OSAPI_WM_PREFER
+    pop si
     pop bp
     ret
 %endif
@@ -1128,6 +1166,30 @@ _os88_fsx_caps:
 ; predicate each: already in a bracket, the file dialog is up, the caller is
 ; not task 0, or the ownership fence (the window must be a live instance of
 ; ours and the entry inside our image+bss).
+; int os88_fsx_pick(void *win, int want, int *kd) - the FULL-SCREEN TARGET
+; (SPEC.md 53.1.2.1): apps/os88fsxw.inc's fsxw_pick. `want` = the FSXM_* bits
+; the content can use. Answers what the target can set of them, 0 when no
+; display on the machine can; *kd = the target's VID_* kind in the low byte
+; and, in the HIGH byte, the display to hand os88_fsx_run() - pass
+; `flags | (kd & 0xFF00)`, which is 0 whenever the window's own display
+; answers (so kern_small, which refuses any display, is never handed one).
+; `kd` is an out-parameter and must be a static (SPEC.md 73.5).
+CC_GATE _os88_fsx_pick
+%ifdef CC_U__os88_fsx_pick
+_os88_fsx_pick:
+    push bp
+    mov bp, sp
+    mov bx, [bp+4]
+    mov dx, [bp+6]
+    call fsxw_pick                  ; AX = the target's modes, DL = its kind,
+    mov dh, ch                      ; CH = its display; CF = 1, AX = 0: none
+    mov bx, [bp+8]
+    mov [bx], dx
+    pop bp
+    ret
+%include "os88fsxw.inc"
+%endif
+
 CC_GATE _os88_fsx_run
 %ifdef CC_U__os88_fsx_run
 _os88_fsx_run:

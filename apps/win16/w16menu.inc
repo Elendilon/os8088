@@ -2312,9 +2312,9 @@ w16_mpsave:
     mov [w16_mrec], bx
     call w16_mprect
     mov bx, [w16_win]
-    call OSAPI_WM_DISPLAY           ; DH = the planes (bytes a column on VESA)
-    mov al, dh
-    xor ah, ah
+    ICALL os88ui_bankpl             ; BX = the planes (bytes a column on VESA)
+    xchg ax, bx                     ; - the DEEPEST display's: a popup can sit
+                                    ; on the other card (SPEC.md 5.3.1)
     mov cx, [w16_my1]
     sub cx, [w16_my0]
     add cx, 2                       ; the rows, the shadow's included

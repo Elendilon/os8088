@@ -19,7 +19,8 @@ SURF would name - and the gate asserts the consequence rather than the call.
   (s) STATICALLY: the package asks OSAPI_VIDEO ONCE, in px_entry, for the
       window's first position - never in pxrast.inc or pxwin.inc, the
       bracket's and the window's code - and every OSAPI_FSX_CAPS is asked
-      with BX = [px_win];
+      with BX = [px_win], directly or through os88fsxw.inc's fsxw_pick
+      (SPEC.md 53.1.2.1: the window's own display first, then any that can);
   (a) the window on the VGA: the Mode row is Mode X's (px_vkind VGA, px_bpp
       4, px_mode0 = Mode X); F takes a Mode X bracket, and WHILE IT IS UP
       the VGA's raster is Mode X's and the Hercules' mode and every byte of
@@ -89,11 +90,16 @@ def static_leg():
     print("   OSAPI_VIDEO is called at %s" % where)
     check(where == [("pxgame.asm", "px_entry")],
           "(s) OSAPI_VIDEO once, in px_entry, never in the bracket or the window")
+    # The ask goes through apps/os88fsxw.inc's fsxw_pick since the owner's
+    # full-screen rule (SPEC.md 53.1.2.1): it asks OSAPI_FSX_CAPS with the BX
+    # it is handed first - the display the window is mostly on - and walks
+    # the others only when that one cannot set a mode we use. So a call to
+    # fsxw_pick counts as an ask, and it must be handed BX = [px_win] too.
     caps = [(f, i) for f, ls in src.items() for i, l in enumerate(ls)
-            if re.match(r"\s*call\s+OSAPI_FSX_CAPS\b", l)]
+            if re.match(r"\s*call\s+(OSAPI_FSX_CAPS|fsxw_pick)\b", l)]
     ok = all(any("mov bx, [px_win]" in src[f][k] for k in range(max(0, i - 3), i))
              for f, i in caps)
-    check(caps and ok, "(s) every OSAPI_FSX_CAPS is asked with BX = [px_win] (%d call(s))"
+    check(caps and ok, "(s) every OSAPI_FSX_CAPS / fsxw_pick is asked with BX = [px_win] (%d call(s))"
           % len(caps))
 
 

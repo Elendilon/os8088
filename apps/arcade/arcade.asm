@@ -1060,9 +1060,22 @@ ar_play:
     mov byte [af_snapw], 0
     mov byte [af_dsdirty], 0
     call ar_ovinit                  ; (the font, for the box over the game)
-    mov ax, ar_fsx
+    ; THE DISPLAY THE GAME PLAYS ON (SPEC.md 53.1.2.1, ARCADE-SPEC 11.1.1):
+    ; the window's when it can set one of the board's modes, else the first
+    ; display that can - Q*bert from a window on the Hercules plays on the
+    ; VGA beside it. Asked here, on the desktop: the board's setup reads
+    ; [ar_fscaps] inside a bracket that has collapsed onto that display
+    mov bx, [ar_bd]
+    mov dx, 1 << FSXM_VGA12
+    cmp word [bx+BD_SETUP], inv_setup
+    jne .mask
+    mov dx, (1 << FSXM_VGA12) | (1 << FSXM_HERC) | (1 << FSXM_CGA640)
+.mask:
     mov bx, [ar_win]
-    xor cx, cx
+    call fsxw_pick                  ; AX = the target's modes (0: none, and
+    mov [ar_fscaps], ax             ; the setup refuses with its reason),
+    mov ax, ar_fsx                  ; CH = its display
+    mov cl, 0
     call OSAPI_FSX_RUN
     jnc .ran
     mov si, ar_s_nofsx
@@ -1096,8 +1109,7 @@ ar_fsx:
 
 ; inv_setup - Space Invaders' picture: VGA, Hercules or CGA. SI = the window
 inv_setup:
-    mov bx, si
-    call OSAPI_FSX_CAPS
+    mov ax, [ar_fscaps]             ; the target's modes (ar_play)
     mov dl, FSXM_VGA12
     test ax, 1 << FSXM_VGA12
     jnz .mode
@@ -2257,6 +2269,7 @@ ar_shift:
     ret
 
 %include "os88pit.inc"
+%include "os88fsxw.inc"                 ; fsxw_pick (SPEC.md 53.1.2.1)
 %include "sndpkg.inc"                   ; SOUND.DRV's FM door (arcsnd.inc)
 %include "arcsnd.inc"
 %include "arcland.inc"
@@ -2652,6 +2665,7 @@ AR_VAR ar_quit, 1
 AR_VAR ar_halted, 1
 AR_VAR ar_which, 1
 AR_VAR ar_err, 2
+AR_VAR ar_fscaps, 2                  ; the target display's modes (ar_play)
 AR_VAR ar_due, 4
 AR_VAR ar_t0, 4
 AR_VAR ar_band, 2

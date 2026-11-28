@@ -369,6 +369,7 @@ void os88_wm_display(void *win, struct os88_video *v)
 }
 void os88_video(struct os88_video *v)     { os88_wm_display(0, v); }
 
+void os88_wm_prefer(void *win, const int *table) { (void)win; (void)table; }
 void os88_menu_set(void *win, struct os88_menuset *set)
 {
     (void) win;

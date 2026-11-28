@@ -73,8 +73,9 @@
 ; is CLGREEN, which reduce to the WHITE and DITHER classes respectively, so
 ; the two factions stay apart on Hercules and CGA. Colour-blind mode swaps in
 ; CLBLUE/CLRED, which reduce the same two ways round. The HUD band and the
-; matrix border are the only two colours picked at BOOT rather than pinned
-; ([tg_hudbg]/[tg_frcol]), because CDGRAY under CLGRAY is a legible status
+; matrix border are the only two colours picked from the DISPLAY rather than
+; pinned ([tg_hudbg]/[tg_frcol], re-asked of the window's own display by
+; tg_track before every draw), because CDGRAY under CLGRAY is a legible status
 ; line on VGA and a 50% pattern under a 50% pattern on the other two.
 ;
 ; Keys: arrows are screen-absolute - perpendicular to the vector strafes, with
@@ -245,15 +246,10 @@ TG_COL_BCB  equ CLRED           ; -> WHITE class
 tg_entry:
     push ds                         ; ES = us: tg_newgame's string stores
     pop es
-    call OSAPI_VIDEO                ; AX=w BX=h CX=dock top row DH=bpp
-    push ax                         ; the screen width, for centring
-    mov si, cx                      ; SI = the dock's first row
-    mov bx, (TG_FRAME << 8) | TG_HUD_BG     ; the two colours SPEC.md 39.4
-    cmp dh, 1                               ; decides, stored as one word
-    ja .pal
-    mov bx, (TG_FRAME1 << 8) | TG_HUD_BG1
-.pal:
-    mov [tg_hudbg], bx
+    call OSAPI_VIDEO                ; AX=w BX=h CX=dock top row (the
+    push ax                         ; window opens on the primary): the
+    mov si, cx                      ; screen width, for centring; SI = the
+                                    ; dock's first row
 
     ; The content height wm_fit will actually allow: the desktop band is
     ; MBAR_H .. dock-1 and wm_fit shaves one more row, because the drop
@@ -357,6 +353,16 @@ tg_entry:
 ; -----------------------------------------------------------------------------
 tg_track:
     push ax
+    push si                         ; the two colours SPEC.md 39.4 decides,
+    mov bx, si                      ; from THE WINDOW'S display (39.16.4) -
+    call OSAPI_WM_DISPLAY           ; it can be dragged onto the other one -
+    mov bx, (TG_FRAME << 8) | TG_HUD_BG     ; stored as one word
+    cmp dh, 1
+    ja .pal
+    mov bx, (TG_FRAME1 << 8) | TG_HUD_BG1
+.pal:
+    mov [tg_hudbg], bx
+    pop si
     push ds
     pop es
     mov bx, si
@@ -1902,7 +1908,7 @@ tg_shapes:
     TBYTE tg_hired
     TBYTE tg_dirty                  ; 1 = a frame is owed...
     TBYTE tg_full                   ; ...and 1 = a whole one: one word store
-    TBYTE tg_hudbg                  ; HUD band colour, picked at boot...
+    TBYTE tg_hudbg                  ; HUD band colour, by the display...
     TBYTE tg_frcol                  ; ...and the matrix border's, one word
     TBYTE tg_finset                 ; this pass's flash-page inset, 0xFF none
     TBYTE tg_wsel                   ; the cells tg_walk draws: FAC or MARK

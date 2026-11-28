@@ -1720,8 +1720,13 @@ def twodisp_leg():
         assert geo["surf"] == 1, "on the VGA the window is not colour (%r)" % geo
         # ACROSS THE SEAM: the window's display is then the RESTRICTIVE card's,
         # the Hercules (SPEC.md 39.16.4.2), and the kernel refits the frame
-        # to it (wm_strad_fit: 722 x 300) - a 640 x 420 frame cannot land
-        # wholly on a 348-row display, and the refit one is wider than 720
+        # to it (wm_strad_fit, capped at the smaller display: 634 x 300,
+        # SPEC.md 39.16.3.6). Dropped at x = 320, a content origin OFF the
+        # byte grid, which ext_sgrid takes to 319 (39.16.3.7); before it
+        # the content sat at 321 and isoTron refused the window as too
+        # small. The centre (636) is then still on the VGA, so a second
+        # drag 16px right puts it on the Hercules for F below
+        # (39.17.1.1: fullscreen goes to the display it is MOSTLY on)
         win = ui.window(L.TITLE)
         n0 = g.w("it_nwhole")
         x, y, w, h = dispcp.win_rect(m, Sy, win.i)
@@ -1738,6 +1743,19 @@ def twodisp_leg():
                                        "colour" if geo["surf"] else "mono", geo["bpp"], whole),
               flush=True)
         assert geo["surf"] == 0 and geo["bpp"] == 1, "across the seam the window is not mono"
+        assert geo["cx"] % 8 == 0, "the capped straddler's content is at x=%d, off the byte " \
+            "grid (SPEC.md 39.16.3.7)" % geo["cx"]
+        x, y, w, h = dispcp.win_rect(m, Sy, win.i)
+        mo.drag(x + w // 2, y + 8, x + 16 + w // 2, y + 8)
+        M.settle(m)
+        ui.mo.to(2, 2)
+        M.until(m, lambda _: not g.owed(), "the picture after the second drag", poll=0.05,
+                guest=60)
+        M.guest_sleep(m, 0.5)
+        geo = g.geom()
+        print("  and 16px on, to %r: content at (%d,%d) %dx%d" % (
+            dispcp.win_rect(m, Sy, win.i), geo["cx"], geo["cy"], geo["cw"], geo["ch"]), flush=True)
+        assert geo["surf"] == 0 and geo["cx"] % 8 == 0, "after the second drag %r" % geo
         assert whole == 1, "the format switch made %d whole presents, not one" % whole
         # the VGA, before: its rendering, and its memory (MartyPC's peek of
         # A000 reads plane 0 - tests/n1942.py), 38,400 bytes of 12h
