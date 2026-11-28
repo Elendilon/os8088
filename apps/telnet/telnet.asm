@@ -267,11 +267,20 @@ te_layout:
     ; a fact about the screen the window is on, which a window can be dragged
     ; off. te_layout runs on every paint, click, key and worker draw, so this
     ; is one far call in the place the answer is already being re-derived.
-    ; **It is the PRIMARY's depth** (osapi_video's own contract), and on an
-    ; extended desktop with a mono card beside a colour one that is the wrong
-    ; question for the far display - there is no per-display depth to ask
-    ; (SPEC.md 39.14 publishes none), so it is stated rather than hidden.
-    call OSAPI_VIDEO                ; DH = bits per pixel, 4 or 1
+    ; It is the WINDOW's display's depth (OSAPI_WM_DISPLAY, SPEC.md
+    ; 39.16.4), never OSAPI_VIDEO's - that is the PRIMARY's, and a window
+    ; dragged onto a mono card beside a colour one kept iCE Colours live
+    ; there (SPEC.md 70.8.4). No window yet: the primary, where it will open.
+    push si
+    mov bx, [te_win]
+    or bx, bx
+    jz .prim
+    call OSAPI_WM_DISPLAY           ; DH = bits per pixel, 4 or 1
+    jmp short .dh
+.prim:
+    call OSAPI_VIDEO
+.dh:
+    pop si
     cmp dh, 2                       ; CF = 1bpp...
     sbb dh, dh
     neg dh                          ; ...as the 0/1 con_mono is, branch-free

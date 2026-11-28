@@ -792,9 +792,13 @@ px_vclamp:
 .t2:
     mov [px_oy], bx
 .place:
-    mov ax, [px_cvx1]
-    add ax, [px_ox]
-    mov [px_vcan + VW_IX], ax
+    mov ax, [px_cvx1]               ; ON THE SCREEN'S byte grid, not the
+    add ax, [px_ox]                 ; canvas's: px_rimg composes from the
+    add ax, 7                       ; column AX & ~7, and a canvas whose left
+    and ax, 0xFFF8                  ; is off the grid (a window landed at an
+    mov [px_vcan + VW_IX], ax       ; odd x) put that left of the picture -
+                                    ; a negative first sample, the picture
+                                    ; wrapped round or noise (SPEC.md 106.11)
     mov ax, [px_midy1]
     add ax, [px_oy]
     mov [px_vcan + VW_IY], ax

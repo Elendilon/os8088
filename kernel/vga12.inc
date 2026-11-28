@@ -596,9 +596,14 @@ gfx_clip_query:
 ; .text with real initialisers: -f bin zeroes nothing, and every drawing call
 ; in the machine reads these - including the first, before anything has run.
 gfx_dnest   db 0                ; whole-shape hooks in effect (SPEC.md 39.14.2)
-%ifndef NOBLITCUT
 EXT_BCUT    equ 13              ; gfx_blit4's cut is EXTD.DRV's entry 13 (kernel
-                                ; size pass 13; extmod.inc's header asserts it)
+                                ; size pass 13; extmod.inc's header asserts it;
+                                ; defined with NOBLITCUT too, the slot refusing)
+EXT_B1CUT   equ 14              ; ...and gfx_blit1's ROW cut, entry 14 (SPEC.md
+                                ; 39.14.7.3)
+EXT_SCUT    equ 15              ; ...and gfx_scroll's COLUMN cut, entry 15
+                                ; (SPEC.md 39.14.7.4)
+%ifndef NOBLITCUT
 gfx_blit_fd db 0                ; SPEC.md 39.14.7.2: 0 = gfx_blit4 resolves its
                                 ; own display, d+1 = this call is one HALF of a
                                 ; cut and the display is NAMED.
@@ -5485,9 +5490,21 @@ gfx_unlock:
 ;                  a row - immune to the banked layouts by construction.
 ; -----------------------------------------------------------------------------
 gfx_scroll:
+%ifdef KERN_BIG                 ; ...and a refusal is offered to the column-
+    call gfx_scroll_1           ; seam CUT (SPEC.md 39.14.7.4): two scrolls,
+    jnc .r                      ; one per card, or CF = 1 with every register
+    EXTCALL EXT_SCUT            ; kept and the refusal stands. Ungated: on one
+.r: ret                         ; display it is mod_gone, on the repaint path
+%endif                          ; (kern_small: no second display, and the
+gfx_scroll_1:                   ; entry falls straight into the body)
     GFXAUDIT_HOOK
     call cur_unlazy              ; off the clip list (SPEC.md 11.3): 7.1.4
     call kent_di                ; the same six words (kernel size pass 15)
+    push es                     ; ...and ES, which every backend loads with
+                                ; the framebuffer: "registers preserved" is
+                                ; SPEC.md 5.5's contract, and vgas_bankcopy's
+                                ; `mov es, [vid_rseg]` broke it for a caller
+                                ; holding ES (the audit's ES finding)
     GFXDENTERR                  ; a blit cannot take a sub-rect (SPEC.md 11.3),
                                 ; so it goes onto the display holding its top
                                 ; left - and the two edge tests below then
@@ -5576,6 +5593,7 @@ gfx_scroll:
     clc
 .out:
     GFXDLEAVE                   ; ...and it banks CF, which is this routine's
+    pop es                      ; (pop writes no flag: CF is still the answer)
     jmp kret_di
 
 %ifdef COLD_SLIDE
@@ -5585,7 +5603,7 @@ section .vga
 ; and back to its .ok - GFX_SCROLL_PLANAR, the one body both builds expand
 gfx_scroll_v:
     GFX_SCROLL_PLANAR
-    jmp gfx_scroll.ok
+    jmp gfx_scroll_1.ok         ; (the body under the cut's wrapper, 39.14.7.4)
 section .text
 %endif
 
@@ -6118,7 +6136,7 @@ gfx_blit1_x:
     cmp byte [gfx_dnest], 0
     jne .spanok                 ; an outer whole-shape hook already chose one
     call KERNEL_SEG:cw_vid_span_wh  ; the band's rect, still VIRTUAL
-    jc .pcq                     ; it crosses a seam: per band column, each
+    jc .scq                     ; it crosses a seam: per band column, each
 %endif
 .spanok:                        ; resolving its own display (SPEC.md 39.14.6)
 
@@ -6133,7 +6151,10 @@ gfx_blit1_x:
     cmp byte [gfx_dnest], 1     ; whole-shape hook, whose rect is a display's
     jae .rows                   ; and not the region's virtual space
     jmp .frags
-.pcq:
+.scq:                           ; ...but a ROW seam first (SPEC.md 39.14.7.3):
+    EXTCALL EXT_B1CUT           ; on the Below layout every column of the band
+    jnc .okq                    ; crosses it too and would be DROPPED - CF = 1
+.pcq:                           ; is Right, no crossing row, or no image
     jmp .percol                 ; (two exits in short reach of the guards on
 .okq:                           ; either side, below the one unconditional
     clc                         ; jump there is: a `jcc` of two bytes, not

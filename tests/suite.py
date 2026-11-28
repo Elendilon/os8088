@@ -4371,6 +4371,20 @@ SOAK = [
         "never comes back to its prompt. 57s measured",
         needs=("marty",), serial=True,
         wants=("build/frotz.o88", "build/zt/ZBIG.Z5")),
+    Row("zecholock", "soak", py("tests/zecholock.py", "-q"), 8.0,
+        "SPEC.md 61.18: Frotz's line editor draws its echo, rub-out and the "
+        "Enter's newline UNDER THE GFX LOCK. @read's wait runs with the lock "
+        "parked, and the three were called bare, so the worker drew lock-free "
+        "beside the UI task - on an extended desktop (VGA primary + "
+        "Hercules) a drag at the Enter switched the display context under "
+        "the half-drawn row and took the machine down. Exec breakpoints on "
+        "zw_typec/zw_rubc/zw_newline in the live package; a key, Backspace, "
+        "a key and Enter at ZBIG.Z5's prompt; every stop must read "
+        "[gfx_lock_flag] = 1 owned by the running task, each routine must be "
+        "stopped in, and the prompt must come back. Red with the three bare "
+        "calls restored: every stop reads the lock free. 5-8s measured",
+        needs=("marty",), serial=True,
+        wants=("build/frotz.o88", "build/zt/ZBIG.Z5")),
     Row("megafrotz", "soak", py("tests/megafrotz.py"), 45.0,
         "KERN-MEGA-MEMORY-PLAN MC7: a story past 256KB on kern_mega in "
         "protected mode, where the story claim is an LDT selector and each "
@@ -13092,7 +13106,12 @@ SOAK = [
         "GREEN as of 4a1dc3d5, on the run its whole shape was written for - "
         "launched on the VGA with Mode X live, dragged onto the Hercules and "
         "greyed, dragged back and live again, then launched from the other "
-        "display and corrected. What is below is what this row learned while "
+        "display and corrected. SINCE SPEC.md 48.27 (the owner's full-screen "
+        "rule, 53.1.2.1) Mode X is NOT greyed on the Hercules: its bracket "
+        "goes to the VGA beside it, so mc_caps is Mode X's bit wherever the "
+        "window stands and the row asserts that, with mc_mono (the window's "
+        "own depth) following the window and corrected after a launch from "
+        "the Hercules. What is below is what this row learned while "
         "it was red, and it stands either way. "
         "The rate was measured on the kernel's "
         "own [ticks] over GUEST seconds so contention is not in it. The row "
@@ -13108,8 +13127,12 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/apps360.img", "build/missile.o88")),
     Row("dispnp", "soak", py("tests/dispnp.py"), 30.0,
-        "Does a WIDE straddling Note Pad letter its whole row? (SPEC.md"
-        "27.2.1)",
+        "Does a WIDE straddling Note Pad letter its whole row? (SPEC.md "
+        "27.2.1) Since the owner's straddle cap (SPEC.md 39.16.3.6) no "
+        "straddler is wider than the smaller display, so the 90-column case "
+        "is gone by design: the row asserts the cap on a grow across the "
+        "Hercules/CGA seam and that the row is lettered to its band on both "
+        "cards",
         needs=("marty",), serial=True),
     Row("cfgtrip", "soak", py("tests/cfgtrip.py"), 20.0,
         "SPEC.md 51.5.3: does a setting still survive the panel and a reboot?"

@@ -2092,12 +2092,15 @@ dos_lnk_mem:
 ; host is os88ui_bhit, the button's hit test, spelled a stub for the length
 ; of the expansion
 sp_t_bhit equ os88ui_bhit           ; (the real label, before the %define)
+sp_t_bankpl equ os88ui_bankpl       ; ...and the bank's plane count (5.3.1)
 %define os88ui_bhit sph_ui_bhit
+%define os88ui_bankpl sph_ui_bankpl
     OS88UI_GLYPH_CODE
     OS88UI_CHK_CODE
     OS88UI_RAD_CODE
     OS88UI_DROP_CODE
 %undef os88ui_bhit
+%undef os88ui_bankpl
 
 ; --- THE STUBS: one per host routine the code above calls --------------------
 ; `mov word [dos_sp_tgt], target` (6 bytes) and a jump to the one far call
@@ -2127,6 +2130,9 @@ sp_far:                             ; it is short
     SPSTUB dos_spmask               ; the page's own figure and so the part's
 sph_ui_bhit:                        ; ...and os88ui's own call out of the
     mov word [dos_sp_tgt], sp_t_bhit    ; controls above
+    jmp short sp_far
+sph_ui_bankpl:                      ; ...and the dial's bank sizing
+    mov word [dos_sp_tgt], sp_t_bankpl
     jmp short sp_far
 sp_code_end:                        ; ...and nothing past here is code
 %endif

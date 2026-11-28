@@ -7150,7 +7150,7 @@ REALDMG_SRC := apps/realdmg/realdmg.asm apps/realdmg/rdgdefs.inc \
                apps/realdmg/rdgsys.inc apps/realdmg/rdgppu.inc apps/realdmg/rwfsx.inc apps/realdmg/rwkeys.inc \
                $(BUILD)/rdgcore.inc \
                apps/os88api.inc apps/os88mega.inc apps/os88ui.inc apps/os88parts.inc \
-               apps/os88partsbody.inc apps/os88rseq.inc apps/os88alt.inc apps/os88pit.inc apps/realdmg/rwlog.inc apps/realdmg/rwbank.inc apps/realdmg/rwstate.inc apps/realdmg/rwreplay.inc \
+               apps/os88partsbody.inc apps/os88rseq.inc apps/os88alt.inc apps/os88fsxw.inc apps/os88pit.inc apps/realdmg/rwlog.inc apps/realdmg/rwbank.inc apps/realdmg/rwstate.inc apps/realdmg/rwreplay.inc \
                apps/realdmg/rwfm.inc apps/realdmg/rwmove.inc drivers/sound/sndpkg.inc \
                apps/os88data.inc
 $(BUILD)/realdmg.bin: $(REALDMG_SRC) | $(BUILD)
@@ -9637,7 +9637,7 @@ $(BUILD)/solitair.o88: $(BUILD)/solitair.bin tools/os88pkg.py $(PKGZSTAMP)
 $(BUILD)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc apps/os88dec.inc \
                     apps/tank/tktmpl.inc \
                     apps/tank/tk3d.inc apps/tank/tkgame.inc \
-                    apps/tank/tkattr.inc apps/tank/tkhs.inc apps/os88data.inc \
+                    apps/tank/tkattr.inc apps/tank/tkhs.inc apps/os88data.inc apps/os88fsxw.inc \
                     apps/tank/tksin.inc apps/tank/tkridge.inc \
                     apps/tank/tktan.inc apps/tank/tknib.inc \
                     apps/tank/tkover.inc apps/tank/tklogo.inc \
@@ -9672,7 +9672,7 @@ SKIES_SRC := apps/skies/skies.asm apps/skies/csraster.inc \
              apps/skies/cspanel.inc apps/skies/cssin.inc \
              apps/skies/cswmac.inc apps/skies/csvocab.inc \
              apps/skies/csart.inc apps/skies/csdiag.inc \
-             apps/skies/csset.inc apps/os88data.inc $(CSWORLDS) \
+             apps/skies/csset.inc apps/os88data.inc apps/os88fsxw.inc $(CSWORLDS) \
              apps/skies/csload.asm apps/skies/csicon.inc \
              apps/os88api.inc apps/os88ui.inc \
              apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc \
@@ -9853,7 +9853,7 @@ PXGAME_SRC  := apps/pixelstein/pxgame.asm apps/pixelstein/pxicon.inc \
                apps/pixelstein/pxact.inc apps/pixelstein/pxhud.inc \
                apps/pixelstein/pxhs.inc \
                $(PXSTEIN_GEN) apps/os88api.inc apps/os88ui.inc \
-               apps/os88pit.inc
+               apps/os88pit.inc apps/os88fsxw.inc
 PXSLEVELS   := $(wildcard apps/pixelstein/levels/*.txt)
 PXSART      := $(wildcard apps/pixelstein/art/*.png)
 
@@ -9966,7 +9966,7 @@ $(BUILD)/arkanoid.o88: $(BUILD)/arkanoid.bin tools/os88pkg.py $(PKGZSTAMP)
 # colours that survive SPEC.md 39.4's reduction to three inks. No heap claim:
 # every array is sized by the arcade's object counts and fits the package bss.
 $(BUILD)/missile.bin: apps/missile/missile.asm apps/os88api.inc apps/os88gfx.inc \
-                      apps/os88alt.inc | $(BUILD)
+                      apps/os88alt.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -o $@ apps/missile/missile.asm
 	@echo "missile: $(call FILESIZE,$@) bytes"
 
@@ -10218,7 +10218,7 @@ glyphbn: $(BUILD)/glyphbn360.img
 # here ships, and `all` must not pay for it.
 $(BUILD)/mcbench.bin: apps/missile/missile.asm apps/missile/mcbench.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88gfx.inc \
-                      apps/os88alt.inc | $(BUILD)
+                      apps/os88alt.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/missile/ -DMC_BENCH \
 		$(if $(MCBFIRE),-DMC_BFIRE=$(MCBFIRE)) \
 		$(if $(MCDRNBUD),-DMC_DRNBUD=$(MCDRNBUD)) -o $@ \
@@ -12741,7 +12741,7 @@ ARCADE_SRC := apps/arcade/arcade.asm apps/arcade/arcdefs.inc apps/arcade/arcpm.i
               apps/arcade/arc6502.inc apps/arcade/arcqbs.inc \
               apps/arcade/arcsnd.inc apps/arcade/arcland.inc drivers/sound/sndpkg.inc \
               apps/os88api.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc apps/os88pit.inc \
-              apps/os88ui.inc apps/os88mega.inc
+              apps/os88ui.inc apps/os88mega.inc apps/os88fsxw.inc
 # WHAT SHIPS HAS NO ROM IN IT (docs/plans/ARCADE-RELEASE-PLAN.md 2.1): each
 # translated board's RECIPE (.rcp: its code with the ROM's bytes as holes,
 # and the fill list) and its PC table; Q*bert's N88 core. The ROMs are the
@@ -17316,7 +17316,7 @@ $(SMALLAPPDIR)/solitair.o88: $(SMALLAPPDIR)/solitair.bin tools/os88pkg.py $(PKGZ
 $(SMALLAPPDIR)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc apps/os88dec.inc \
                          apps/tank/tktmpl.inc \
                          apps/tank/tk3d.inc apps/tank/tkgame.inc \
-                         apps/tank/tkattr.inc apps/tank/tkhs.inc apps/os88data.inc \
+                         apps/tank/tkattr.inc apps/tank/tkhs.inc apps/os88data.inc apps/os88fsxw.inc \
                          apps/tank/tksin.inc apps/tank/tkridge.inc \
                          apps/tank/tktan.inc apps/tank/tknib.inc \
                          apps/tank/tkover.inc apps/tank/tklogo.inc \
@@ -21723,7 +21723,7 @@ $(BUILD)/1942art.inc $(N1942BANKS): $(BUILD)/.1942assets
 	@test -f $@ || python3 tools/1942assets.py -o $(BUILD) $(if $(N1942_ROM),--rom "$(N1942_ROM)")
 $(BUILD)/1942front.inc: tools/1942front.py tools/os88lz.py apps/1942/art/splash.json apps/1942/art/sprites.json | $(BUILD)
 	python3 tools/1942front.py -o $(BUILD)
-$(BUILD)/1942.bin: apps/1942/1942.asm apps/1942/front.inc $(BUILD)/1942front.inc apps/1942/game.inc apps/1942/campaign.inc apps/1942/motion.inc apps/1942/audio.inc apps/1942/pcm.inc apps/1942/video.inc apps/1942/scroll.inc $(BUILD)/1942art.inc apps/os88api.inc apps/os88ui.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc
+$(BUILD)/1942.bin: apps/1942/1942.asm apps/1942/front.inc $(BUILD)/1942front.inc apps/1942/game.inc apps/1942/campaign.inc apps/1942/motion.inc apps/1942/audio.inc apps/1942/pcm.inc apps/1942/video.inc apps/1942/scroll.inc $(BUILD)/1942art.inc apps/os88api.inc apps/os88ui.inc apps/os88fsxw.inc apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc
 	$(NASM) -f bin -w+error -I apps/ -I apps/1942/ -I $(BUILD)/ -l $(BUILD)/1942.lst -o $@ $<
 # EVERY PART IS OP_COMP | OP_LAZY, packed lz4 by os88pkg.py (SPEC.md 101.2),
 # so one file serves every geometry - and the 360KB disk no longer leaves the
@@ -21944,7 +21944,7 @@ excitebikeload: excitebikedisk $(BUILD)/os8088-360.img
 # SHIPS through APPS_GAMES; `isotrondisk` is its own floppy in all four
 # geometries, carrying the package and its README.
 .PHONY: isotron isotrondisk isotrontest
-$(BUILD)/isotron.bin: apps/isotron/isotron.asm apps/isotron/itrules.inc apps/isotron/itai.inc apps/isotron/itinput.inc apps/isotron/ittest.inc apps/isotron/itcanvas.inc apps/isotron/itwin.inc apps/isotron/itfs.inc apps/isotron/itsweep.inc apps/isotron/itsnd.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88pit.inc | $(BUILD)
+$(BUILD)/isotron.bin: apps/isotron/isotron.asm apps/isotron/itrules.inc apps/isotron/itai.inc apps/isotron/itinput.inc apps/isotron/ittest.inc apps/isotron/itcanvas.inc apps/isotron/itwin.inc apps/isotron/itfs.inc apps/isotron/itsweep.inc apps/isotron/itsnd.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88pit.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/isotron/ -l $(BUILD)/isotron.lst -o $@ $<
 
 $(BUILD)/isotron.o88: $(BUILD)/isotron.bin tools/os88pkg.py $(PKGZSTAMP)
@@ -22301,7 +22301,7 @@ $(BUILD)/wireflet360.img: $(BUILD)/wireflet.o88 apps/wirefleet/README.TXT tools/
 vbattle: $(BUILD)/vbattle.o88 $(BUILD)/BATTLE.VBT
 $(BUILD)/vbattle.bin: apps/vbattle/vbattle.asm apps/vbattle/vbrules.inc apps/vbattle/vbgame.inc \
                       apps/vbattle/vbloop.inc apps/vbattle/vbhold.inc apps/vbattle/vbcache.inc apps/vbattle/vbinp.inc apps/vbattle/vbbm.inc \
-                      apps/vbattle/vbband.inc apps/video/vdec.inc apps/os88la.inc apps/os88ub.inc apps/os88api.inc apps/os88ui.inc | $(BUILD)
+                      apps/vbattle/vbband.inc apps/video/vdec.inc apps/os88la.inc apps/os88ub.inc apps/os88api.inc apps/os88ui.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -l $(BUILD)/vbattle.lst -o $@ $<
 $(BUILD)/vbattle.o88: $(BUILD)/vbattle.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $< -o $@
@@ -22311,7 +22311,7 @@ $(BUILD)/vbattle.o88: $(BUILD)/vbattle.bin tools/os88pkg.py $(PKGZSTAMP)
 $(BUILD)/vbattled.bin: apps/vbattle/vbattle.asm apps/vbattle/vbprof.inc apps/vbattle/vbrules.inc \
                        apps/vbattle/vbgame.inc apps/vbattle/vbloop.inc apps/vbattle/vbhold.inc apps/vbattle/vbcache.inc \
                        apps/vbattle/vbinp.inc apps/vbattle/vbbm.inc apps/vbattle/vbband.inc apps/video/vdec.inc \
-                       apps/os88la.inc apps/os88ub.inc apps/os88api.inc apps/os88real.inc apps/os88ui.inc | $(BUILD)
+                       apps/os88la.inc apps/os88ub.inc apps/os88api.inc apps/os88real.inc apps/os88ui.inc apps/os88fsxw.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVB_DIAG -o $@ apps/vbattle/vbattle.asm
 $(BUILD)/vbattled.o88: $(BUILD)/vbattled.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $< -o $@

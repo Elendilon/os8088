@@ -3591,6 +3591,19 @@ renderer for mode 13h and a fact for the shadow to carry - and that is a
 feature, not a review fix. Until it exists the chords are in section 6.3, in
 `a2_fsx_main`'s rule 7 and in the README, and **not on the glass**.
 
+#### 13.3.1 Colour goes to the VGA, wherever the window stands (2026-11-27)
+
+Color NTSC is VGA content (`FSXM_VGA13`). Under SPEC.md 53.1.2.1 it is not
+refused because the window stands on a Hercules or a CGA while a VGA is on
+the machine. `a2_fsx_avail` asks `os88_fsx_pick()` for VGA13: the window's
+display first, then every other. The row greys only where no display has
+the mode. `os88_fsx_run` takes the display from the high byte of `kd`
+(`a2_fsx_disp`, 0 for the window's own).
+
+The window also declares the template frame for all three adapter kinds
+with `os88_wm_prefer()` (SPEC.md 11.100.1). A drag onto a 200-row CGA beside
+a VGA refits it (the audit's K3), as a CGA primary's launch clamps it.
+
 ### 13.4 Measure first, then write - AND THE MEASUREMENT
 
 `tests/a2band/a2bandbench.asm` gained the rows below and they are what decided

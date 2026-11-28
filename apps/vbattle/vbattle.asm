@@ -783,6 +783,36 @@ vb_rltab:
     dw vb_vres, vb_sfxseg, vb_mring, vb_idseg, vb_iseg, vb_bseg, vb_cseg
 VB_RLN equ ($ - vb_rltab) / 2
 
+; vb_target - the display the play goes to (SPEC.md 53.1.2.1, 126.3.2.1): the
+; mode is the loaded bundle's adapter's (vb_main1), so the target is the
+; display the window is mostly on when it can set THAT mode, else the first
+; display that can - a CGA bundle played from a window on a Hercules goes to
+; the colour card beside it instead of refusing. [vb_capm] and [vb_vid]
+; become that display's, [vb_fsdisp] the bracket's CH; no display can: they
+; stay the window's and vb_main1 refuses with its reason. AX, BX, CX, DX
+; spent
+vb_target:
+    mov byte [vb_fsdisp], 0
+    mov cl, FSXM_VGA0D
+    mov al, [vb_meta+VH_KIND]
+    cmp al, VK_VGA4
+    je .m
+    mov cl, FSXM_HERC
+    cmp al, VK_HERC
+    je .m
+    mov cl, FSXM_CGA320
+.m:
+    mov dx, 1
+    shl dx, cl
+    mov bx, [vb_win]
+    call fsxw_pick                  ; AX = the mode's bit, DL = the kind,
+    jc .o                           ; CH = the display
+    mov [vb_capm], ax
+    mov [vb_vid], dl
+    mov [vb_fsdisp], ch
+.o:
+    ret
+
 ; vb_door - what a play's door must know first: whether the desktop is in
 ; PROTECTED mode (kern_mega - [vb_pmd], VBATTLE-MEGA-PLAN), the room the
 ; rings leave, and the adapter's modes (OSAPI_FSX_CAPS is not a cell a
@@ -1514,6 +1544,7 @@ vb_play:
     jmp .paint
 .go:
     mov byte [vb_cpq], 0
+    mov byte [vb_dispno], 0
     mov word [vb_status], vb_s_load
     mov si, [vb_win]
     call vb_paint
@@ -1527,6 +1558,7 @@ vb_play:
     call vb_door                    ; kern_mega's facts, and the room kept
     call vb_load
     jc .say
+    call vb_target                  ; the display the bundle's mode is on
 %ifdef VB_DIAG
     call vb_prtry                   ; (the rings, and THE PROFILE if they fit
 %else                               ; beside it - 126.8)
@@ -1544,6 +1576,7 @@ vb_play:
     mov bp, vb_fsxl                 ; claims' real segments banked
     mov cx, FSXF_RATE | FSXF_REAL
 .run:
+    mov ch, [vb_fsdisp]             ; THE DISPLAY (vb_target, SPEC.md 53.1.2.1)
 %ifdef VB_DIAG
     call vb_prgo                    ; (the profile's clock)
 %endif
@@ -1643,6 +1676,19 @@ vb_cpask:
 
 ; vb_onwake - EVT_WAKE: the compaction a play posted has run - the play,
 ; now, with the room it made
+; vb_onresize - W_ONRESIZE (SPEC.md 11.98): the window landed on another
+; display of an extended desktop (39.16.3.3). A play refused because THE
+; DISPLAY had not the battle's mode said so about the display it stood on,
+; so that word goes and Ready comes back: Enter asks the new one. MUST NOT
+; DRAW - the repaint that follows does
+vb_onresize:
+    cmp byte [vb_dispno], 0
+    je .r
+    mov byte [vb_dispno], 0
+    mov word [vb_status], vb_s_ready
+.r:
+    ret
+
 vb_onwake:
     cmp byte [vb_cpq], 1
     jne .out
@@ -3711,6 +3757,7 @@ vb_main1:
     shl ax, cl
     test dx, ax
     jnz .mode
+    mov byte [vb_dispno], 1         ; (a fact about the DISPLAY: vb_onresize)
     mov word [vb_err], vb_s_nocga
     cmp byte [vb_kind], VK_HERC
     jne .mx
@@ -5774,7 +5821,8 @@ vb_tpl:
     dw vb_title, vb_cls
 ; its CLASS (SPEC.md 11.104): every handler, and the flags it is born with
     OS88_CLASS vb_cls, 0, PAINT, vb_paint, ONKEY, vb_onkey, \
-               ONCLICK, vb_onclick, ABOUT, vb_about, ONWAKE, vb_onwake
+               ONCLICK, vb_onclick, ABOUT, vb_about, ONWAKE, vb_onwake, \
+               ONRESIZE, vb_onresize
 vb_title:     db 'Video Battle', 0
 vb_actab:     db 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0
 vb_name:      db 'BATTLE.VBT', 0
@@ -5839,6 +5887,7 @@ vb_s_nrq:     db '?', 0
 ; card's ring, the two clip rings' segments, the hold's bounce and the EMS
 ; page frame (VBATTLE-MEGA-PLAN W3)
 %include "os88real.inc"
+%include "os88fsxw.inc"             ; fsxw_pick (SPEC.md 53.1.2.1)
 OS88REAL_LIST vb_rlst, vb_vres, vb_ring, vb_rg0 + RG_SEG, vb_rg1 + RG_SEG, vb_hbnc, vb_efseg
 vb_s_badread: db ': a read failed', 0
 vb_s_damaged: db ' is damaged', 0
@@ -6020,7 +6069,9 @@ VB_VAR vb_vid, 1
 VB_VAR vb_hopd, 1                   ; kern_mega: the hold opened at the door
 VB_VAR vb_pmd, 1                    ; the desktop in PROTECTED mode at the
                                     ; door: kern_mega (vb_door)
+VB_VAR vb_dispno, 1                 ; the last play refused for the display
 VB_VAR vb_capm, 2                   ; OSAPI_FSX_CAPS's modes, at the door
+VB_VAR vb_fsdisp, 1                 ; the play's display, FSX_RUN's CH
 VB_VAR vb_rkeep, 2                  ; KB the rings leave free (vb_door)
 VB_VAR vb_fsxl, 24                  ; FSXF_REAL's list (vb_mklist)
 VB_VAR vb_nrbuf, 40                 ; "Needs real mode:" and why (vb_nrsay)

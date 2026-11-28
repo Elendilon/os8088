@@ -2742,3 +2742,67 @@ overlays = [
     type = "CGA"
     clock_mode = "Dynamic"
 
+
+# THE EXTENDED DESKTOP WITH ROOM ON IT (SPEC.md 39.19): the VGA + Hercules XT
+# above with a NEC V20, two 1.44MB drives, an XT-IDE disk, a Sound Blaster and
+# the recording MPU-401. The V20 is for WIN16, which refuses Microsoft's
+# programs on an 8088 (SPEC.md 124.4). Every other two-card machine here has 360KB drives, so a
+# package whose document does not fit beside it on 354 clusters (PageDesk and
+# XTGUIDE.PDF), a player that decodes to a hard disk first (XTMP3 on an 8088,
+# SPEC.md 121.10) and MIDI out (MIDIRack, SPEC.md 105.8.5) could not be put on
+# both displays at once. Boots the 1.44MB pair; mount a VHD (`--mount
+# hd:0:<vhd>`, tools/os88hdd.py --noboot) for the disk.
+[[machine]]
+name = "os8088_xt_vga_herc_v20_hdd_144"
+type = "Ibm5160"
+rom_set = "glabios_xt"
+speaker = true
+overlays = [
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.cpu]
+    upgrade_type = "NecV20"
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.fdc]
+    bus_type = "ISA"
+    type = "IbmNec"
+        [[machine.fdc.drive]]
+        type = "1.44m"
+        [[machine.fdc.drive]]
+        type = "1.44m"
+
+    [machine.hdc]
+    bus_type = "ISA"
+    type = "XtIde"
+
+        [[machine.hdc.drive]]
+        format = "Mfm"
+        vhd = "default_xtide.vhd"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "VGA"
+    clock_mode = "Default"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    subtype = "Hercules"
+    clock_mode = "Dynamic"
+
+    [[machine.sound]]
+    type = "SoundBlaster"
+    io_base = 0x220
+    irq = 7
+    dsp_version = [2, 1]
+
+    [[machine.sound]]
+    type = "Mpu401"
+    io_base = 0x330

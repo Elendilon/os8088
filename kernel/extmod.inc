@@ -99,7 +99,7 @@ section .modx
     call exk_go
     dw %1
 %endmacro
-EXT_NENT    equ 14
+EXT_NENT    equ 16
 modx_hdr:
     dw 0x384F                   ; MOD_H_MAGIC
     db MOD_VER, MOD_EXT         ; MOD_H_VER, MOD_H_ID
@@ -139,8 +139,10 @@ modx_hdr:
 %else
     dw ext_refuse
 %endif
-%if EXT_DEAD != 3 || EXT_PHASE != 10 || EXT_YLOW != 11 || EXT_NENT != 14
-  %error "extmod: EXT_DEAD is entry 3, EXT_PHASE 10, EXT_YLOW 11, EXT_FCUT and EXT_BCUT 12 and 13, the last (kernel.asm)"
+    dw ext_b1cut                ; EXT_B1CUT  gfx_blit1's row cut (39.14.7.3)
+    dw ext_scut                 ; EXT_SCUT   gfx_scroll's column cut (39.14.7.4)
+%if EXT_DEAD != 3 || EXT_PHASE != 10 || EXT_YLOW != 11 || EXT_B1CUT != 14 || EXT_SCUT != 15 || EXT_NENT != 16
+  %error "extmod: EXT_DEAD is entry 3, EXT_PHASE 10, EXT_YLOW 11, EXT_FCUT and EXT_BCUT 12 and 13, EXT_B1CUT 14, EXT_SCUT 15, the last (kernel.asm, vga12.inc)"
 %endif
 %ifdef SEAMCUT
  %if EXT_FCUT != 12
@@ -199,7 +201,14 @@ ext_e_kindnow:                  ; EXT_KINDNOW: wm_kind_now, UNGATED. The caller
                                 ; is then told it is on
 ext_e_display:                  ; EXT_DISPLAY: wm_display's second arm, behind
     push di                     ; its gate. CF = 1: the window is on display
-    call wm_disp_now            ; 0, whose numbers the caller loads itself
+    jnc .size                   ; 0, whose numbers the caller loads itself.
+    call wm_disp_now            ; CF = 1 IN is OSAPI_WM_DORIGIN (39.16.4.3):
+    call ext_ctx_ptr            ; AX/DX = the ORIGIN of the same display, and
+    mov ax, [di+VID_CTX_VX]     ; display 0's record holds (0, 0)
+    mov dx, [di+VID_CTX_VY]
+    jmp short .p
+.size:
+    call wm_disp_now
     or al, al
     stc
     jz .p
@@ -233,6 +242,49 @@ ext_e_fsrect:                   ; EXT_FSRECT: wm_fs_setrect's arm, UNGATED.
     movsw                       ; ...and its CW, CH into W_W, W_H
     movsw
     pop es
+    ; --- ...AND WHAT IT LEFT ON THE OTHER CARD (SPEC.md 39.17.1.1) ---------
+    ; A window that went fullscreen from a straddle leaves its part on the
+    ; display that does NOT take the screen, and nothing else repaints it:
+    ; wm_fullscreen raises the new rect, which is wholly on THIS display. So
+    ; the saved rect (wm_fs_save, shadow included), cut to the other display,
+    ; is damaged here - never the part on this one, which the raise draws
+    ; whole and a damage pass there would draw twice. AL is still ext_wctx's
+    ; display: lea and movsw write no AX.
+    push bx
+    push cx
+    push dx
+    xor al, 1                   ; the OTHER display (two at most)
+    EXK vid_ctx_rect            ; AX..DX = its inclusive rect
+    mov si, wm_fs_save          ; {x, y, w, h}, wm_bank4's order
+    cmp ax, [si]
+    jge .x1
+    mov ax, [si]
+.x1:
+    mov di, [si]
+    add di, [si+4]              ; x + w: the shadow's column
+    cmp cx, di
+    jle .x2
+    mov cx, di
+.x2:
+    cmp bx, [si+2]
+    jge .y1
+    mov bx, [si+2]
+.y1:
+    mov di, [si+2]
+    add di, [si+6]              ; y + h: the shadow's row
+    cmp dx, di
+    jle .y2
+    mov dx, di
+.y2:
+    cmp ax, cx
+    jg .nodmg                   ; nothing of it was on the other display
+    cmp bx, dx
+    jg .nodmg
+    EXK wm_paint_dmg            ; the caller holds the gfx lock (11.2)
+.nodmg:
+    pop dx
+    pop cx
+    pop bx
     pop di
     pop si
     pop ax
@@ -250,24 +302,40 @@ ext_e_fsrect:                   ; EXT_FSRECT: wm_fs_setrect's arm, UNGATED.
 ; under the hand and [cur_disp] is where the hand is - and 39.15.4 guarantees
 ; the pointer itself is inside a display. UNGATED: the image stays mounted
 ; over a collapsed desktop, hence its own test (ext_one).
+;
+; TWO POINTS, THE TITLE BAR'S LAST ROW FIRST (SPEC.md 39.16.1.1): ui_drag's y
+; bound is the union's bounding box now, so the bar can be dropped with its
+; origin on a display and its bottom rows past that display's end - beside a
+; taller display in a Right layout. Such a bar's last row is clamped into the
+; pointer's display and the origin lifted TITLE_H - 1 above it; then the
+; origin is asked as it always was. DX is the row offset, 17 then 0 - both
+; callees keep it.
 ext_e_dead:
     call ext_one
     jb .out                     ; one display: no dead zone
     push ax
     push bx
     push cx
+    push dx
     push si
     mov si, bx                  ; SI, because vid_disp_find wants BX = y and
-    mov ax, [si+W_X]            ; an 8086 addresses through BX/BP/SI/DI only
+    mov dx, TITLE_H - 1         ; an 8086 addresses through BX/BP/SI/DI only
+.pt:
+    mov ax, [si+W_X]
     mov bx, [si+W_Y]
+    add bx, dx
     EXK vid_disp_find
-    jnc .done                   ; on a display already: nothing to correct
+    jnc .next                   ; on a display already: nothing to correct
     mov cl, [cur_disp]
     EXK vid_pt_clamp
+    sub bx, dx
     mov [si+W_X], ax
     mov [si+W_Y], bx
-.done:
+.next:
+    sub dx, TITLE_H - 1         ; 17 -> 0: ZF, once more for the origin;
+    jz .pt                      ; 0 -> -17: done
     pop si
+    pop dx
     pop cx
     pop bx
     pop ax
@@ -336,7 +404,14 @@ ext_e_fsx:
     push ax
     cmp ah, EXTF_LEAVE
     jne vid_fsx_unblank         ; (AX banked: its pop is there)
-    mov al, [fsx_vkind]         ; --- vid_fsx_leave ---
+    push bx                     ; --- vid_fsx_leave ---
+    push cx
+    push di
+    push word [mouse_y]         ; where the pointer IS - local to the bracket's
+    push word [mouse_x]         ; display, which sat at the virtual origin -
+                                ; because vid_apply homes it to the PRIMARY's
+                                ; centre (K8, SPEC.md 39.18.4)
+    mov al, [fsx_vkind]
     call ext_kapply_eq          ; 40:10 BACK TO THE PRIMARY'S KIND, because a
                                 ; bracket on a COLOUR second display left it
                                 ; saying colour: vid_text's own arm flips it so
@@ -348,6 +423,17 @@ ext_e_fsx:
                                 ; Restart then reads
     call ext_two                ; [fsx_vndisp] > 1 is 2, two at most
     EXK dock_band               ; ...and the strip where the user put it (30.5)
+    mov al, [fsx_vdisp]         ; ...and the pointer back where it was ON THE
+    mov cl, al                  ; CARD IT WAS ON: its local point plus that
+    call ext_ctx_ptr            ; display's origin (DI; AX kept)
+    pop ax
+    add ax, [di+VID_CTX_VX]
+    pop bx
+    add bx, [di+VID_CTX_VY]
+    call ext_mput
+    pop di
+    pop cx
+    pop bx
     pop ax
 .r: retf
 
@@ -418,8 +504,42 @@ vid_fsx_unblank:                ; (no DI: ext_kind_of banks it and the blank
     dec byte [fsx_vndisp]       ; 2 -> 1, one-shot: a bracket that set no mode and a
     call ext_okind              ; second restore must not write these ports
     EXK vid_unblank_kind        ; pair never names it)
+    mov ah, 0                   ; (AL kept) ...and SR01's screen-off bit down
+    call ext_seqblank
     pop ax
     retf
+
+; ext_seqblank - A VGA RUNNING AS THE CGA (BIOS mode 6, SPEC.md 39.18.5)
+; in:       AL = the other display's kind, AH = 20h dark / 0 lit
+; out:      -; every register preserved, flags clobbered
+;
+; vid_bk darks a CGA through 3D8h, and a VGA ignores 3D8h: on a VGA + Hercules
+; machine whose VGA is the CGA (mode 6), a Hercules bracket left that monitor
+; showing a frozen desktop (the audit's D3). The VGA's own screen-off is the
+; Sequencer's Clocking Mode bit 5, and only the VGA has it - an EGA's SR01 bit
+; 5 is something else - so the test is the machine's VGA bit, not the kind.
+; Index and data under one cli: the cursor's planar paths write 3C4h too.
+ext_seqblank:
+    cmp al, VID_CGA
+    jne .r
+    test byte [vid_avail], VID_A_VGA
+    jz .r
+    push ax
+    push dx
+    pushf
+    cli
+    mov dx, 0x3C4
+    mov al, 1                   ; SR01, Clocking Mode
+    out dx, al
+    inc dx
+    in al, dx
+    and al, 0xDF
+    or al, ah
+    out dx, al
+    popf
+    pop dx
+    pop ax
+.r: ret
 
 ; -----------------------------------------------------------------------------
 ; vid_fsx_enter - one display, and the other dark (SPEC.md 39.18)
@@ -455,6 +575,8 @@ vid_fsx_enter:
 
     call ext_okind              ; ...dark the card that is not the bracket's
     EXK vid_blank_kind
+    mov ah, 20h                 ; (AL kept: vid_bk banks it) - and a VGA
+    call ext_seqblank           ; running as the CGA through SR01 (D3)
 
     mov al, [fsx_vdisp]
     call ext_kind_of            ; ...and become that one: the live block, the
@@ -468,6 +590,23 @@ vid_fsx_enter:
     pop ax
 .out:
     retf
+
+; ext_mput - the pointer to VIRTUAL (AX, BX), clamped into display CL, and
+; [cur_disp] = CL (SPEC.md 39.18.4, the audit's K8). vid_apply homes the
+; pointer to the primary's centre and says display 0; this puts it back after
+; one, as one store pair under cli the ISR cannot split. [cur_shchk] is
+; vid_apply's already. Clobbers AX, BX, flags.
+ext_mput:
+    push cx
+    EXK vid_pt_clamp            ; AX/BX inside display CL (spends CX)
+    pop cx
+    pushf
+    cli
+    mov [mouse_x], ax
+    mov [mouse_y], bx
+    mov [cur_disp], cl
+    popf
+    ret
 
 ; ==== which display, from wm.inc, fsx.inc and vidsel.inc ===================
 %if VID_NDISP_MAX != 2
@@ -538,8 +677,17 @@ ext_org_disp:
 ; out:      AX = x0, CX = width, SI = y0, DX = band height (one pixel short,
 ;           wm_fit's drop-shadow rule)
 ; clobbers: AX, CX, SI, DX, flags
+;
+; CF = 1 IN IS wm_zoom (SPEC.md 39.17.2.1), and WIN95.DRV's title paint - the
+; other caller - enters with CF = 0. With BX = a window it ARMS the zoom's
+; latch before answering; with BX = 0 it SPENDS it and answers nothing.
 ; -----------------------------------------------------------------------------
 wm_disp_span:                   ; (far: EXT_SPAN is its only caller)
+    jnc .span
+    or bx, bx
+    jz ext_zoff                 ; the zoom is over (a jump: it ends in retf)
+    call ext_zarm
+.span:
     call ext_one
     jb .out                     ; one display: the caller's numbers stand
     push di
@@ -556,6 +704,71 @@ wm_disp_span:                   ; (far: EXT_SPAN is its only caller)
     pop di
 .out:
     retf
+
+;  ext_zarm - a ZOOM decides its display once (SPEC.md 39.17.2.1)
+; in:       BX = the window; out: nothing; every register preserved
+;
+; The display the window is MOSTLY on - wm_disp_of, the centre - is where it
+; is going: the owner's rule, "which screen do I maximize on? The one I am
+; more on". Latched in 39.16.4.2's two cells, so the negotiator wm_zoom asks
+; next and the 11.98 handler told here both hear THAT display from
+; OSAPI_WM_DISPLAY rather than the restrictive one the straddle it is leaving
+; was sized for. A change of kind is told here, before the ask and the paint.
+ext_zarm:
+    call ext_one
+    jb .r                       ; one display (a collapsed desktop): no latch
+    push ax
+    EXK wm_disp_of              ; AL = the centre's display
+    CSDO_ON
+    mov [CSEG wm_lf_disp], al
+    mov [CSEG wm_lf_win], bx
+    CSDO_OFF
+    call ext_kind_of            ; (the target's kind: never a straddle's)
+    call ext_knote              ; ...its kind against the one last sized for
+    pop ax
+.r: ret
+
+; ext_zoff - EXT_SPAN, BX = 0, CF = 1: the zoom is over. Spend the latch, then
+; ask the window's kind afresh - the user state a restore put back may
+; straddle, and then it is the restrictive display's again - and tell it if
+; that changed. FAR (EXT_SPAN's frame), and every register preserved.
+ext_zoff:
+    push bx
+    CSDO_ON
+    xor bx, bx
+    xchg bx, [CSEG wm_lf_win]   ; BX = the zoomed window, the latch spent
+    CSDO_OFF
+    or bx, bx
+    jz .r                       ; nothing armed (the restore spent it already)
+    push ax
+    call wm_disp_now            ; the geometry now: a restore may straddle
+    call ext_kind_of
+    call ext_sbit
+    call ext_knote
+    pop ax
+.r: pop bx
+    retf
+
+; ext_sbit - AL |= 80h when window BX straddles (W_PKIND's straddle bit,
+; SPEC.md 39.16.3.6); every other register and nothing else preserved
+ext_sbit:
+    call wm_strads
+    jc .r
+    or al, 80h
+.r: ret
+
+; ext_knote - is AL (a kind, bit 7 a straddle) not what window BX was last
+; sized for? Then bank it and tell the 11.98 handler (ui_drag_size's
+; .snapped, for a window whose box a zoom moved rather than a drag).
+; Clobbers AL and the flags.
+ext_knote:
+    cmp al, [bx+W_PKIND]
+    je .r
+    EXK wm_kind_bank            ; (the kind wm_disp_now names: AL's own)
+    and al, 80h
+    or [bx+W_PKIND], al
+    WM_SZNOTE EXK
+.r: ret
 
 ; (vid_disp_desk - EXT_DESK, every display but the primary's ground, whole -
 ; stood here. Its one caller was the layered wm_paint_all, and the damage pass
@@ -651,13 +864,21 @@ ui_drag_size:
                                 ; routine applies cannot change the answer under
                                 ; the steps that follow it
     call ext_kind_of            ; the kind it stands on now (wm_kind_now's own
-    cmp al, [bx+W_PKIND]        ; answer, the latch being armed) against the
-    je .fin                     ; kind it was last SIZED for
-    call wm_strads
-    jc .land
+    call ext_sbit               ; answer, the latch being armed), BIT 7 SET
+    cmp al, [bx+W_PKIND]        ; WHILE IT STRADDLES (SPEC.md 39.16.3.6),
+    je .fin                     ; against the kind it was last SIZED for - so
+                                ; entering a straddle and leaving one are each
+                                ; a change even when the kind is not: a
+                                ; straddle is capped on its free axis, and
+                                ; the landing after one gives the size back
+    push ax                     ; (the bit, for .snapped)
+    test al, 80h
+    jz .land
     call wm_strad_fit           ; ...across the seam: the constrained axis
-    jmp short .ask              ; ONLY, or wm_fit's x clamp would yank the frame
-                                ; wholly onto one display and undo the drag
+    jmp short .ask              ; clamped, and the free one never larger than
+                                ; the smaller display - never wm_fit's x
+                                ; clamp, which would yank the frame wholly
+                                ; onto one display and undo the drag
 
     ; --- landed on one display: the size half of wm_apply_size -------------
     ; wm_apply_size restores the natural rect WHOLE, which is right when the
@@ -719,6 +940,13 @@ ui_drag_size:
     mov [di+W_X], ax
 .snapped:
     EXK wm_kind_bank
+    pop ax                      ; ...and the straddle's bit beside the kind
+    and al, 80h
+    jz .sg                      ; (an OR of 0 is no change)
+    call ext_sgrid              ; ...and a straddler's content back onto the
+    or [bx+W_PKIND], al         ; byte grid (SPEC.md 39.16.3.7), which no
+.sg:                            ; kernel snap gives it: wm_snap_ax refuses
+                                ; a frame past its own display's edge
     WM_SZNOTE EXK               ; TOLD EVEN IF THE BOX DID NOT MOVE: the ADAPTER
                                 ; did, and half the tree caches facts about it
                                 ; (SPEC.md 11.98). wm_refit has always done this
@@ -851,7 +1079,7 @@ wm_strads:
 ; -----------------------------------------------------------------------------
 ; wm_strad_fit - a window across the seam takes the size for the MORE
 ;                RESTRICTIVE of the two displays (SPEC.md 39.16.3)
-; in:       BX = the window, known to straddle and known to have changed kind
+; in:       BX = the window, known to straddle, and changed kind or just begun straddling
 ; out:      nothing; every register preserved
 ; clobbers: flags (its two callers set their own CF after it)
 ;
@@ -943,6 +1171,54 @@ wm_strad_fit:
 .fl:
     EXK wm_min_ax               ; ...and the floor cannot be cut through
     cmp [di+W_W], ax
+    jae .free
+    mov [di+W_W], ax
+
+    ; --- THE FREE AXIS TOO (the owner, 2026-11-27; SPEC.md 39.16.3.5) ------
+    ; A window cannot draw in two modes at once, so a straddler is sized for
+    ; the more restrictive display - on BOTH axes, never larger than the
+    ; smaller of the two displays' extents on the axis they tile along. That
+    ; is what lets it sit wholly on EITHER display afterwards: a VGA-tall
+    ; window left 460 rows tall across a Below seam could never be dragged
+    ; wholly onto the 348-row Hercules, so its kind never changed back (K2(b)),
+    ; and a 640 frame snapped UP to 642 here could never sit on a 640 display
+    ; again (K2(a)). Landing on one display gives the natural size back
+    ; (ext_wants, at .land).
+.free:
+    xor dl, 1                   ; DL = the FREE axis: 0 x (Right), 1 y (Below)
+    mov di, bx
+    mov ax, [vid_band_xe]       ; the primary's usable extent on it...
+    sub ax, [vid_band_x0]
+    mov cx, [vid_ctx + VID_CTX_SZ + VID_CTX_CW] ; ...and display 1's
+    or dl, dl
+    jz .fx
+    inc di                      ; (the record's y words, W_H = W_W+2)
+    inc di
+    mov ax, [vid_dock_y0]       ; one short of the dock, wm_fit's rule
+    sub ax, MBAR_H + 1
+    mov cx, [vid_ctx + VID_CTX_SZ + VID_CTX_CH]
+.fx:
+    cmp ax, cx
+    jbe .fc
+    mov ax, cx                  ; AX = the smaller of the two
+.fc:
+    cmp [di+W_W], ax
+    jbe .done                   ; already fits both: nothing to take
+    push ax
+    or dl, dl
+    jnz .fset                   ; (only x has a byte boundary to keep)
+    EXK wm_snap_want
+    jnc .fset
+    dec ax                      ; ...and DOWN onto one, never up (11.94.5):
+    dec ax                      ; a straddler keeps both side borders, so the
+    and al, 0F8h                ; content is W - 2, and THAT is rounded
+    inc ax
+    inc ax
+.fset:
+    mov [di+W_W], ax
+    pop ax
+    EXK wm_min_ax               ; the floor still outranks it (11.100.2)
+    cmp [di+W_W], ax
     jae .done
     mov [di+W_W], ax
 .done:
@@ -952,6 +1228,54 @@ wm_strad_fit:
     pop cx
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; ext_sgrid - a STRADDLER's content back onto the byte grid (SPEC.md 39.16.3.7)
+; in:       BX = the window, known to straddle, its clamps done
+; out:      W_W, then W_X, possibly moved in; every register preserved
+; clobbers: flags
+;
+; SPEC.md 11.94 for the one frame the kernel's snap cannot reach: ui_drag's
+; wm_snap_ax tests the right edge of the window's OWN display, which a
+; straddler is past by definition, so it is refused - and wm_strad_fit's cap
+; then left a 634 frame at x = 320 with its content at 321. The width DOWN
+; (content W - 2 to a multiple of 8, not when flush, not under the floor),
+; then x LEFT to x + 1 a multiple of 8: both pull the right edge in, so
+; neither undoes a clamp above. x = 0..6 is left, as wm_snap_ax leaves a
+; frame it cannot place.
+; -----------------------------------------------------------------------------
+ext_sgrid:
+    EXK wm_snap_want
+    jnc .r                      ; opted out, or fullscreen
+    push ax
+    push cx
+    push dx
+    mov ax, [bx+W_X]
+    mov cx, [bx+W_W]
+    EXK wm_flush_ck             ; flush (11.95.2): content from column 0,
+    jc .out                     ; aligned, and x = 0 has nowhere left to go
+    sub cx, 10                  ; content W - 2, less one byte...
+    jb .xs                      ; ...under one byte: nothing to round
+    and cl, 0F8h
+    add cx, 10                  ; ...= ((W - 2) AND -8) + 2
+    mov ax, [vid_w]
+    xor dl, dl
+    EXK wm_min_axd              ; AX = the width's floor (11.100.2)
+    cmp cx, ax
+    jb .xs                      ; the floor outranks the grid
+    mov [bx+W_W], cx
+.xs:
+    mov ax, [bx+W_X]
+    inc ax
+    and al, 0F8h
+    dec ax
+    js .out                     ; x was 0..6
+    mov [bx+W_X], ax
+.out:
+    pop dx
+    pop cx
+    pop ax
+.r: ret
 
 ; ext_wants - wm_nat_take_wh then wm_pref_now: the size the window ASKED for,
 ; or the one it published for the adapter it stands on; CF as wm_pref_now's.
@@ -1177,6 +1501,10 @@ ext_extend_b:
     retf                        ; not take
 .ok:
 %endif
+    push bx                     ; the pointer where the user left it, on the
+    push cx                     ; primary - vid_apply homes it to the centre
+    push word [mouse_y]         ; and the user's place on the one display
+    push word [mouse_x]         ; there was is still a place on display 0 (K8)
     call ext_kapply             ; the live block is the SECONDARY's now...
     EXK vid_setmode             ; ...which is what points this at the right
                                 ; card, and what makes its 32KB/16KB clear
@@ -1224,7 +1552,13 @@ ext_extend_b:
     mov [vid_ctx + VID_CTX_SZ + VID_CTX_VY], di
 
     call ext_two                ; the live block is display 0's again, and
-    clc                         ; the DESKTOP is both of them now
+    pop ax                      ; the DESKTOP is both of them now
+    pop bx
+    xor cl, cl                  ; ...and the pointer back on display 0
+    call ext_mput
+    pop cx
+    pop bx
+    clc
     retf
 
 ; ext_kapply_eq - [vid_kind] = AL, vid_apply, and 40:10 back to that kind
@@ -1537,6 +1871,109 @@ ext_bcut:
     retf                        ; 39.14.7's path (CF = 1, which is mod_gone's)
 
 %endif
+
+; -----------------------------------------------------------------------------
+; ext_b1cut - gfx_blit1's ROW cut (SPEC.md 39.14.7.3), ext_bcut's .cutv for a
+; band. gfx_blit1_x's straddle path goes per 8px COLUMN, which cuts a column
+; seam (Right) and no other: on Below every column crosses the row seam too,
+; and each one was refused, met "already one column" and was dropped with
+; CF = 0. Here the band is drawn as the rows above the seam and the rows from
+; it, each a whole gfx_blit1 that resolves its own display, clip and pen - and
+; a half that still does not fit (the dead zone across x) goes per column
+; there, where each column fits or is not there.
+;
+; in:  gfx_blit1's arguments, VIRTUAL: AX = x, BX = y, CX = w, DX = rows,
+;      ES:SI = the band, BP = its stride (signed); refused by vid_span_wh
+; out: CF = 0 drawn (both halves); CF = 1 not a row cut - Right, or the seam
+;      row is not strictly inside the band - and the caller goes per column.
+;      Every register preserved
+; -----------------------------------------------------------------------------
+ext_b1cut:
+    push di
+    mov di, vid_ctx + VID_CTX_SZ    ; display 1's record
+    cmp word [di+VID_CTX_VX], 0 ; a non-zero VX is the RIGHT layout (39.19.2),
+    jne .no                     ; whose seam the columns already cut
+    mov di, [di+VID_CTX_VY]
+    sub di, bx                  ; DI = n, the band's rows above the seam
+    jle .no
+    cmp di, dx
+    jge .no
+    push dx
+    mov dx, di                  ; --- the top n rows, on display 0
+    EXK gfx_blit1               ; (every register back)
+    pop dx
+    push si
+    push dx
+    push ax
+    mov ax, di                  ; --- the rest, from the seam: n strides along
+    mul bp                      ; (low word: right for a NEGATIVE stride too)
+    add si, ax
+    pop ax
+    pop dx
+    push dx
+    push bx
+    add bx, di
+    sub dx, di
+    EXK gfx_blit1
+    pop bx
+    pop dx
+    pop si
+    pop di
+    clc
+    retf
+.no:
+    pop di
+    stc
+    retf
+
+; -----------------------------------------------------------------------------
+; ext_scut - gfx_scroll's COLUMN cut (SPEC.md 39.14.7.4). On the Right layout
+; a scroll's rows never leave their card, so a rect across the seam is two
+; scrolls by the same dy. "Refused = nothing moved" is the caller's contract,
+; so the RIGHT half goes first - its own refusal moves nothing and covers
+; display 1's rows and right edge, x2 + 1's grid and dy - and what could still
+; refuse the LEFT half is asked before either moves: x1's grid, y2 on display
+; 0 and the clip region holding the whole rect (virtual, [gfx_dnest] = 0).
+;
+; in:  gfx_scroll's arguments (AX..DX = x1, y1, x2, y2 VIRTUAL, SI = dy),
+;      gfx_scroll having refused them
+; out: CF = 0 both halves moved; CF = 1 not a cut (Below, no crossing, a
+;      nested hook, or a half that would refuse) and nothing moved. Every
+;      register preserved
+; -----------------------------------------------------------------------------
+ext_scut:
+    cmp byte [gfx_dnest], 0     ; nested: the rect is an outer hook's local
+    jne .no0
+    push di
+    mov di, [vid_ctx + VID_CTX_SZ + VID_CTX_VX]   ; DI = the seam - or 0,
+    or di, di                   ; the BELOW layout, whose rows would cross
+    jz .no                      ; cards (39.19.2)
+    cmp ax, di
+    jae .no                     ; x1 not left of it (unsigned: a negative x1 too)
+    cmp cx, di
+    jl .no                      ; x2 not right of it
+    test al, 7
+    jnz .no                     ; the left half's own grid test, asked first
+    cmp dx, [vid_ctx + VID_CTX_CH]
+    jge .no                     ; ...and its rows on display 0 (VY = 0)
+    EXK wm_clip_test            ; ...and the region holding BOTH halves
+    jc .no
+    push ax
+    mov ax, di                  ; --- [seam, x2], on display 1: the one that
+    EXK gfx_scroll              ; may still refuse, and moves nothing if so
+    pop ax
+    jc .no
+    push cx
+    lea cx, [di-1]              ; --- [x1, seam - 1], on display 0
+    EXK gfx_scroll
+    pop cx
+    pop di
+    retf
+.no:
+    pop di
+.no0:
+    stc
+    retf
 
 %ifndef SEAMCUT
  %define EXT_REFUSE_WANTED

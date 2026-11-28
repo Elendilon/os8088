@@ -103,6 +103,7 @@
 # wvm.inc stores through DS or ES = our segment, WEAVE.WSM's DS is the stamp
 # the package writes at WSS_MYDS. Nothing in the tree stores through CS.
 0 1 apps/weave/wwork.inc  # wsm_doframe: ES = KERNEL_SEG to READ our window's W_FLAGS before OSAPI_WM_CLIP_SET; nothing is stored through it
+0 1 apps/weave/wui.inc  # _wd_ask: ES = KERNEL_SEG so os88ui_ask READS our record's caption (SPEC.md 75.3.5) - Notepad's convention above; nothing is stored through it
 
 # --- apps/sheet, apps/word, apps/scribe (KERN-MEGA-PLAN 14.162)
 # SHEET's modules write their own claims through CSDO / [CSEG x] (sheet.asm):

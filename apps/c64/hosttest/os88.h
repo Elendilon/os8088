@@ -133,6 +133,7 @@ void os88_wm_destroy(void *win);
 void os88_wm_close(void *win);   /* SPEC.md 75.2 - close YOUR OWN window */
 int  os88_fullscreen(void *win, int enter);
 void os88_menu_set(void *win, struct os88_menuset *set);
+void os88_wm_prefer(void *win, const int *table);
 
 int  os88_task_spawn(void *win);
 int  os88_task_restartable(int on);   /* SPEC.md 66.6.2 - a stub here:

@@ -1730,6 +1730,13 @@ zw_status:
     or ax, ax
     jz .out                         ; v4+: the story writes its own
 
+    cmp byte [zt_busy], 0           ; INSIDE A DECODE (a wrap or a resize
+    jne .named                      ; repainting mid-sentence): its cursor is
+                                    ; bss, so a second decode here would end
+                                    ; the first and hand @print the name's
+                                    ; end as its PC. The name zw_stat already
+                                    ; holds is the one on the glass (SPEC.md
+                                    ; 61.17)
     mov byte [zw_capn], 0
     mov byte [zw_capon], 1
     mov ax, [zf_gvar]
@@ -1740,6 +1747,7 @@ zw_status:
     call zt_print                   ; ...into zw_stat, through zw_capture
 .noname:
     mov byte [zw_capon], 0
+.named:
 
     ; --- the right-hand field, composed at zw_stat+ZW_STRIGHT ---------------
     mov di, zw_stat + ZW_STRIGHT

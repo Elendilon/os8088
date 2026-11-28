@@ -863,14 +863,14 @@ DESKCLOK_FACES = ("Classic", "Memphis '80", "Neon '90", "Mono Digital",
 DESKCLOK_ANALOG = 3              # faces 0..2 have hands
 DESKCLOK_SIZES = ("Small", "Medium", "Large")
 DESKCLOK_SZW = ((80, 112, 152), (96, 128, 176))   # a face's width: dial, digital
-DESKCLOK_STIK_BSS = 5088         # deskclok.asm's DK_BSS: its own state first
-DESKCLOK_BSS_WIN = 251           # dw the clock's window
-DESKCLOK_BSS_CW = 271            # dw the card's width...
-DESKCLOK_BSS_CH = 273            # dw ...and height
-DESKCLOK_BSS_RING = 382          # db 0 quiet, 1 ringing, 2 rung out
-DESKCLOK_BSS_SNZ = 383           # db snoozed
-DESKCLOK_BSS_SWIN = 388          # dw the settings window, 0 none
-DESKCLOK_BSS_AWIN = 431          # dw the alarm window, 0 none
+DESKCLOK_STIK_BSS = 5104         # deskclok.asm's DK_BSS: its own state first
+DESKCLOK_BSS_WIN = 255           # dw the clock's window
+DESKCLOK_BSS_CW = 275            # dw the card's width...
+DESKCLOK_BSS_CH = 277            # dw ...and height
+DESKCLOK_BSS_RING = 386          # db 0 quiet, 1 ringing, 2 rung out
+DESKCLOK_BSS_SNZ = 387           # db snoozed
+DESKCLOK_BSS_SWIN = 392          # dw the settings window, 0 none
+DESKCLOK_BSS_AWIN = 435          # dw the alarm window, 0 none
 DESKCLOK_BSS_COK = 136           # db the face cache holds the face
 
 

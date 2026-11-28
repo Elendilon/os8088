@@ -11959,6 +11959,16 @@ pt_onsize:
     push ax
     push bx
     push dx
+    push cx                         ; THE CEILINGS FIRST, OFF THE DISPLAY THE
+    push dx                         ; KERNEL IS SIZING US FOR (SPEC.md 42.9.2):
+    push si                         ; a landing on another card asks HERE,
+    mov bx, si                      ; before pt_onresize re-reads the adapter,
+    call pt_screen                  ; and OSAPI_WM_DISPLAY answers the card the
+    pop si                          ; landing latched. Without it [pt_chmax]
+    pop dx                          ; was the card we LEFT, so a WF_KEEPH
+    pop cx                          ; Paint took each display's height on the
+                                    ; next one - 300 rows on the CGA, 200 on
+                                    ; the Hercules
     cmp byte [pt_mode], PT_M_LIVE   ; a notice window has no canvas to resize
     jne .fixed
     mov ax, cx

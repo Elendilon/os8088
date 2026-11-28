@@ -137,6 +137,8 @@ int  os88_fullscreen(void *win, int enter);
  * 11.2.1's own exemption for an app that takes typed text, which is this one:
  * the II+ owns every letter and owns Esc (APPLE2-SPEC section 13.3). */
 int  os88_fsx_caps(void *win, int *kind);
+int  os88_fsx_pick(void *win, int want, int *kd);
+void os88_wm_prefer(void *win, const int *table);
 int  os88_fsx_run(void (*entry)(void), void *win, int flags);
 int  os88_fsx_mode(int id, void *fsi);
 int  os88_fsx_wait(int kind);

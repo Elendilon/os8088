@@ -832,8 +832,7 @@ pm_fmpate:
 ; and the whole screen drawn once. SI = the window. CF=1 refused.
 ; -----------------------------------------------------------------------------
 pm_setup:
-    mov bx, si
-    call OSAPI_FSX_CAPS
+    mov ax, [ar_fscaps]             ; the target's modes (ar_play, 53.1.2.1)
     test ax, 1 << FSXM_VGA12
     jnz .vga
     mov word [ar_err], ar_s_vgaonly

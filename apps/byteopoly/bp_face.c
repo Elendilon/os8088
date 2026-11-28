@@ -216,17 +216,25 @@ static void ovl_fc_demo(void)
     bp_sel = 4;
 }
 #endif
-int bp_face_init(void *win, unsigned artseg, unsigned bandseg, unsigned bandcap, int bpp)
+static BPByte fc_fallback[2048];
+/* the face's depth: at the launch, and again when the window lands on a
+ * display of another depth (SPEC.md 131, 39.16.4) - the colour art and the
+ * kit's roles on a colour display, the 1bpp twins on a mono one. The next
+ * paint lays out and draws the whole face */
+void bp_face_depth(unsigned artseg, unsigned bandseg, unsigned bandcap, int bpp)
 {
-    static BPByte fallback[2048];
-    (void)win;
     bp_mono = bpp < 4;
     fc_gr = bp_mono ? 15 : 7;
     if (bandseg) bx_setup(bandseg, 0, bandcap, artseg, bpp >= 4 ? 4 : 1);
-    else bx_setup(0, fallback, sizeof(fallback), artseg, bpp >= 4 ? 4 : 1);
+    else bx_setup(0, fc_fallback, sizeof(fc_fallback), artseg, bpp >= 4 ? 4 : 1);
     gk_init(bpp);                       /* the kit's role table: colour, or mono under 4 bpp */
     fc_dirty = BP_D_ALL;
     fc_ready = 0;
+}
+int bp_face_init(void *win, unsigned artseg, unsigned bandseg, unsigned bandcap, int bpp)
+{
+    (void)win;
+    bp_face_depth(artseg, bandseg, bandcap, bpp);
     bp_sel = 0;
 #ifdef BP_FACE_DEMO
     ovl_fc_demo();

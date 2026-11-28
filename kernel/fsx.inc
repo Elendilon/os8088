@@ -2446,14 +2446,10 @@ fsx_rdownf:
     mov byte [mega_irqr], 0     ; (a service's masks, not an IRQ's)
     mov bx, 0x3FB8
     call MEGA_SEL_CODE:mega_rmaskf.nv ; BX = the lines to shut, [mega_rmask]
-    xor ax, ax                  ; ...and mega_vrm's two words, if it made
-    xchg ax, [mega_vsw]         ; them segments for the pointer: put back,
-    or ax, ax                   ; since the walk below banks and converts
-    jz .nvs                     ; all of them
-    mov [vid_seg], ax
-    mov ax, [mega_vsw+2]
-    mov [k_vsa], ax
-.nvs:
+    call mega_vback             ; ...and mega_vrm's words, if it made them
+                                ; segments for the pointer: put back, since
+                                ; the walk below banks and converts all of
+                                ; them
     call fsx_rsnddn             ; SOUND.DRV low, its lines open (W4) -
     call fsx_rserdn             ; ...a SERIAL.DRV lease served, its line
                                 ; open (W7) -

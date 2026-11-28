@@ -604,7 +604,20 @@ static void bp_ap_repaint(void *win)
     if (os88_wm_clip_set(win) == 0) bp_face_paint(win, 0);
 }
 void os88_paint(void *win) { bp_ap_need = 0; bp_face_paint(win, 1); }
-void os88_onresize(int w, int h, void *win) { (void)w; (void)h; (void)win; bp_face_dirty(BP_D_ALL); }
+/* the window landed on another display (SPEC.md 11.98, 39.16.3.3): its
+ * depth asked again (os88_wm_display, 39.16.4) - the art and the kit's roles
+ * were the launch display's - and the whole face owed. Draws nothing */
+void os88_onresize(int w, int h, void *win)
+{
+    static struct os88_video v;
+    (void)w; (void)h;
+    os88_wm_display(win, &v);
+    if ((v.bpp >= 4) != (bp_ap_video.bpp >= 4)) {
+        bp_ap_video.bpp = v.bpp;
+        bp_face_depth(bp_ap_artseg, bp_ap_bandseg, BP_AP_BANDP * 16, v.bpp);
+    }
+    bp_face_dirty(BP_D_ALL);
+}
 void os88_onkey(int ascii, int scan, void *win)
 {
     int used;

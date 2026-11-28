@@ -3546,7 +3546,7 @@ class View:
         cw, ch = cx2 - cx1 + 1, cy2 - cy1 + 1
         self.canvas = canvas
         self.ox, self.oy = self.clamp(cw, ch, ox or 0, oy or 0)
-        self.ix = cx1 + self.ox
+        self.ix = (cx1 + self.ox + 7) & ~7   # on the SCREEN's grid (px_vclamp)
         self.iy = cy1 + self.oy
 
     def clamp(self, cw, ch, ox, oy):

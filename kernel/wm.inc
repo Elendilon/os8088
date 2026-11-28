@@ -613,6 +613,34 @@ wm_init:
 section .text
 
 ; -----------------------------------------------------------------------------
+; wm_box - THE BOX A FRAME MUST FIT IN, for the display window BX's ORIGIN is on
+; in:       BX = the window
+; out:      AX/CX = x0 and xe, SI/DI = y0 and ye (the dock row on the
+;           primary), DX = the display's own bottom (the hard floor)
+; clobbers: AX, CX, DX, SI, DI, flags
+;
+; wm_fit's five loads, said once because wm_resize_nb asks the same question
+; (SPEC.md 39.17.2.1): a zoom on a secondary display commits through it, and
+; it used to read the PRIMARY's dock row, height and menu bar - which pulled a
+; window zoomed on a Below layout's display 1 up onto display 0.
+; -----------------------------------------------------------------------------
+wm_box:
+%ifdef DOCK_OPT
+    mov ax, [vid_band_x0]       ; x0 - off a left-hand strip (SPEC.md 30.5)
+    mov cx, [vid_band_xe]       ; xe - ...and a right-hand one
+%else
+    xor ax, ax                  ; x0
+    mov cx, [vid_pw]            ; xe
+%endif
+    mov si, MBAR_H              ; y0
+    mov di, [vid_dock_y0]       ; ye
+    mov dx, [vid_ph]            ; ...and the hard floor under it
+%ifdef KERN_BIG
+    EXTCALL EXT_FITBOX          ; ...unless the window is on another display
+%endif
+    ret
+
+; -----------------------------------------------------------------------------
 ; wm_fit - clamp a just-created window's frame onto the live screen
 ;
 ; Every window template in the tree - built-in, dialog and package alike -
@@ -641,19 +669,7 @@ section .text
 ; that will not fit the desktop band at all (SPEC.md 11.93).
 wm_fit:
     call kent_di                ; AX..DI: BX is the record, kept anyway
-%ifdef DOCK_OPT
-    mov ax, [vid_band_x0]       ; x0 - off a left-hand strip (SPEC.md 30.5)
-    mov cx, [vid_band_xe]       ; xe - ...and a right-hand one
-%else
-    xor ax, ax                  ; x0
-    mov cx, [vid_pw]            ; xe
-%endif
-    mov si, MBAR_H              ; y0
-    mov di, [vid_dock_y0]       ; ye
-    mov dx, [vid_ph]            ; ...and the hard floor under it
-%ifdef KERN_BIG
-    EXTCALL EXT_FITBOX          ; ...unless the window is on another display
-%endif
+    call wm_box                 ; the five, for the display its origin is on
     sub cx, ax                  ; w = min(w, xe - x0) - and CX STAYS the band's
     cmp [bx+W_W], cx            ; WIDTH from here on: nothing below reads xe,
     jle .wok                    ; and wm_min_floor wants the width anyway
@@ -1900,6 +1916,35 @@ wm_display:
     ret
 
 ; -----------------------------------------------------------------------------
+; osapi_wm_dorigin - OSAPI_WM_DORIGIN: WHERE is the display this window is on?
+;                 (public; API 0x0244, a JCELL - SPEC.md 39.16.4.3)
+; in:  BX = the window
+; out: AX = that display's x origin, DX = its y origin, in the VIRTUAL
+;      coordinates W_X/W_Y and every drawing slot take; every other register
+;      preserved. FAR, and DS is the caller's on entry.
+;
+; OSAPI_WM_DISPLAY's companion: the same display (wm_disp_now), its ORIGIN
+; where that cell answers its size. A package comparing a desktop position -
+; its own W_X/W_Y - with a display's extent needs both, and that cell has no
+; register left to carry two more words (39.16.4.3 is the decision). One
+; display: (0, 0), the answer every kernel had before 39.16.
+; -----------------------------------------------------------------------------
+osapi_wm_dorigin:
+    xor ax, ax
+    cwd
+%ifdef KERN_BIG
+    push ds
+    KDS
+    cmp byte [vid_ndisp], 1     ; GATED, as wm_display is: EXT_DISPLAY with
+    jbe .one                    ; CF = 1 is its ORIGIN form
+    stc
+    EXTCALL EXT_DISPLAY
+.one:
+    pop ds
+%endif
+    retf
+
+; -----------------------------------------------------------------------------
 ; wm_prefer - "this is how big I want to be on each adapter" (public; API
 ;             0x0478, SPEC.md 11.100.1)
 ; in:  BX = window ptr, SI = the offset of a PREF_SIZE table in the window's own
@@ -2408,9 +2453,7 @@ wm_resize:
 wm_resize_nb:                   ; ...and the entry for a caller that has
                                 ; banked it already, because it is about to
                                 ; move the ORIGIN too (wm_zoom's .go)
-    push ax
-    push cx
-    push dx
+    call kent_di                ; AX..DI: wm_box below spends SI and DI too
     cmp cx, WMIN_W
     jae .wok
     mov cx, WMIN_W
@@ -2424,27 +2467,34 @@ wm_resize_nb:                   ; ...and the entry for a caller that has
     jae .hok
     mov dx, WMIN_H
 .hok:
-    mov ax, [vid_dock_y0]       ; ...nor taller than the desktop band
+    mov [bx+W_W], cx            ; (wm_box reads the ORIGIN, never the size)
+    push dx                     ; (the height)
+    call wm_box                 ; SI = the top of the band, DI = the dock row,
+                                ; DX = the display's bottom - OF THE DISPLAY
+                                ; ITS ORIGIN IS ON, and not the primary's
+                                ; (SPEC.md 39.17.2.1: a zoom on display 1
+                                ; commits through here). The x bound stays
+                                ; the union's [vid_w], below
 %ifndef NOKEEPH
     test byte [bx+W_FLAGS], WF_KEEPH
     jz .band                    ; ...or, for a FIXED layout, than the display:
-    mov ax, [vid_ph]            ; it hangs over the dock rather than be cut,
+    mov di, dx                  ; it hangs over the dock rather than be cut,
 .band:                          ; wm_fit's own rule (SPEC.md 11.93.1)
 %endif
-    push ax                     ; ...the same bottom the y clamp below reads
-    sub ax, MBAR_H
-    cmp dx, ax
+    sub dx, si                  ; DX = the floor's height cap, below
+    mov ax, di                  ; ...nor taller than the desktop band
+    sub ax, si
+    pop cx                      ; (the height, in CX until it is stored)
+    cmp cx, ax
     jbe .hok2
-    mov dx, ax
+    mov cx, ax
 .hok2:
-    mov [bx+W_W], cx
-    mov [bx+W_H], dx
+    mov [bx+W_H], cx
                                 ; ...AND THE FLOOR LAST, SO IT WINS (SPEC.md
                                 ; 11.100.2). Below both ceilings, or the band
     mov cx, [vid_w]             ; clamp above would cut a declared minimum
-    mov dx, [vid_ph]            ; straight back off again. (CX/DX are not
-    sub dx, MBAR_H              ; banked round it: both are reloaded from the
-    call wm_min_floor           ; record on the next two lines)
+    call wm_min_floor           ; straight back off again. (CX/DX are reloaded
+                                ; from the record on the next two lines)
     mov ax, cx                  ; x + w <= screen width: CX is still [vid_w],
                                 ; wm_min_floor keeping it (kernel size pass
                                 ; 18, -1 against a reload)
@@ -2460,11 +2510,11 @@ wm_resize_nb:                   ; ...and the entry for a caller that has
 .xs:
     call wm_snap_win            ; the width changed, so the right-edge clamp
                                 ; may have moved x (SPEC.md 11.94)
-    pop ax                      ; y + h <= the row the dock owns (the
-    sub ax, dx                  ; display's bottom, for WF_KEEPH), pushed above
-    cmp ax, MBAR_H
+    mov ax, di                  ; y + h <= the row the dock owns (the
+    sub ax, dx                  ; display's bottom, for WF_KEEPH), from wm_box
+    cmp ax, si
     jge .yc2
-    mov ax, MBAR_H
+    mov ax, si
 .yc2:
     cmp [bx+W_Y], ax
     jle .paint
@@ -2503,7 +2553,7 @@ wm_resize_nb:                   ; ...and the entry for a caller that has
     call wm_rz_paint            ; ...and only what the move disturbed (11.95.1)
     xor ax, ax
     mov [wm_dmg_rzwin], ax      ; a one-shot, exactly as ui_grow's is
-    jmp wm_dock_snap.out        ; the same pops, in the same order
+    jmp kret_di                 ; kent_di's six
 
 ; -----------------------------------------------------------------------------
 ; wm_rz_swap - exchange BX's rect with the one wm_rz_bank put aside
@@ -2811,6 +2861,10 @@ wm_zoom:
     mov dx, [vid_dock_y0]       ; one pixel short of the dock - wm_fit's
     sub dx, MBAR_H + 1          ; clamp, for wm_fit's reason
 %ifdef KERN_BIG
+    stc                         ; CF = 1: a ZOOM, so EXTD.DRV also latches the
+                                ; target display for OSAPI_WM_DISPLAY and tells
+                                ; the window if its kind changes, BEFORE the
+                                ; ask below (SPEC.md 39.17.2.1)
     EXTCALL EXT_SPAN            ; ...ALL FOUR of the DISPLAY this window is on
                                 ; (SPEC.md 39.17.2), or a zoom would move it
                                 ; to the other monitor - which the x half
@@ -2929,6 +2983,11 @@ wm_zoom:
                                 ; is not covered by wm_resize_nb's bank the way
                                 ; .go below is (SPEC.md 39.11.2.1)
     call wm_usr_mark            ; ...and a zoom is a USER sizing it (11.100.5)
+%ifdef KERN_BIG
+    call .zoff                  ; the latch spent BEFORE the paint: the user
+                                ; state may straddle again, and the window is
+                                ; told its kind before it is drawn (39.17.2.1)
+%endif
     call wm_rz_paint            ; the band it is vacating is most of the
     jmp short .out              ; screen - but only that band, not the whole
                                 ; of it, and not the chrome (SPEC.md 11.95.1)
@@ -2952,7 +3011,19 @@ wm_zoom:
     call wm_resize_nb           ; ...and this is the half it can (the bank is
                                 ; ours, above)
 .out:
+%ifdef KERN_BIG
+    call .zoff                  ; every way out spends the zoom's latch
+%endif
     jmp kret_di
+%ifdef KERN_BIG
+.zoff:                          ; EXT_SPAN with BX = 0 and CF = 1: spend the
+    push bx                     ; latch, and if the window's kind has changed
+    xor bx, bx                  ; since the arm, bank it and tell the window
+    stc                         ; (SPEC.md 39.17.2.1). mod_gone: nothing armed
+    EXTCALL EXT_SPAN
+    pop bx
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; wm_zoom_slot - SI -> this window's entry in the zoom bank
@@ -3654,7 +3725,12 @@ wm_fs_drop:
     pop di
     pop si
     and word [bx+W_FLAGS], 0xFFF7
-    and word [wm_fs], 0
+    and word [wm_fs], 0         ; (AND clears CF: EXT_STRADS's plain form)
+%ifdef KERN_BIG
+    EXTCALL EXT_STRADS          ; ...UNLESS IT STRADDLES (SPEC.md 39.17.1.1):
+    jnc .out                    ; wm_fit is single-display and would clamp a
+%endif                          ; legal straddle onto its origin's display.
+                                ; CF = 1 - one display, mod_gone - fits
     call wm_fit                 ; the saved rect was fitted to the screen this
                                 ; window went fullscreen ON, and the adapter
                                 ; can have changed under it since - wm_refit
@@ -3937,6 +4013,14 @@ wm_snap_ax:
     mov cx, ax
     inc cx
     and cx, 0xFFF8              ; content left, rounded DOWN to a multiple of 8
+%ifdef KERN_BIG
+    cmp byte [vid_ndisp], 1     ; DISPLAY 1's LEFT EDGE IS x = 0 AGAIN (SPEC.md
+    jbe .dec                    ; 11.94): VX is a multiple of 8, so VX..VX+6
+    cmp cx, [vid_ctx + VID_CTX_SZ + VID_CTX_VX] ; rounds to VX-1, one column
+    jne .dec                    ; onto the display beside it - a 1px straddle
+    add cx, 8                   ; (K4/K5). Right to VX+7 instead, re-tested
+.dec:                           ; below like the 0..6 arm; a window spanning
+%endif                          ; display 1 is refused it and stays flush at VX
     dec cx                      ; ...and back to a frame x
     jns .fits
     add cx, 8                   ; x was 0..6: the next one up is the only one

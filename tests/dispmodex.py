@@ -20,7 +20,11 @@ the menu item renames itself `Mode X (Vga)` and `mc_cmd_modex` refuses - even
 though the game's own window then opens on the VGA.
 
 This measures `mc_caps` itself, out of the package's own bss, for a launch
-from each display.
+from each display. Under the owner's full-screen rule (SPEC.md 53.1.2.1)
+Mode X goes to a display that has it, so `mc_caps` is Mode X's bit wherever
+the window is on this machine; `mc_mono` (the window's own depth, SPEC.md
+48.27) is what moves with the window, and what a launch-time answer about the
+WRONG display gets wrong.
 """
 import sys
 import time
@@ -49,8 +53,18 @@ from os88geom import (VID_CTX_SZ, VID_CTX_VX,               # noqa: E402
 S = os88sym.linear
 TITLE_H = 18
 FSXM_MODEX = 8
-VGA_CAPS = 0x01EF
-HERC_CAPS = 0x0011
+# What mc_caps HOLDS since SPEC.md 48.27 (12b2a3d87): fsxw_pick's answer for
+# DX = Mode X's bit alone - the display the window is mostly on when it has
+# Mode X, else the first that does (SPEC.md 53.1.2.1, the owner's full-screen
+# rule). It is no longer the window display's whole FSX_CAPS mask, so on this
+# VGA + Hercules machine it is Mode X's bit WHEREVER the window stands: Mode X
+# is offered on the Hercules too, and its bracket goes to the VGA. What
+# follows the window is the DEPTH (mc_mono, off OSAPI_WM_DISPLAY), and the
+# launch-from-the-Hercules case still catches the field bug through it: an
+# entry-time answer about the launcher's display reads mono = 1 there.
+MODEX_CAPS = 1 << 8
+VGA_CAPS = MODEX_CAPS
+HERC_CAPS = MODEX_CAPS
 GAMES_DIR, MISSILE_PKG = "GAMES", "MISSILE.O88"
 
 
@@ -267,7 +281,7 @@ def main():
     if bad:
         print("FAIL: %s" % ", ".join(bad))
         return 1
-    print("PASS: the caps and the depth follow the window, and a launch from "
+    print("PASS: Mode X is offered wherever the window is, the depth follows it, and a launch from "
           "the other display is corrected")
     return 0
 

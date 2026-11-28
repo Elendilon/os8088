@@ -240,6 +240,8 @@ KSC_PGDN    equ 0x51
     DKV dk_R, 2
     DKV dk_Ry, 2
     DKV dk_ys, 2                ; the screen's aspect: rows a px across, x256
+    DKV dk_lw, 2                ; the frame the clock last laid itself out
+    DKV dk_lh, 2                ; in: the kernel's landing may resize it
     DKV dk_tx, 2
     DKV dk_ty, 2
     DKV dk_tw, 2
@@ -321,7 +323,7 @@ KSC_PGDN    equ 0x51
     DKV dk_snh, 1               ; ...until this hour
     DKV dk_snm, 1               ; ...and minute
     DKV dk_lsec, 1              ; the second the glass shows
-    DKV dk_mono, 1              ; the primary is 1bpp
+    DKV dk_mono, 1              ; its display is 1bpp (dk_aspect)
     ; THE FORMS (dkset.inc): the settings window and the alarm window, each
     ; a record - its window (0 none), its layout, a button pressed + 1
     ; (DKW_*) - and what only one of them has after it
@@ -384,6 +386,7 @@ dk_entry:
     mov si, dk_menus
     call OSAPI_MENU_SET
     call stik_made              ; MAKE, the prefilters, the tick
+    call dk_lrec                ; the frame laid out
     call dk_hands               ; what the first paint will draw
     call dk_hkeep
     mov al, [dk_ss]
@@ -396,14 +399,25 @@ dk_entry:
 dk_ret:
     ret
 
-; dk_aspect - [dk_ys] = the primary's rows a pixel across, x256: 256 on
-; VGA's square pixels, 107 on CGA's 640 x 200, 165 on Hercules. [dk_mono]
+; dk_aspect - [dk_ys] = the rows a pixel across, x256, of the display the
+; clock is ON (OSAPI_WM_DISPLAY; the primary's, OSAPI_VIDEO, before the window
+; is made): 256 on VGA's square pixels, 107 on CGA's 640 x 200, 165 on
+; Hercules. [dk_mono]. CF = 1 when [dk_ys] changed - the beat's cue to lay the
+; clock out again for another display (SPEC.md 110.14.2)
 dk_aspect:
     push ax
     push bx
     push cx
     push dx
+    push si
+    mov bx, [dk_win]
+    or bx, bx
+    jz .pri
+    call OSAPI_WM_DISPLAY       ; ...the same answer, for the WINDOW's display
+    jmp short .got
+.pri:
     call OSAPI_VIDEO            ; AX = width, BX = height, DH = bits a pixel
+.got:
     mov cl, 0
     cmp dh, 1
     ja .c
@@ -425,7 +439,12 @@ dk_aspect:
     pop dx
     pop ax
     div bx
+    cmp ax, [dk_ys]
     mov [dk_ys], ax
+    je .x                       ; CF = 0: the same aspect
+    stc
+.x:
+    pop si
     pop dx
     pop cx
     pop bx
@@ -510,6 +529,23 @@ dk_tick:
     push cx
     push dx
     push si
+    call dk_aspect              ; dragged to a display of another aspect:
+    jc .re                      ; laid out for it, and kept on it - and a
+    push es                     ; frame the kernel re-sized as it landed
+    mov si, KERNEL_SEG          ; (39.16.3.3: the size it was BORN with, not
+    mov es, si                  ; the face's) is given the face's back
+    mov si, [dk_win]
+    mov ax, [es:si+W_W]
+    cmp ax, [dk_lw]
+    jne .rp
+    mov ax, [es:si+W_H]
+    cmp ax, [dk_lh]
+.rp:
+    pop es
+    je .asp
+.re:
+    call dk_relay
+.asp:
     mov ch, [dk_hh]             ; the time on the glass
     mov cl, [dk_mm]
     mov dh, [dk_day]
@@ -865,8 +901,26 @@ dk_relay:
     call stik_resize
     call dk_hands
     call dk_hkeep
+    call dk_lrec
 .x:
     pop si
+    ret
+
+; dk_lrec - [dk_lw]/[dk_lh] = the clock's frame as it is now. Keeps everything
+dk_lrec:
+    push ax
+    push si
+    push es
+    mov si, KERNEL_SEG
+    mov es, si
+    mov si, [dk_win]
+    mov ax, [es:si+W_W]
+    mov [dk_lw], ax
+    mov ax, [es:si+W_H]
+    mov [dk_lh], ax
+    pop es
+    pop si
+    pop ax
     ret
 
 ; dk_onclose - STIK_ONCLOSE: an unapplied preview goes back before the save,
