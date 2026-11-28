@@ -603,3 +603,29 @@ are paint; the pole, the band and the cone are the clock's keyed face).
 course in `BZ_COURSES`, `bonanzaring`, `bonanzaperf`, `bonanzaexit`), `bbeditbundle` (the builder's zip takes
 every file under `apps/bonanza/courses/`, the new `.bba` among them), and one look on the glass at each clock,
 sign and gate on both cards.
+
+## 18. The owner's edit (2026-11-28): a longer summit, in place of the pen's
+
+The owner sent a modified `kite.bbc` ("a few more seconds, slightly more challenge though not much"), and it ships
+as sent, with one comment's section number brought up to date (SPEC.md 130.25.8 -> 137.25.8: the file predates
+BONANZA's renumbering to 137). The file is now the OWNER'S, no longer `kite/sketch.py --bbc`'s output: re-running
+the sketch with `--force` would overwrite it.
+
+What it changes against the refined course (section 10's):
+
+- **The meadow** is a small start pad of ramps and half tiles round (51, 57), no longer the 7 x 5 railed meadow.
+- **The summit** moved: no 7 x 7 summit with the crown on it. Past the pit's far side (11 - 18, 27 - 29, the rope
+  walk's old top, now a plain railed floor at 18) the way turns north at (7, 24) up a ramp to 20.5 at (7, 16 - 18),
+  east down to 18.5 and into a GOAL of 3 x 3 at (15 - 18, 15 - 18) on a floor of its own. A 2 x 2 TURNTABLE
+  (`prop turntable 7 25 size 2 fill oo/..`) sits on the way north, which is the "slightly more challenge".
+- **The rope walk branch is gone** (the ramp at 17, 29 - 34 and its `branch ROPE` ways): the comment heading it
+  stays, with no ways under it. The bridge's fan lost its `flag`.
+- **`medals 35 45`** (gold, silver) and **`limit 60`** (was 90).
+- The start clock moved to (54, 56), the summit's to (17, 13).
+
+As built (`make bonanzadisk`, this commit): the route demo is **1,767 steps, 32.35 s** (the refined course's
+route was 26.6 s), complete, no falls. `bbcourse.py --guide` passes G9 and G10 and reports *"no complete run
+yet"* for G1, G3, G11 and G12: the guide's run steers the plain arrows (`p.auto()`), not the route planner's keys,
+and the arrows alone do not finish this route (the planner's run does, standing at the turntable). That is
+reported, not refused (`guide_run_checks`); feeding the guide the planner's keys, as the build's demo has them,
+is the tool change that would check the four on this course.
