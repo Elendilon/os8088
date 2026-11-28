@@ -176,3 +176,37 @@ showed it doing nothing, because a re-adoption zeroes that bss by design. The
 fix that holds writes 0 over the first byte of the module's resident file name
 when it is refused, and tests that byte before the lookup. That costs no byte,
 and the test pin uses the same mark.
+
+## 2026-11-28 - standard controls, and a thumb that drags
+
+The owner, after living with it: some of the wide panel's buttons and
+controls were "behaving oddly, or looking non standard", and the scroll bar
+should "live scroll". An audit of every wide control against `os88ui`
+(SPEC.md 13) found five departures, all now gone (plan QA-11):
+
+- **Nothing tracked the pointer.** `cpw_edge` dropped every `W_ONDRAG` for a
+  wide control, so a pressed button stayed black after the pointer slid off -
+  it still cancelled on the release, but the glass said the opposite. Every
+  wide page now answers a drag (`cpd_drag`, `cpv_drag`, `cpw_thm_drag`), and
+  one gesture byte, `[CPW_W_LIT]`, means a pointer moving inside or outside a
+  control costs a compare and no pixels.
+- **Start at boot acted on the press.** It now arms, draws pressed, tracks and
+  toggles only on a release over the same row, as every check box does.
+- **The check boxes were a private bitmap.** QA-8 had settled "filled square
+  vs tick" in favour of a 12x12 tick drawn by `cpd_blit12` - but the solid
+  square IS the system's check box (13.16.2.1), so the private one is gone and
+  both pages draw `os88ui_glyph` through `CPG_GLYPH`.
+- **Window animations was an On / Off tab strip.** It is a check box now, like
+  every other on/off setting.
+- **The tables' thumb did nothing.** `cpk_tbclick` takes it with
+  `os88ui_sbgrab`, and `cpk_tbdrag`/`cpk_tbdrop` follow the hand at one commit
+  a tick (the Disk window's rate), landing where the hand stops.
+
+Seen on QEMU's VGA at 640x480: Ports... pressed, slid off (up), back on
+(down), released off (nothing); a Start at boot box slid off (unchanged) and
+clicked (toggled); the thumb dragged mid-gesture with the rows following; the
+same on Theme's two buttons and box and Display's Force Color. What was not
+seen: the Display page's VESA mode table scrolling - QEMU offers 8 modes and
+they all fit. The group boxes and the filter tabs stay the kit's own: the
+library has no element for either.
+

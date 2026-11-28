@@ -111,9 +111,10 @@ DRV, corrupt DAT), the installer copies both files (by reading `inst.inc`).
 | QA-5 | low | after that toggle, Apply/Test go live on the running row | fixb | gone with QA-4 (its only path); checked on VGA by fixb |
 | QA-6 | med-low | VESA loaded at run time: the Display page says to load it (it attaches at the next boot) | fixb | fixed: "Restart to use the VESA Display modes"; seen by fixb |
 | QA-7 | cosm | "Use this mode at startup" touches a frame at 616x408 | fixb | fixed: "Use mode at startup" |
-| QA-8 | cosm | Display check boxes are a filled square, Drivers' a tick | fixb | fixed: the Drivers page's tick |
+| QA-8 | cosm | Display check boxes are a filled square, Drivers' a tick | fixb | fixed the WRONG way round (a private tick); re-fixed 2026-11-28 by QA-11: the system's solid square everywhere |
 | QA-9 | cosm | "Ram Disk" vs "RAM Disk", "VESA Display" vs "VESA High-Res Display" | lead | fixed: the catalog uses the system's names |
 | QA-10 | doc | SPEC 135 said kern_mega has no VESA; it does | lead | fixed (135.4; 135.2 with QA-1) |
+| QA-11 | med | the owner (2026-11-28): wide controls "behaving oddly, or looking non standard". A pressed button or box stayed pressed when the pointer slid off (no W_ONDRAG tracking, 13.8.2); Start at boot toggled on the PRESS; the check boxes were a private 12x12 tick bitmap, not os88ui_glyph; Window animations was an On/Off tab strip; the tables' thumb could not be dragged | lead | fixed: every wide control tracks (`[CPW_W_LIT]`), boxes arm and act on the release, the system glyph everywhere, Window animations a check box, the thumb drags and the view follows live (135.5, 135.8, 135.9.1, 135.11); seen on QEMU VGA 640x480. The VESA mode table's thumb runs the same kit code but QEMU's 8 modes never scroll |
 
 MartyPC, XT 4.77 MHz + VGA, 1.44MB disk, guest seconds from the menu
 release to idle: first open wide 4.30 / compact 1.92; second open 1.90 /

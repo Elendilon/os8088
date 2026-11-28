@@ -33,6 +33,11 @@ CPW_ID0     equ 0xC000          ; a wide control's arm (os88ui_arm) is this
 CPK_BANDH   equ 12              ; a group box's title band
 CPK_TABH    equ 14              ; a tab strip's height
 CPK_SBW     equ 12              ; a table's scroll bar (os88ui_sbar)
+CPK_SBRATE  equ 1               ; its thumb drag's rate in ticks (SPEC.md
+                                ; 13.10.5.4): the view follows the hand at
+                                ; most once a tick - the Disk window's
+                                ; FM_SBRATE, on every CPU - and the release
+                                ; lands it where the hand stopped
 CPK_OK      equ 0               ; cpk_badge's three states, in CWI16_OK's
 CPK_ERR     equ 1               ; order (cpwfmt.inc)
 CPK_WARN    equ 2
@@ -638,6 +643,9 @@ cpk_tbsb:
     mov ax, [es:bx+CPKT_TOP]
     mov [os88ui_ksb+12], ax     ; pos
     mov bx, os88ui_ksb
+%ifdef OS88UI_SBDRAG
+    CPWC os88ui_sbfix           ; while a thumb drag is live on THIS bar the
+%endif                          ; thumb is where the hand is (SPEC.md 13.10.5.6)
     pop dx
     pop ax
     ret
@@ -681,7 +689,7 @@ cpk_tbclick:
     cmp ax, [es:si+CPKT_N]
     jae .no                     ; past the last: the ground
     clc
-    jmp short .out
+    jmp .out
 .bar:
     mov bx, si
     call cpk_tbsb               ; BX = os88ui_ksb
@@ -699,7 +707,20 @@ cpk_tbclick:
     cmp al, OS88UI_SBPGUP
     je .up
     cmp al, OS88UI_SBPGDN
-    jne .done                   ; the thumb, or nothing: no drag here
+    je .dn
+%ifdef OS88UI_SBDRAG
+    cmp al, OS88UI_SBTHUMB      ; the thumb: TAKEN, and the view follows the
+    jne .done                   ; hand (SPEC.md 13.10.5) - cpk_tbdrag and
+    call cpk_tbsb               ; cpk_tbdrop, through cpw_edge. BX = the bar,
+    push bp                     ; DX = the press's y, ABSOLUTE: the frame's
+    mov bp, sp                  ; DX (under SI), content-relative, + the
+    mov dx, [bp+4]              ; origin ([bp+n]: SS, the frame's own)
+    pop bp
+    add dx, [es:CPW_W_OY]
+    mov al, CPK_SBRATE
+    CPWC os88ui_sbgrab          ; CF = 1: no thumb after all - nothing armed
+%endif
+    jmp short .done
 .dn:
     mov ax, [es:bx+CPKT_N]      ; the last top there is
     sub ax, [es:bx+CPKT_NV]
@@ -736,6 +757,37 @@ cpk_tbclick:
     pop cx
     pop bx
     ret
+
+%ifdef OS88UI_SBDRAG
+; -----------------------------------------------------------------------------
+; cpk_tbdrag / cpk_tbdrop - a thumb drag's movement and its release (SPEC.md
+; 13.10.5), cpw_edge's while os88ui_sbdragging says one is live
+; in:  BX = the table's block; DX = the pointer's y, ABSOLUTE. out: nothing
+;
+; The element moves the thumb under the hand on every movement and answers
+; when the RATE (CPK_SBRATE) owes the view a commit; a commit is the new top
+; and the rows - the thumb is already there. The release commits where the
+; hand stopped, unconditionally, so a position the rate refused is never lost.
+; -----------------------------------------------------------------------------
+cpk_tbdrag:
+    push bx
+    call cpk_tbsb               ; BX = the bar, the hand's pos in it
+    CPWC os88ui_sbtrack         ; CF = 1: nothing owed yet
+    jmp short cpk_tbgo
+cpk_tbdrop:
+    push bx
+    call cpk_tbsb
+    CPWC os88ui_sbdrop          ; CF = 1: not this bar's - spent, and nothing
+cpk_tbgo:                       ; to land
+    pop bx
+    jc .r
+    cmp ax, [es:bx+CPKT_TOP]
+    je .r
+    mov [es:bx+CPKT_TOP], ax    ; the view follows: the rows alone
+    jmp cpk_tbrows
+.r:
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; cpk_badge - a status badge: the 16x16 mark, and a label after it

@@ -261186,7 +261186,8 @@ after a run (VESA.DRV does): a proc sets `[gfx_color]` before every fill.
 | `cpk_tabhit` | SI = the labels; CX = x from the strip's left | AL = the tab, CF = 0; CF = 1 none | its hit test |
 | `cpk_table` | BX = its block in the working area | - | a scrolling table: the visible rows through the page's ROW PAINTER, then `os88ui_sbar` (§13.10) with the block copied absolute into `os88ui_ksb` |
 | `cpk_tbrows` | BX = the block | - | the rows alone (a scroll) |
-| `cpk_tbclick` | BX = the block; CX/DX = a press | CF = 1 outside; CF = 0, AX = the row pressed, or 0FFFFh for the bar - ACTED ON: an arrow is one row, the track a page, the view redrawn by its rows and `os88ui_sbmove` | the table's press |
+| `cpk_tbclick` | BX = the block; CX/DX = a press | CF = 1 outside; CF = 0, AX = the row pressed, or 0FFFFh for the bar - ACTED ON: an arrow is one row, the track a page, the view redrawn by its rows and `os88ui_sbmove`; the THUMB is taken (`os88ui_sbgrab`, §13.10.5) | the table's press |
+| `cpk_tbdrag` / `cpk_tbdrop` | BX = the block; DX = the pointer's y, SCREEN | - | a thumb drag's movement and release (`os88ui_sbtrack` / `os88ui_sbdrop`): the element moves the thumb under the hand, and the view FOLLOWS LIVE at `CPK_SBRATE` = 1 tick - the Disk window's rate - by its rows alone; the release lands it where the hand stopped. `cpk_tbsb` ends in `os88ui_sbfix`, so a repaint mid-drag draws the thumb where the hand is. `cpw_edge` routes a drag and a release here while `os88ui_sbdragging` says one is live, and `cpw_click` clears a live record a lost release left (§13.10.5.7's net) |
 | `cpk_badge` | CX/DX; AL = `CPK_OK`/`CPK_ERR`/`CPK_WARN`; AH = the ground; SI = a label or 0 | CX = past it | a status badge: the 16×16 mark (`CWI16_OK` + AL) and a black label on its middle rows |
 | `cpk_text` | CX/DX; SI = a string in segment BL; DI = a width in cells (1-95); AX = ink/paper | DX = the row under the last line | long text: lines broken at the last space that fits (hard at the width when a word is longer), each padded with spaces to the full width - one opaque run a line, 10 px apart |
 
@@ -261222,7 +261223,7 @@ writes. Before this rule the Drivers page kept its filter and selection at
 page + 18 and + 20, which the Theme page's `CPT_B` and the Display page's
 `CPV_FLT`/`CPV_ASEL` also wrote, and coming back to Drivers showed an empty
 table or another page's filter. A new page adds its row here, its kept
-bytes in `CPW_W_KEEP` (13 of its 16 are spare; it grows by whole paragraphs), and a
+bytes in `CPW_W_KEEP` (12 of its 16 are spare; it grows by whole paragraphs), and a
 fresh-entry flag of its own if it keeps anything in the block across
 repaints.
 
@@ -261238,7 +261239,8 @@ repaints.
 | 320 | `CPW_W_DFLT` | the Drivers page's filter (0 All, else a `CWC_*`) | the open |
 | 321 | `CPW_W_DSEL` | the Drivers page's selected `drv_tab` row (0 at the open: row 0 if it is listed, else the first row) | the open |
 | 322 | `CPW_W_DON` (`CPW_D_ON`) | 1 while the page block is the Drivers page's; `cpw_page` clears it before drawing any other page (§135.8) | the open |
-| 323-335 | - | spare kept bytes (the file stays on a paragraph) | - |
+| 323 | `CPW_W_LIT` | the chrome: 1 while the armed wide control is DRAWN pressed - set by its press, followed by every drag (`cpw_lit`), 0 at the release and at every press | one gesture |
+| 324-335 | - | spare kept bytes (the file stays on a paragraph) | - |
 | 336-847 | `CPW_W_ICON` | the icon staging buffer | one blit |
 
 `cpwide.inc` refuses to assemble if the kept bytes leave the gap between the
@@ -261432,9 +261434,13 @@ to a second opinion: green **Loaded**; grey **Off** (Not loaded); red **No
 hardware** (`DRVE_HW`); yellow **Error** (every other refusal). The DETAILS
 box says the full sentence. The **memory** is `drv_memk`'s figure through
 `CPG_DRVMEM` with §31.6.2's rules (`~`, the half KB, `+`). The **check box**
-shows the row's WANT bit (`DRVR_WANT`): a press on the boot column toggles it
-through `CPG_DRVWANT` - the want bit alone, answered and owed (§31.8), nothing
-loaded or unloaded - and repaints that one row.
+is the system's (`os88ui_glyph` through `CPG_GLYPH`, §13.15 - the solid
+square, never a private bitmap) and shows the row's WANT bit (`DRVR_WANT`). It
+behaves as every check box does (§13.8): a press on the boot column arms
+`CPW_ID0` + 8 + the list row and draws the box pressed, a drag off it draws it
+up and back on draws it down, and only a release over the same row toggles
+the bit through `CPG_DRVWANT` - the want bit alone, answered and owed (§31.8),
+nothing loaded or unloaded - and repaints that one row.
 
 **DETAILS** is the selected row's: the category's header icon (Display,
 Sound, Storage and Network have theirs; any other the gear), the long name, the
@@ -261451,9 +261457,12 @@ Four buttons (x 52, 116, 188, 300 from the box's left, 18 rows, the box's last
 | **Settings...** (+2) | the driver is loaded and publishes a page (§31.9: its class is among `drv_cp_class`'s) | selects that page in the list (`cpw_select`) |
 | **Ports...** (+3) | always | hosts the compact page's Ports view (§31.15): `[cp_dview]` = 1 and the hosted paint; its own Back (a hosted release) brings this page back whole (`cpw_dsync`) |
 
-A button arms `CPW_ID0` + its number on the press and is drawn down; the
-release draws it up and acts only if the pointer is still over it (§13.8.3).
-A greyed button arms nothing.
+A button arms `CPW_ID0` + its number on the press and is drawn down; a drag
+TRACKS it (§13.8.2: up while the pointer is off it, down again when it comes
+back, drawn only on a change - `[CPW_W_LIT]`); the release draws it up and
+acts only if the pointer is still over it (§13.8.3). A greyed button arms
+nothing. Every wide page's controls track the same way (`cpw_edge`, then the
+page's `*_drag`).
 
 **What each action redraws** (CLAUDE.md, Performance rules 1-2): a **tab** the
 two tabs whose look changed (the rest of the strip is stepped past at its
@@ -261514,7 +261523,7 @@ driver that answers that verb gets this page for nothing.
 | the desktop line | `Desktop` and three radios, Single / Right / Below (§31.10.2), on the group's last line - drawn only where `vid_dual_ok` allows a pairing, exactly as the compact page, and applied on the spot through `CPG_VIDARR` |
 | **Mode preview** group | a monitor drawn to the SELECTED mode's aspect - the screen in cyan inside a dark grey bezel, fitted to a 64×40 box (five fills, and the ground in four spans round it) - and two lines beside it: the resolution and the colours |
 | **Modes** group | for the VESA adapter: a filter strip (`All`, then one tab per colour depth the card offers - `256`, `32,768`, `65,536` - built from the records, never fixed), a header line, and a scrolling table (`cpk_table`) with the columns Resolution, Colours, Memory (the record's framebuffer KB) and Status. Status carries `current` (the running record, §120.10's `CH`), `recommended` (Auto's pick, `SI`) and `startup` (the record whose class is the `VE` byte; the Auto row when it is 0). The table's first row is **Auto** - "the recommended mode", the class byte 0. For any other adapter the group says what that adapter is in one line (it has one mode, §31.10); with the VESA adapter selected and no answer from the verb (an older `VESA.DRV`, CF = 1) the table is the Auto row alone and a line says so |
-| **Use mode at startup** | a check box (the Drivers page's tick box, §135.8, when live; the gate's glyph when greyed or pressed): ticked when the `VE` byte (`CFG_VE`, §120.2.3) is the selected row's class (Auto: 0). Ticking writes that class, un-ticking writes 0 (Auto), owed through `CPG_WDSET` - **the byte alone**; nothing switches. Greyed off the VESA adapter, and on the Auto row while it is ticked (there is nothing to un-tick to) |
+| **Use mode at startup** | a check box (the system's glyph through `CPG_GLYPH` in every state, §13.15): ticked when the `VE` byte (`CFG_VE`, §120.2.3) is the selected row's class (Auto: 0). Ticking writes that class, un-ticking writes 0 (Auto), owed through `CPG_WDSET` - **the byte alone**; nothing switches. Greyed off the VESA adapter, and on the Auto row while it is ticked (there is nothing to un-tick to) |
 | **Force Color** | §31.10.4's box through `CPG_VGC`, greyed without a VGA **and while `[vid_kind]` = `VID_VESA`**: Force Color is a VGA BIOS power-on setting (§39.30) and its live half reloads DAC 0..63 with the EGA table, which on a packed 8bpp desktop is the desktop's palette (QA-4) - a fact (§47), through `cp_vid_fcok`, so the compact page's box greys alike. The bit is set from a planar display and is owed for the next start |
 | **Apply** | switch now and keep: Set Primary's meaning (§31.10, §120.6) through `CPG_VIDSET` - AL = the selected adapter, CL = the selected row's class (Auto 0); the VESA kind has the driver pick first and leaves and comes back when it is already on the VBE. Greyed when the selection is what is running: the adapter is the running one and, for VESA, the row's record is the running record (Auto's is the recommended one) |
 | **Test...** | Apply for 15 seconds (§135.9.3). Greyed with Apply |
@@ -261714,7 +261723,7 @@ R = content width - 9; "extra" = content height - 389, so 0 at 616x408 and
 |---|---|---|
 | four cards | y 52 (`CPT_TOP`), x = L + i x (w + 8), i = 0..3 = `THM_BRIGHT`, `THM_DARK`, `THM_COLOR`, `THM_WIN`; w = (content width - 161) / 4 (113 / 149); h = 84 + extra / 2 (84 / 140) | a miniature desktop, menu bar, window and title bar, drawn from a table of rects (`cpt_tab`) in the THEME'S OWN pens: the row is `thm_tab`'s Bright / Dark row, and for Color and Windows the live Color row `THM_CROW` (a Windows card wears the Color row, §76.14.13, with a bevelled grey window), so a changed preset previews truthfully; a dithered desktop (`THM_DITHER`) is `gfx_fill_gray`. Under it its name, centred. The LIVE theme (`[thm_kind]`) has a 2 px blue ring and its name on a blue bar; the rest a 1 px black ring |
 | COLOR PRESETS | group at y = 52 + h + 8, 60 tall, x L..R | the eight rows of `drivers/thmpal/thmrows.inc` (the same macro `THM_PRESET_ROWS`, so THMPAL.DRV and this page cannot disagree about a colour) as 28x32 swatches at x = L + 14 + 38 i: the title colour (row byte 3) over the desktop colour (byte 5) in a black outline; the live preset (the 'TP' byte, `[drv_cfg + CFG_THMP]`), while the theme is Color or Windows, has a 3 px blue ring. **Customize...** right-aligned in the group |
-| Effects | group at y = presets + 68, 56 tall, x L, half the width | "Window animations" and an On / Off tab strip (`cpk_tabs`) over `[wm_animon]`. §11.99's zoom IS this setting (the compact page's second group, `CFG_ANIM`), so the mockup's separate "Desktop zoom" box is not drawn: it would be a second control for the same byte |
+| Effects | group at y = presets + 68, 56 tall, x L, half the width | "Window animations", the system's CHECK BOX (`CPG_GLYPH`, §13.15) over `[wm_animon]` - it was an On / Off tab strip, which no other on/off setting in the system is. §11.99's zoom IS this setting (the compact page's second group, `CFG_ANIM`), so the mockup's separate "Desktop zoom" box is not drawn: it would be a second control for the same byte |
 | Screen Saver | group beside it, x L + half + 8 .. R | a 96x34 black picture with ten stars (primitives, no bitmap) and **Settings...** |
 
 **Acting.** A card or a swatch acts on the PRESS, as the compact radio does
@@ -261722,12 +261731,13 @@ R = content width - 9; "extra" = content height - 389, so 0 at 616x408 and
 nothing drawn). **A click draws no card and no swatch itself**: `cp_thm_apply`
 asks `cp_repost`, `ui_task` repaints every window - this one included, through
 `CWV_PAINT` - so the frame moves with the world, once, and nothing is drawn
-twice. The animation strip acts on the press, writes `[wm_animon]`, owes
-`SYSTEM.CFG` (`CPG_WDSET`) and redraws the one strip (nothing else is on
-screen to repaint). **Customize...** (`CPG_THMCUST`) and **Settings...**
-(`CPG_SAVER`) are armed (`CPW_ID0` + 1 and + 2, the pressed look drawn at
-once) and fire on the release, only if it lands inside the same rect - the
-compact page's rule (§13.7).
+twice. The **Window animations** box (with its label one target) is armed
+(`CPW_ID0` + 3), drawn pressed, tracked, and on a release over it toggles
+`[wm_animon]`, owes `SYSTEM.CFG` (`CPG_WDSET`) and redraws the one box
+(nothing else is on screen to repaint). **Customize...** (`CPG_THMCUST`) and
+**Settings...** (`CPG_SAVER`) are armed (`CPW_ID0` + 1 and + 2, the pressed
+look drawn at once), track the pointer (§13.8.2) and fire on the release,
+only if it lands inside the same rect - the compact page's rule (§13.7).
 
 **Presets: the decision.** A preset is applied with ONE click and no driver
 ABI change (`THMV_ABI_VER` and THMPAL.DRV are untouched; the dialog stays

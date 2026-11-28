@@ -77,6 +77,8 @@ CPD_SX      equ CPD_NX + CPD_NW * 8
 CPD_MX      equ CPD_SX + 96
 CPD_BXC     equ CPD_MX + 64
 CPD_CKX     equ 46                      ; the check box, in the boot column
+CPD_IDCK    equ 8                       ; a box's arm: CPW_ID0 + 8 + its list
+                                        ; row (the buttons are CPW_ID0 + 0..3)
 
 ; CPD_XA - every x a row is laid at, CONTENT-relative (a row's left is CPD_XL
 ; on every row), worked out once a paint by cpd_paint rather than once a span.
@@ -503,56 +505,91 @@ cpd_memstr:
     mov byte [es:di], 0
     ret
 
-; cpd_blit12 - the 12x12 check box: SI = its 12 pattern words in the image,
-; AX/BX = x/y content-relative. Expanded to 4bpp (set = black, clear = white)
-; in the icon staging buffer and put down with ONE OSAPI_GFX_BLIT4. Keeps all
-; (cpw_vid.inc's Display page draws its tick boxes with it too)
-cpd_blit12:
+; cpd_ck - list row AX's Start at boot box, if the row is showing; CL = 1
+; drawn pressed. Keeps all
+cpd_ck:
+    push ax
+    push dx
+    mov dx, ax
+    sub dx, [es:CPD_TB + CPKT_TOP]
+    jl .o
+    cmp dx, [es:CPD_TB + CPKT_NV]
+    jge .o
+    push ax
+    xchg ax, dx
+    mov dl, CPD_RH
+    mul dl
+    add ax, CPD_ROWY
+    xchg ax, dx                 ; DX = the row's top
+    pop ax
+    call cpd_ckat
+.o:
+    pop dx
+    pop ax
+    ret
+
+; cpd_ckat - the box itself: AX = the list row, DX = its row's top, CL = 1
+; pressed. The system's check box (os88ui_glyph through CPG_GLYPH, SPEC.md
+; 13.15), 12x12 at the boot column, rows 3-14. Keeps all
+cpd_ckat:
     push ax
     push bx
     push cx
     push dx
     push si
-    push di
-    push bp
-    push ax
-    push bx
-    mov di, CPW_W_ICON
-    mov bp, 12
-.r:
-    cs lodsw
-    xchg ax, dx
-    mov cx, 6
-.b:
-    mov al, 0xFF
-    shl dx, 1
-    jnc .a
-    and al, 0x0F
-.a:
-    shl dx, 1
-    jnc .s
-    and al, 0xF0
-.s:
-    stosb
-    loop .b
-    dec bp
-    jnz .r
-    pop bx
-    pop ax
-    add ax, [es:CPW_W_OX]
-    add bx, [es:CPW_W_OY]
-    mov cx, 12
-    mov dx, cx
-    mov bp, 6
-    mov si, CPW_W_ICON
-    call KERNEL_SEG:api_gfx_blit4
-    pop bp
-    pop di
+    xchg ax, si
+    mov al, [es:si + CPD_ROWS]
+    call cpd_rowp
+    mov al, OS88UI_GCHECK
+    cmp byte [bx + DRVR_WANT], 0
+    je .on
+    or al, OS88UI_GON
+.on:
+    or cl, cl
+    jz .up
+    or al, OS88UI_GDOWN
+.up:
+    mov cx, [es:CPD_XA + CPD_XCM]
+    inc cx
+    add cx, [es:CPW_W_OX]       ; CX/DX = its top left, SCREEN
+    add dx, 3
+    add dx, [es:CPW_W_OY]
+    xor bl, bl                  ; live
+    mov ah, CPG_GLYPH
+    call cpw_gate
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    ret
+
+; cpd_ckhit - the Start at boot column of a listed row at CX/DX (content):
+; CF = 0 and AX = the list row; CF = 1 none. Keeps the rest
+cpd_ckhit:
+    push dx
+    mov ax, cx
+    sub ax, [es:CPD_XA + CPD_XCM]
+    add ax, CPD_CKX - 1         ; AX = x from the Start at boot column
+    cmp ax, 104                 ; (unsigned: left of it wraps)
+    jae .no
+    mov ax, dx
+    sub ax, CPD_ROWY
+    jb .no
+    mov dl, CPD_RH
+    div dl
+    xor ah, ah
+    cmp ax, [es:CPD_TB + CPKT_NV]
+    jae .no
+    add ax, [es:CPD_TB + CPKT_TOP]
+    cmp ax, [es:CPD_TB + CPKT_N]
+    jae .no
+    pop dx
+    clc
+    ret
+.no:
+    pop dx
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -671,19 +708,23 @@ cpd_row:
     mov si, CPD_MSTR
     mov cx, [es:CPD_XA + CPD_XM]
     call cpw_run
-    mov al, [es:CPK_S_I]        ; --- the box: checked when the row is WANTED
-    call cpd_rowp
-    mov si, cpd_ck0
-    cmp byte [bx + DRVR_WANT], 0
+    mov bp, sp                  ; --- the box: checked when the row is
+    mov ax, [bp+12]             ; WANTED, pressed while its press is held
+    mov dx, [es:CPK_S_Y]        ; (AX = the list row: the frame's first
+                                ; push, [bp+n] SS's)
+    xor cl, cl
+    cmp byte [es:CPW_W_LIT], 0
     je .ck
-    mov si, cpd_ck1
+    push ax
+    CPWC os88ui_armed
+    sub ax, CPW_ID0 + CPD_IDCK
+    pop bx
+    cmp ax, bx
+    xchg ax, bx
+    jne .ck
+    inc cx
 .ck:
-    mov ax, [es:CPD_XA + CPD_XCM]
-    inc ax
-    mov bx, dx
-    dec bx
-    dec bx                      ; (DX = the row's top + 5)
-    call cpd_blit12
+    call cpd_ckat
     pop bp
     pop di
     pop si
@@ -1080,6 +1121,7 @@ cpd_click:
     CPWC os88ui_arm
     xchg ax, si
     mov ah, 1
+    mov [es:CPW_W_LIT], ah
     jmp cpd_btn                 ; ...and drawn down
 .tabs:                          ; --- which filter is at this x? (cpk_tabs'
     sub ax, CPD_XL              ; widths, and a gap is the tab before it)
@@ -1134,19 +1176,14 @@ cpd_click:
     cmp ax, 0FFFFh
     je .r                       ; the bar: acted on
     mov si, ax                  ; SI = the list row
-    xchg ax, cx
-    sub ax, [es:CPD_XA + CPD_XCM]
-    add ax, CPD_CKX - 1         ; AX = x from the Start at boot column
-    cmp ax, 104                 ; (unsigned: left of it wraps)
-    jae .sel
-    mov al, [es:si + CPD_ROWS]
-    call cpd_rowp
-    mov cl, [bx + DRVR_WANT]
-    xor cl, 1
-    mov ah, CPG_DRVWANT         ; the want bit ALONE
-    call cpw_gate
+    call cpd_ckhit              ; its Start at boot box: ARMED, drawn
+    jc .sel                     ; pressed, and it acts on the release over
+    lea ax, [si + CPW_ID0 + CPD_IDCK]   ; it (SPEC.md 13.8.3), as every
+    CPWC os88ui_arm             ; check box does
+    mov cl, 1
+    mov [es:CPW_W_LIT], cl
     xchg ax, si
-    jmp cpd_row1
+    jmp cpd_ck
 .sel:
     xchg ax, si
     jmp cpd_setsel
@@ -1160,6 +1197,8 @@ cpd_click:
 ; -----------------------------------------------------------------------------
 cpd_rel:
     sub ax, CPW_ID0
+    cmp ax, CPD_IDCK
+    jae .ck
     cmp ax, 4
     jae .r
     push ax
@@ -1201,6 +1240,73 @@ cpd_rel:
     mov ax, [es:CPD_TB + CPKT_SEL]
     call cpd_row1
     jmp cpd_det
+.r:
+    ret
+
+.ck:                            ; --- a Start at boot box
+    sub ax, CPD_IDCK            ; AX = the list row it was pressed on
+    xchg ax, si
+    sub cx, [es:CPW_W_OX]
+    sub dx, [es:CPW_W_OY]
+    call cpd_ckhit
+    jc .ckup
+    cmp ax, si
+    jne .ckup
+    mov al, [es:si + CPD_ROWS]  ; released over it: the want bit ALONE, and
+    call cpd_rowp               ; the row (its box up, and what changed)
+    mov cl, [bx + DRVR_WANT]
+    xor cl, 1
+    mov ah, CPG_DRVWANT
+    call cpw_gate
+    xchg ax, si
+    jmp cpd_row1
+.ckup:                          ; slid off: up again, nothing done
+    xchg ax, si
+    xor cl, cl
+    jmp cpd_ck
+
+; -----------------------------------------------------------------------------
+; cpd_drag - the pointer moved with a wide control pressed (cpw_edge's): it
+; is drawn down while the pointer is over it and up while it is not (SPEC.md
+; 13.8.2), drawing only on a change ([CPW_W_LIT], cpw_lit)
+; in:  AX = the armed id; CX/DX = the point, content-relative
+; -----------------------------------------------------------------------------
+cpd_drag:
+    sub ax, CPW_ID0
+    cmp ax, CPD_IDCK
+    jae .ck
+    push ax                     ; --- a button: AL = it
+    mov ax, cx
+    mov bx, dx
+    call cpd_bhit               ; AL = the button under it, CF = 1 none
+    pop bx                      ; BL = the armed one
+    mov ah, 0
+    jc .b
+    cmp al, bl
+    jne .b
+    inc ah
+.b:
+    mov al, ah
+    call cpw_lit
+    jz .r
+    mov al, bl                  ; cpd_btn: AL = the button, AH = 1 pressed
+    jmp cpd_btn
+.ck:
+    sub ax, CPD_IDCK            ; --- a box: AX = its list row
+    xchg ax, si
+    call cpd_ckhit
+    mov bl, 0
+    jc .c
+    cmp ax, si
+    jne .c
+    inc bx
+.c:
+    mov al, bl
+    call cpw_lit
+    jz .r
+    mov cl, al
+    xchg ax, si
+    jmp cpd_ck
 .r:
     ret
 
@@ -1294,10 +1400,3 @@ cpd_b0:     db 'Load', 0
 cpd_b1:     db 'Unload', 0
 cpd_b2:     db 'Settings...', 0
 cpd_b3:     db 'Ports...', 0
-; the check box: 12 rows of 12 bits, bit 15 leftmost
-cpd_ck0:
-    dw 0xFFF0, 0x8010, 0x8010, 0x8010, 0x8010, 0x8010
-    dw 0x8010, 0x8010, 0x8010, 0x8010, 0x8010, 0xFFF0
-cpd_ck1:
-    dw 0xFFF0, 0x8010, 0x80D0, 0x8190, 0xA310, 0xB610
-    dw 0x9E10, 0x8C10, 0x8810, 0x8010, 0x8010, 0xFFF0
