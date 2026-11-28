@@ -72,7 +72,11 @@ CPW_W_DFLT  equ CPW_W_KEEP + 0  ; db  the Drivers page's filter (0 All, CWC_*)
 CPW_W_DSEL  equ CPW_W_KEEP + 1  ; db  ...its selected drv_tab row, 0FFh none
 CPW_W_DON   equ CPW_W_KEEP + 2  ; db  1 = the page block is the Drivers page's
                                 ;     (cpw_page clears it for any other page)
-CPW_W_KEEPN equ 16              ; (13 spare)
+CPW_W_LIT   equ CPW_W_KEEP + 3  ; db  1 = the armed wide control is DRAWN
+                                ;     pressed: set at its press, followed by
+                                ;     every drag (SPEC.md 13.8.2), 0 at the
+                                ;     release - one gesture, any page
+CPW_W_KEEPN equ 16              ; (12 spare)
 CPW_W_ICON  equ CPW_W_KEEP + CPW_W_KEEPN    ; +336: the icon staging buffer,
 CPW_WAN     equ 32 + CPW_LMAX * 4 + 96 + CPW_W_PAGEN + CPW_W_KEEPN + CWD_I32_PIX
                                 ; ...one 32x32: 848 bytes in all, the bss tail
@@ -80,7 +84,7 @@ CPW_W_END   equ cpw_wa + CPW_WAN    ; (an equ: %if takes the forward label
 %if CPW_W_ICON + CWD_I32_PIX != CPW_W_END ; through one, never bare)
   %error "cpwide: CPW_WAN is not the working area's length"
 %endif
-%if CPW_W_DON >= CPW_W_ICON || CPW_W_DFLT < CPW_W_PAGE + CPW_W_PAGEN
+%if CPW_W_LIT >= CPW_W_ICON || CPW_W_DFLT < CPW_W_PAGE + CPW_W_PAGEN
   %error "cpwide: the kept bytes must lie between the page block and the icons"
 %endif
 CPW_WSZ     equ cpw_dat         ; CPWIDE.DAT's first byte, ES-relative: every
@@ -953,6 +957,13 @@ cpw_strcat:
 ; -----------------------------------------------------------------------------
 cpw_click:
     call cpw_org
+%ifdef OS88UI_SBDRAG
+    mov byte [os88ui_sbd_on], 0 ; A PRESS CANNOT ARRIVE DURING A LIVE THUMB
+                                ; DRAG (SPEC.md 13.10.5.7): one that is set
+                                ; here lost its release, and must not route
+                                ; this gesture's edges to a table (cpw_edge)
+%endif
+    mov byte [es:CPW_W_LIT], 0  ; ...nor may a lost release's pressed look
     mov ax, cx
     sub ax, [es:CPW_W_OX]
     mov bx, dx
@@ -1058,9 +1069,16 @@ cpw_lfind:
 
 ; -----------------------------------------------------------------------------
 ; cpw_up / cpw_drag - the release and the drag (SPEC.md 13.8.3) belong to
-; whatever took the press: a wide control's arm is CPW_ID0 and up (the kit's,
+; whatever took the press: a live thumb drag is a table's (cpwkit.inc,
+; SPEC.md 13.10.5), a wide control's arm is CPW_ID0 and up (the kit's,
 ; cpwkit.inc), and anything else is the hosted page's own, so its body runs
-; through the gate with the edge's registers
+; through the gate with the edge's registers.
+;
+; A wide control TRACKS the pointer as every control in the system does
+; (SPEC.md 13.8.2): a drag off it draws it up, a drag back on draws it down
+; again, and [CPW_W_LIT] is what the glass shows, so a pointer moving inside
+; or outside it costs a compare and no pixels. The page answers "is this
+; content point over control AX" and draws the change.
 ; -----------------------------------------------------------------------------
 cpw_up:
     mov ah, CPG_HUP
@@ -1074,22 +1092,57 @@ cpw_edge:
     call cpw_big                ; the small state: no edge acts or draws
     jb .r
 .ok:
+%ifdef OS88UI_SBDRAG
+    CPWC os88ui_sbdragging      ; a thumb drag owns the gesture whole
+    jnc .thumb
+%endif
     push ax
     CPWC os88ui_armed           ; AX = the armed control, 0 = none
     cmp ax, CPW_ID0
-    pop ax
     jae .wide
+    pop ax
     call cpw_gate
     jmp cpw_dsync
 .wide:
-    cmp ah, CPG_HUP
-    jne .r
+    pop bx                      ; BH = the edge, AX = the armed control
+    cmp bh, CPG_HUP
+    je .up
+    sub cx, [es:CPW_W_OX]       ; --- the drag: the point, content-relative
+    sub dx, [es:CPW_W_OY]
+    cmp byte [cp_sel], CP_IVID
+    je cpv_drag
+    cmp byte [cp_sel], CP_ITHM
+    je cpw_thm_drag
+    jmp cpd_drag
+.up:
+    mov byte [es:CPW_W_LIT], 0  ; the release puts it up, whatever it does
     cmp byte [cp_sel], CP_IVID  ; the Display page's controls (135.9.5)
     je cpv_up
     CPWC os88ui_fire            ; a wide control's release: disarmed, and the
     cmp byte [cp_sel], CP_ITHM  ; page's to act on - the Theme page's buttons
     je cpw_thm_up               ; (135.11), else the Drivers page's (135.8)
     jmp cpd_rel
+%ifdef OS88UI_SBDRAG
+.thumb:                         ; --- the table whose thumb the press took
+    mov bx, CPD_TB
+    cmp byte [cp_sel], CP_IVID
+    jne .tb
+    mov bx, CPV_TB
+.tb:
+    cmp ah, CPG_HUP
+    je cpk_tbdrop
+    jmp cpk_tbdrag
+%endif
+.r:
+    ret
+
+; cpw_lit - the tracking test every page's drag makes: AL = 1 the pointer is
+; over the armed control, 0 not. ZF = 1 when that is what the glass already
+; shows (nothing to draw); else [CPW_W_LIT] = AL and ZF = 0. Keeps all
+cpw_lit:
+    cmp al, [es:CPW_W_LIT]
+    je .r
+    mov [es:CPW_W_LIT], al
 .r:
     ret
 

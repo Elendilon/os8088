@@ -304,24 +304,14 @@ cpv_ctl1:
     push bx
     call cpv_sclass             ; ZF = 1: the row is the startup mode
     pop bx
-    jne .off
+    jne .g
 .on:
-    mov si, cpd_ck1             ; the Drivers page's tick box (QA-8), up and
-    or al, OS88UI_GON           ; live; greyed or pressed is the gate's glyph
-    jmp short .z0
+    or al, OS88UI_GON           ; the system's check box in every state
+    jmp short .g                ; (SPEC.md 13.15), as the Drivers page's
 .fc:
     test byte [drv_cfg + CFG_VGC], CFG_VGCB
     jnz .on
-.off:
-    mov si, cpd_ck0
-.z0:
-    test di, di
-    jnz .g
-    test bp, 0FF00h
-    jnz .g
-    pop ax                      ; its left (content); BX is still its top
-    call cpd_blit12
-    jmp short .out
+    jmp short .g
 .radio:
     call cpv_aron               ; ZF = 1: it is the one on
     mov al, OS88UI_GRADIO
@@ -450,6 +440,7 @@ cpv_click:
     CPWC os88ui_arm
     pop ax
     mov ah, 1                   ; pressed
+    mov [es:CPW_W_LIT], ah
     jmp cpv_ctl1
 .r:
     ret
@@ -563,6 +554,32 @@ cpv_up:
     sub al, CPV_IARR            ; the desktop line, now (SPEC.md 31.10.2)
     mov ah, CPG_VIDARR
     jmp cpw_gate
+
+; -----------------------------------------------------------------------------
+; cpv_drag - the pointer moved with a control pressed (cpw_edge's dispatch):
+; drawn down over it, up off it (SPEC.md 13.8.2), only on a change
+; in:  AX = the armed id; CX/DX = the point, content-relative
+; -----------------------------------------------------------------------------
+cpv_drag:
+    sub ax, CPW_ID0
+    cmp ax, CPV_NCTL
+    jae .r
+    xchg ax, bx                 ; BX = the armed control
+    call cpv_hit                ; AX = the control under the pointer
+    mov ah, 0
+    jc .t
+    cmp al, bl
+    jne .t
+    inc ah
+.t:
+    mov al, ah
+    call cpw_lit
+    jz .r
+    mov ah, al
+    mov al, bl
+    jmp cpv_ctl1
+.r:
+    ret
 
 ; =============================================================================
 ; Test... (SPEC.md 135.9.3)

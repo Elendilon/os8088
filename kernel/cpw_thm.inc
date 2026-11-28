@@ -55,6 +55,8 @@ CPT_ROW     equ CPW_W_PAGE + 30 ; 10 bytes: the theme row being drawn
 
 CPT_ID_CUST equ CPW_ID0 + 1     ; the armed ids: Customize... and Settings...
 CPT_ID_SAVE equ CPW_ID0 + 2
+CPT_ID_ANIM equ CPW_ID0 + 3     ; ...and the Window animations check box
+CPT_CKL     equ OS88UI_GW + 6   ; a check box's label, from its box's left
 
 R_          equ 80h             ; "from the far edge", in a table's coordinate
 
@@ -166,13 +168,14 @@ cpw_thm_paint:                  ; (cpw_page has cleared CPW_D_ON: the page
     add dx, 55
     mov si, cpt_s_eff
     call cpk_group
-    mov cx, CPT_L + 8
-    lea dx, [bx + 18]
+    mov cx, CPT_L + 8 + CPT_CKL ; its check box's label...
+    lea dx, [bx + 18 + 2]
     mov si, cpt_s_anim
     mov ax, (CWHITE << 8) | CBLACK
     xor bl, bl
     call cpw_run
-    call cpt_tabs
+    xor cl, cl                  ; ...and the box (SPEC.md 13.15)
+    call cpt_anim
 %endif
     mov ax, [es:CPT_SX]         ; --- Screen Saver
     mov bx, [es:CPT_TE]
@@ -199,15 +202,36 @@ cpw_thm_paint:                  ; (cpw_page has cleared CPW_D_ON: the page
     jmp cpk_button              ; Settings...
 
 %ifdef WM_ANIM
-; cpt_tabs - the On / Off strip, the live choice barred
-cpt_tabs:
+; cpt_anim - the Window animations check box: the system's (os88ui_glyph
+; through CPG_GLYPH, SPEC.md 13.15), ticked while [wm_animon]; CL = 1 drawn
+; pressed. AX BX CX DX spent
+cpt_anim:
+    mov al, OS88UI_GCHECK
+    cmp byte [wm_animon], 0
+    je .off
+    or al, OS88UI_GON
+.off:
+    or cl, cl
+    jz .up
+    or al, OS88UI_GDOWN
+.up:
     mov cx, CPT_L + 8
+    add cx, [es:CPW_W_OX]
     mov dx, [es:CPT_TE]
-    add dx, 32
-    mov si, cpt_s_tabs
-    mov al, 1
-    sub al, [wm_animon]
-    jmp cpk_tabs
+    add dx, 18
+    add dx, [es:CPW_W_OY]
+    xor bl, bl
+    mov ah, CPG_GLYPH
+    jmp cpw_gate
+
+; cpt_arect - the box and its label as one target: AX/BX/CX/DX, content
+cpt_arect:
+    mov ax, CPT_L + 8
+    mov bx, [es:CPT_TE]
+    add bx, 18
+    mov cx, CPT_L + 8 + CPT_CKL + (cpt_s_tabs - cpt_s_anim - 1) * 8 - 1
+    lea dx, [bx + OS88UI_GW - 1]
+    ret
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -458,6 +482,7 @@ cpw_thm_click:
     pop ax
     add ax, CPT_ID_CUST
     CPWC os88ui_arm
+    mov byte [es:CPW_W_LIT], 1
     ret
 .nb:
     pop ax
@@ -519,23 +544,14 @@ cpw_thm_click:
     jmp cpw_gate
 %ifdef WM_ANIM
 .eff:
-    mov bx, [es:CPT_PY]         ; --- the animation strip
-    sub bx, [es:CPT_TE]
-    sub bx, 32
-    cmp bx, CPK_TABH - 1
-    ja .r
-    mov cx, [es:CPT_PX]
-    sub cx, CPT_L + 8
-    mov si, cpt_s_tabs
-    call cpk_tabhit             ; AL = the tab (0 On, 1 Off)
-    jc .r
-    xor al, 1                   ; ...as [wm_animon]
-    cmp al, [wm_animon]
-    je .r
-    mov [wm_animon], al
-    mov ah, CPG_WDSET           ; SYSTEM.CFG owed; nothing on screen to repaint
-    call cpw_gate
-    jmp cpt_tabs
+    call cpt_arect              ; --- the Window animations box: ARMED,
+    call cpt_hit                ; drawn pressed, and it acts on the release
+    jc .r                       ; over it (SPEC.md 13.8.3)
+    mov ax, CPT_ID_ANIM
+    CPWC os88ui_arm
+    mov cl, 1
+    mov [es:CPW_W_LIT], cl
+    jmp cpt_anim
 %else
 .eff:
 %endif
@@ -549,7 +565,7 @@ cpw_thm_click:
 ; -----------------------------------------------------------------------------
 cpw_thm_up:
     sub ax, CPT_ID_CUST
-    cmp ax, 1
+    cmp ax, 2
     ja .r
     push ax                     ; the button: 0 Customize..., 1 Settings...
     sub cx, [es:CPW_W_OX]
@@ -558,6 +574,10 @@ cpw_thm_up:
     mov [es:CPT_PY], dx
     call cpt_geo
     pop ax
+%ifdef WM_ANIM
+    cmp al, 2
+    je .anim
+%endif
     push ax
     call cpt_btn
     xor di, di
@@ -568,6 +588,66 @@ cpw_thm_up:
     mov ah, CPG_THMCUST         ; Customize..., or the saver's Settings...
     add ah, al
     jmp cpw_gate
+%ifdef WM_ANIM
+.anim:                          ; --- Window animations: over it, toggled and
+    call cpt_arect              ; owed to SYSTEM.CFG (nothing on the screen
+    call cpt_hit                ; to repaint); either way the box goes up,
+    jc .aup                     ; once, in its new state
+    xor byte [wm_animon], 1
+    mov ah, CPG_WDSET
+    call cpw_gate
+.aup:
+    xor cl, cl
+    jmp cpt_anim
+%endif
+.r:
+    ret
+
+; -----------------------------------------------------------------------------
+; cpw_thm_drag - the pointer moved with a control pressed (cpw_edge's): drawn
+; down over it, up off it (SPEC.md 13.8.2), only on a change
+; in:  AX = the armed id; CX/DX = the point, content-relative
+; -----------------------------------------------------------------------------
+cpw_thm_drag:
+    sub ax, CPT_ID_CUST
+    cmp ax, 2
+    ja .r
+    mov [es:CPT_PX], cx
+    mov [es:CPT_PY], dx
+    push ax
+    call cpt_geo
+    pop ax
+    push ax
+%ifdef WM_ANIM
+    cmp al, 2
+    jne .b
+    call cpt_arect
+    jmp short .h
+.b:
+%endif
+    call cpt_btn
+.h:
+    call cpt_hit                ; CF = 1 off it
+    mov al, 0
+    jc .t
+    inc ax
+.t:
+    call cpw_lit
+    pop bx                      ; BL = the control
+    jz .r
+    mov cl, al
+%ifdef WM_ANIM
+    cmp bl, 2
+    je cpt_anim
+%endif
+    xor di, di                  ; DI = the look (cpt_btn spends CX)
+    or cl, cl
+    jz .d
+    mov di, OS88UI_DOWN
+.d:
+    mov al, bl
+    call cpt_btn
+    jmp cpk_button
 .r:
     ret
 
@@ -633,7 +713,7 @@ cpt_s_pre:  db 'Color Presets', 0
 cpt_s_cust: db 'Customize...', 0
 cpt_s_eff:  db 'Effects', 0
 cpt_s_anim: db 'Window animations', 0
-cpt_s_tabs: db 'On', 0, 'Off', 0, 0
+cpt_s_tabs:                     ; (cpt_arect: the label's end)
 cpt_s_sav:  db 'Screen Saver', 0
 cpt_s_set:  db 'Settings...', 0
 %endif
