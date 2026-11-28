@@ -19,13 +19,20 @@ full can only succeed by SHEDDING caches, cheapest first:
      (Box.mod_base) - the module went up, so a claim the full pool could not
      hold was satisfied;
   2. at least one TRIV cache (level FBh) that stood before is gone;
-  3. every cache of level FDh and up (the FAT window, the read-ahead store)
-     that stood before still stands - the shed took the cheapest it could,
-     and stopped when the claim fitted.
+  3. the shed took the cheapest it could, and stopped when the claims
+     fitted (shed_order): no cache went while a cheaper one stands, and the
+     dearest level taken was needed - the panel's claims would not have
+     fitted the cheaper caches' runs. On VGA the panel is CTRL.DRV and
+     CPWIDE.DRV (SPEC.md 135), 43 KB, so FDh and FEh caches go too.
 
 THE FAILING CASE (docs/WRITING-TESTS.md 1): take `call mx_shed` out of
 mx_alloc's `.shed` arm (kernel/mega.inc) and CTRL.DRV stays in conventional
 memory: no line (1), and nothing shed (2). Verified when the row was written.
+Turn mx_shedf's rank compare round (`jae .n` -> `jbe .n`, kernel/memory.inc)
+and nothing is below the claimant: (1) and (2) go red, seen 2026-11-28.
+shed_order's halves were broken offline against that day's tables - a
+dearer cache shed with a cheaper one standing, and claims that fitted the
+cheaper runs - and each went red.
 
 It reads build/ (wants=) and writes only under build/bochs-megashed/.
 """
@@ -40,7 +47,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 import os88bochs as ob  # noqa: E402
 
 MX_BLKSZ, MX_NBLK = 10, 96          # kernel/mega.inc
-MX_FPURGE = 4
+MX_FPURGE, MX_FPIN = 4, 8              # kernel/mega.inc
 LVL_TRIV, LVL_MED = 0xFB, 0xFD
 
 
@@ -62,6 +69,58 @@ def table(box):
 def caches(rows):
     return {(r["off"], r["aux"]) for r in rows
             if r["kb"] and r["own"] == 0xFE and r["fl"] & MX_FPURGE}
+
+
+def shed_order(rows, rows2, before, gone):
+    """Assertion 3, the rule rather than one outcome of it: the shed took the
+    cheapest it could, and stopped when the claims fitted.
+
+    (3a) CHEAPEST FIRST - no cache went while a strictly cheaper one stands.
+    (3b) NO LEVEL WITHOUT NEED - the claims that landed above 1MB (the
+         panel's modules: owner FEh, neither pinned by this row nor a cache)
+         would NOT have fitted, first-fit largest first, into the runs the
+         caches strictly cheaper than the dearest level shed had held. Their
+         runs, not their sum: a claim is one block.
+
+    It used to say "no level FDh cache goes", which was this machine's
+    outcome while the panel was CTRL.DRV alone (17 KB, inside the 35 KB of
+    TRIV caches). The wide Control Panel (SPEC.md 135) loads CPWIDE.DRV
+    beside it - 43 KB - and the rule rightly goes on to FDh and FEh."""
+    out = []
+    lvl = {(r["off"], r["aux"]): (r["aux"] >> 8, r["kb"]) for r in rows
+           if (r["off"], r["aux"]) in before}
+    for o, a in gone:
+        for k, (l, _) in lvl.items():
+            if k not in gone and l < a >> 8:
+                out.append("a level %02Xh cache (%04X) was shed while a "
+                           "cheaper one (%04X) still stands" % (a >> 8, a, k[1]))
+    if not gone:
+        return out
+    top = max(a >> 8 for _, a in gone)
+    runs = []
+    for (o, a), (l, kb) in sorted(lvl.items()):
+        if l < top:
+            if runs and runs[-1][1] == o:
+                runs[-1][1] = o + kb
+            else:
+                runs.append([o, o + kb])
+    old = {(r["off"], r["kb"], r["own"], r["fl"]) for r in rows if r["kb"]}
+    claims = sorted((r["kb"] for r in rows2 if r["kb"] and r["own"] == 0xFE
+                     and not r["fl"] & (MX_FPURGE | MX_FPIN)
+                     and (r["off"], r["kb"], r["own"], r["fl"]) not in old),
+                    reverse=True)
+    room = [b - a for a, b in runs]
+    for kb in claims:
+        for i, r in enumerate(room):
+            if r >= kb:
+                room[i] -= kb
+                break
+        else:
+            return out              # a claim did not fit: the level was needed
+    out.append("level %02Xh caches were shed although the claims (%s KB) "
+               "fitted the cheaper caches' runs (%s KB)"
+               % (top, claims, [b - a for a, b in runs]))
+    return out
 
 
 def menu(box, dy):
@@ -138,10 +197,8 @@ def main():
                                            for o, a in gone))
         if not any(a >> 8 == LVL_TRIV for _, a in gone):
             fails.append("no TRIV cache was shed")
-        for o, a in before:
-            if a >> 8 >= LVL_MED and (o, a) not in after:
-                fails.append("a level %02Xh cache (%04X) was shed while "
-                             "cheaper ones were enough" % (a >> 8, a))
+        for msg in shed_order(rows, rows2, before, gone):
+            fails.append(msg)
         for l in box.said():
             if l.startswith("kern_mega FAULT"):
                 fails.append(l)
