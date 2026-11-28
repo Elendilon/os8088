@@ -468,7 +468,7 @@ life, and report while it is in flight.
 
 ### BONANZA's host checks: what a change owes, and what each costs
 
-Bounce Bonanza (SPEC.md 130) has five HOST checks beside its soak rows, and
+Bounce Bonanza (SPEC.md 137) has five HOST checks beside its soak rows, and
 for a while every merge and every fix ran all five in a row (the owner,
 2026-11-16: *"when every action invokes another action that takes this long
 it slows everything to a crawl"*). Two things changed, and neither weakened

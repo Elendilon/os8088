@@ -17,7 +17,7 @@ SECTION = {}
 RAILS = []           # (x0, y0, x1, y1) a guard rail along a tile edge
 WALLS = []           # (x0, y0, x1, y1, z) a solid block
 HOLES = set()
-ARCHES = [(43, 43, 44, 45, "x", 3)]                          # (the owner: "where it was before"; a passage needs a floor past it)                          # (x0, y0, x1, y1, along, under): SPEC.md 130.39
+ARCHES = [(43, 43, 44, 45, "x", 3)]                          # (the owner: "where it was before"; a passage needs a floor past it)                          # (x0, y0, x1, y1, along, under): SPEC.md 137.39
 # revision 8 (the owner's edit of the diagonal variant): half cells made VOID - (wx, wy, side): the start
 # plateau's corners and its front corner on a diagonal, and the hill landings' outer corners
 HALVES = [(4, 4, "up"), (7, 4, "right"), (4, 7, "left"), (7, 7, "down"), (4, 10, "up"),
@@ -89,7 +89,7 @@ def chute(sec, ways, depth):
 
 
 def rail(x0, y0, x1, y1, style="block"):
-    """a rail along a tile edge: a BLOCK rail (a wall tile) or a see-through GUARD rail (SPEC.md 130.35), the
+    """a rail along a tile edge: a BLOCK rail (a wall tile) or a see-through GUARD rail (SPEC.md 137.35), the
     style a choice per rail (the course guide's G24); either takes the tile on the void side of the edge"""
     RAILS.append((x0, y0, x1, y1, style))
 
@@ -145,7 +145,7 @@ rail(40, 38, 40, 41); rail(38, 38, 40, 38)   # the elbow's lone left block gone:
 ramp("W", "y", 38, 41, 40, 43, Z - 16.5, Z - 17.5)          # 2 tiles (revision 5: the lip took 2)
 # F  the leap: a railed elbow, a run-up along +x (no rail across its entry:
 #    rails protect, never block), a ONE-tile gap, a landing 2 units under the lip
-#    (revision 9: TWO wide from the walk on, so a real ARCHWAY - SPEC.md 130.39, at most 2 x 2 flat cells -
+#    (revision 9: TWO wide from the walk on, so a real ARCHWAY - SPEC.md 137.39, at most 2 x 2 flat cells -
 #    stands over its first flat cell; its legs take the rail blocks' places, `under 3` so a Hop passes)
 floor("F", 38, 43, 40, 45, Z - 17.5)                         # the elbow, 2 x 2
 rail(38, 43, 38, 45); rail(38, 45, 40, 45)
@@ -342,7 +342,7 @@ def route_len():
 
 # --- the first draft of the engine's course ---------------------------------
 # python3 sketch.py --bbc OUT.bbc writes the course as BONANZA's text course
-# (SPEC.md 130.10.3) ONCE, to start the engine work from the paper design;
+# (SPEC.md 137.10.3) ONCE, to start the engine work from the paper design;
 # after that the .bbc is the source and is edited by hand.  Every tile moves
 # by OFF so walls and clock pillars stay inside 3 .. 252.  A rail becomes a
 # WALL tile on the void side of its edge, 2 units over the floor it guards.
@@ -356,13 +356,13 @@ HEAD_TXT = """
 course ROLL "First Roll"
 guide                     # a REAL course: held to the course guide's checkable rules (G1, G3, G9 - G12)
 width 64
-uses archway              # the ARCHWAY before the leap (SPEC.md 130.39)
-lock across               # SPEC.md 130.45: the camera held across - the whole course is one window wide
-stop down                 # SPEC.md 130.45.4: the camera scrolls no further once the finish is in view
+uses archway              # the ARCHWAY before the leap (SPEC.md 137.39)
+lock across               # SPEC.md 137.45: the camera held across - the whole course is one window wide
+stop down                 # SPEC.md 137.45.4: the camera scrolls no further once the finish is in view
 ball rubber
 music firstroll           # its own song (2026-11-18); TRIAL's, the owner's favourite, is kept for course 3
 target 30                 # the design class (30, 60 or 90); the sheet aims at about 35 s
-# no `limit`: the TOOL's (SPEC.md 130.18.3) from the autopilot's route, which steers the chute since the
+# no `limit`: the TOOL's (SPEC.md 137.18.3) from the autopilot's route, which steers the chute since the
 # autopilot learned shapes (31.0 s -> 50 s; the owner, 2026-11-18: "50s is fine")
 """
 
@@ -375,7 +375,7 @@ def bbc(out):
     L.append("# rooms (the sketch's sections)")
     L += ROOMS_TXT
     L.append("")
-    L.append("# the chute (SPEC.md 130.28): unfenced, its shape guides")
+    L.append("# the chute (SPEC.md 137.28): unfenced, its shape guides")
     L += CHUTE_TXT
     L.append("")
     L.append("# rails: block rails (wall tiles) on the void side of each railed edge")
@@ -415,7 +415,7 @@ def bbc(out):
     for x, y, side in HALVES:
         L.append("hole  half %s tile %d %d          # a diagonal corner" % (side, x + OFF, y + OFF))
     for x0, y0, x1, y1, along, under in ARCHES:
-        L.append("archway rect %d %d %d %d along %s under %g   # SPEC.md 130.39: a Hop passes under it"
+        L.append("archway rect %d %d %d %d along %s under %g   # SPEC.md 137.39: a Hop passes under it"
                  % (x0 + OFF, y0 + OFF, x1 + OFF, y1 + OFF, along, under))
     L.append("goal  rect %d %d %d %d  flat %g" % (min(g[0] for g in GOAL) + OFF, min(g[1] for g in GOAL) + OFF,
                                                max(g[0] for g in GOAL) + 1 + OFF, max(g[1] for g in GOAL) + 1 + OFF,

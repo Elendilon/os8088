@@ -7,7 +7,7 @@
 #
 #   cart   An ORE CART on a stub of track, the digits painted on its side; it FILLS down the course (empty, a
 #          few lumps, half full, heaped and glinting).  INSTALLED: tools/bbcourse.py's `cart0` .. `cart3`
-#          (`_clock_cart`, SPEC.md 130.18.5.2) - named here, drawn there.  At a clock's natural spot the cart
+#          (`_clock_cart`, SPEC.md 137.18.5.2) - named here, drawn there.  At a clock's natural spot the cart
 #          stands on a timber TRESTLE, clear of the guard rails in front of it.
 #   ground The same four frames with `digits 0 16`: the cart two block rows down, its track laid on the tile
 #          (no trestle).  Lower, and half behind the rails.

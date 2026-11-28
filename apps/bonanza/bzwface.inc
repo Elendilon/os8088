@@ -1,7 +1,7 @@
 ;;; =============================================================================
-;;; apps/bonanza/bzwface.inc - BONANZA's PLAYER FACE (SPEC.md 130.26.1, 130.26.2),
+;;; apps/bonanza/bzwface.inc - BONANZA's PLAYER FACE (SPEC.md 137.26.1, 137.26.2),
 ;;; assembled into the SHELL PART beside the instruments' face (bzface.inc), which
-;;; paints instead while the harness byte bz_dev is set (130.26.6).
+;;; paints instead while the harness byte bz_dev is set (137.26.6).
 ;;;
 ;;; The window: the title centred near the top, the ledge with the rubber marble
 ;;; on its right running off the content's right edge, and - the RESIDENT's,
@@ -102,7 +102,7 @@ bz_wface:
     add ax, [cs:si + 4]
     mov [bz_wy], ax
     call bzw_reason             ; [bz_wy] stepped past it, when there is one
-    ; 4. the keys, centred in what is left above the ledge (SPEC.md 130.26.9)
+    ; 4. the keys, centred in what is left above the ledge (SPEC.md 137.26.9)
     call bzw_keys
     ; 5. down to the ledge
     mov bx, [bz_wy]
@@ -304,7 +304,7 @@ bzw_blitsl:
 
 ; bzw_blitsh - the ledge (SI) from content x AX (> its left edge) to its right
 ; edge: column c = AX - lx shifted to a byte's start, a row at a time into
-; bz_font, as many rows a BLIT1 as fit (SPEC.md 130.26.2: nothing twice)
+; bz_font, as many rows a BLIT1 as fit (SPEC.md 137.26.2: nothing twice)
 bzw_blitsh:
     push ax
     mov bx, ax
@@ -518,7 +518,7 @@ bzw_lbline:
     add word [bz_wy], BZ_LH
     ret
 
-; bzw_keys - the player's keys (SPEC.md 130.26.9): BZW_NKEYS lines, left-
+; bzw_keys - the player's keys (SPEC.md 137.26.9): BZW_NKEYS lines, left-
 ; aligned a cell left of the title's left edge, the block centred down the
 ; space between the title (and a reason) and the Play Game button's top.  A
 ; line may share rows with the ledge picture when it ends left of it (its

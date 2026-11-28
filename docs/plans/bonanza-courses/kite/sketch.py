@@ -35,7 +35,7 @@ origin 528                # NOT free: the camera's lattice is 64 px of the PICTU
                           # the middle of its window at this origin (KITE.md section 2: 512 and 544 pass G3 too,
                           # 496 and 560 do not).  Move it by 64 or re-run --guide
 ball rubber
-uses wind glass           # (the crumbling bridge's cracked tiles are GLASS's kind `crack`, SPEC.md 130.25.8)
+uses wind glass           # (the crumbling bridge's cracked tiles are GLASS's kind `crack`, SPEC.md 137.25.8)
 music kitehill            # its own song (2026-11-25): a 6/8 in D that climbs, each phrase a step higher (KITE.md, "The song")
 palette 0                 # green, red, yellow on black: a grassy hill (LITTLE HOP's palette)
 limit 90
@@ -60,9 +60,9 @@ p.guard(48, 54, 55, 58)                              # arrow held from the start
 p.guard(49, 58, 54, 59)                              # cut corner there (MEASURED on the pen-in's octagon)
 p.start = (51, 57)
 # THE BROW: the rise climbs 3 units to one unit OVER the breezeway, and the ball drops onto the walk.  No ball
-# rolls back up a 1-unit step (SPEC.md 130.48), so a ball braked at the top and nudged back stays up there instead
+# rolls back up a 1-unit step (SPEC.md 137.48), so a ball braked at the top and nudged back stays up there instead
 # of rolling down the whole rise with the camera after it: the camera's "a dither does not pan back" (SPEC.md
-# 130.17.6.5 item 4, asserted over every shipped demo) holds on a CLIMB only with it - KITE.md section 12, K13.
+# 137.17.6.5 item 4, asserted over every shipped demo) holds on a CLIMB only with it - KITE.md section 12, K13.
 # (A whole unit, not the 3/4 that would do: a quarter-unit meadow costs 81 blocks and 23 masks more)
 p.ramp("R", "y", 50, 48, 53, 54, Z1 + BROW, ZA, "R: the first rise, 3 units in 6 tiles, 3 wide, to a BROW a unit over the walk")
 # 2. THE BREEZEWAY (terrace 1): the wind's LESSON - a gust across a wide walk, the downwind edge RAILED --------
@@ -147,7 +147,7 @@ p.guard(9, 34, 11, 35, sides=["+y"])
 p.floor("H", 6, 24, 9, 27, ZG + 0.5, "the CROWN: half a unit up (every ball rolls up it), the goal on it")
 p.goal(6, 24, 9, 27, ZG + 0.5)
 
-# the clocks are WINDSOCKS (the owner's pick, 2026-11-25: kite/CLOCKS.md; SPEC.md 130.18.5.2): the wind fills the
+# the clocks are WINDSOCKS (the owner's pick, 2026-11-25: kite/CLOCKS.md; SPEC.md 137.18.5.2): the wind fills the
 # sock up the hill - limp, half out, straight, taut
 p.clock(54, 55, ZA, "start: limp", frame="sock1")
 p.clock(41, 37, Z1, "plaza: half out", frame="sock2")

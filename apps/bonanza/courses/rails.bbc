@@ -1,4 +1,4 @@
-# Guard Rails - BONANZA's GUARD RAIL test course (SPEC.md 130.35), built only by the BZRAIL=1 knob (the owner,
+# Guard Rails - BONANZA's GUARD RAIL test course (SPEC.md 137.35), built only by the BZRAIL=1 knob (the owner,
 # 2026-11-17: a thin rail that "blocks anything from getting over", high enough that rubber cannot boost over it
 # from flat ground, and SEE-THROUGH, so it never hides the ball's path).  NOT a shipped course: the knob adds it
 # to BZ_COURSES after the shipped ones and makes it the pathway's pad 0, so a new game rests on it (title, Play
@@ -17,7 +17,7 @@
 #  - P, the start plate on the left, with a pad for each ball.
 # Goals: exit 0 at F's left end, exit 1 at L's left end.
 course RAIL "Guard Rails"
-music fairway    # a test course: SPEC.md 130.50.3, every course names its song
+music fairway    # a test course: SPEC.md 137.50.3, every course names its song
 width  128
 origin 384
 ball   rubber
@@ -32,7 +32,7 @@ start 5 10
 
 # A, the back walkway, and its rail on the far edge
 floor rect   8  8 22 10  flat 4
-# guard rails ON the floors' edges (SPEC.md 130.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
+# guard rails ON the floors' edges (SPEC.md 137.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
 guard rect  25   9  26  13 side +x
 guard rect   8   8  22   9 side -y
 guard rect   8  13  22  14 side +y

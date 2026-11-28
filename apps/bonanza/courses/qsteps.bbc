@@ -1,16 +1,16 @@
-# Quarter Steps - BONANZA's QUARTER-UNIT STEPS test course (SPEC.md 130.48), built only by the BZQSTEP=1 knob
+# Quarter Steps - BONANZA's QUARTER-UNIT STEPS test course (SPEC.md 137.48), built only by the BZQSTEP=1 knob
 # (make BUILD=<tree> BZQSTEP=1 bonanzadisk).  NOT a shipped course: the knob adds it to BZ_COURSES and makes it
 # the pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.
 #
 # A level PLATE at 2 units, the three balls' pads at its front.  Off its LEFT side (up-left on the screen, so
 # every riser faces the camera), EIGHT LANES, two cells wide each, every one a STEP UP from the plate - from the
 # back: 1/4, 1/2, 3/4, 1, 1 1/4, 1 1/2, 1 3/4 and 2 units.
-# Today's ladder (130.48.5): 1/4 and 1/2 every ball rolls up; 3/4 rubber Hops easily, glass too, steel barely;
+# Today's ladder (137.48.5): 1/4 and 1/2 every ball rolls up; 3/4 rubber Hops easily, glass too, steel barely;
 # 1 rubber and glass Hop precisely, steel not at all; 1 1/4 and 1 1/2 rubber's Hop and BOOST (Space again just
 # before the first bounce), the first easily; 1 3/4 and 2 nobody.  Lanes side by side step into each other too.
 # The goals: exit 0 at the end of the 1/4 lane, exit 1 at the end of the 1 1/4 lane (a Hop and its boost).
 course QSTP "Quarter Steps"
-music fairway    # a test course: SPEC.md 130.50.3, every course names its song
+music fairway    # a test course: SPEC.md 137.50.3, every course names its song
 width 128
 origin 448
 ball rubber

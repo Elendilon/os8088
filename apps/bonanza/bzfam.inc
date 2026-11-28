@@ -1,18 +1,18 @@
 ; =============================================================================
-; apps/bonanza/bzfam.inc - BONANZA's FAMILIES (SPEC.md 130.25.6, 130.25.7): the
+; apps/bonanza/bzfam.inc - BONANZA's FAMILIES (SPEC.md 137.25.6, 137.25.7): the
 ; engine's half of a mechanic that is a code part.  A course names any of the
 ; build's families (its FAMILY LIST, BZC2 +45 NFAM / +46 FAMOFF; at most 3 of
-; them home `fetch`, SPEC.md 130.25.6.5); bz_ffetch fetched each one's part,
+; them home `fetch`, SPEC.md 137.25.6.5); bz_ffetch fetched each one's part,
 ; checked its stamp and filled a SLOT RECORD here; the hook SITES (bzphys.inc,
 ; bzwheel.inc) test bz_fhk and call the two dispatchers below, which far-call
 ; the part's entries.  A course with no family has bz_fhk = 0, bz_fnf = 0, and
-; reaches none of this code.  THE HOOK LISTS (SPEC.md 130.25.6.3, the owner's
+; reaches none of this code.  THE HOOK LISTS (SPEC.md 137.25.6.3, the owner's
 ; F6): bz_ffetch builds, per hook, the far entries of only the families that
 ; have it, so a dispatch walks those and nothing else.  They are sized to the
 ; build's WHOLE family table (BZ_FAMMAX slots, BZ_FHENT entries, the tool's),
-; so no course meets a family limit (SPEC.md 130.25.6.5).
+; so no course meets a family limit (SPEC.md 137.25.6.5).
 ;
-; THE CONTRACT A HOOK SEES (SPEC.md 130.25.6.3): entered by `call far` with
+; THE CONTRACT A HOOK SEES (SPEC.md 137.25.6.3): entered by `call far` with
 ; DS = ES = the package, SS the task's, CLD; AL = its slot (0 - BZ_FAMMAX - 1),
 ; AH = the hook's argument, BX = the element's prop index where there is one;
 ; `retf`, POSE answering AL.  Its slot's bytes are bz_fsl + BZF_SLOT AL.  It
@@ -31,7 +31,7 @@ BZ_HK_CONT  equ 2               ; entry is the part's word at 12 + 2b
 BZ_HK_STEP  equ 3
 BZ_HK_POSE  equ 4
 BZ_HK_CELL  equ 5
-BZ_HK_PROP  equ 6               ; story 9.8 (SPEC.md 130.25.20.2): through bz_fone
+BZ_HK_PROP  equ 6               ; story 9.8 (SPEC.md 137.25.20.2): through bz_fone
                                 ; only, its entry at the part's +24
 BZ_NHOOK    equ 7               ; the hooks: one LIST each (bz_fhs, bz_fhl)
 BZF_HE      equ 8               ; a list's ENTRY: +0 the hook's far entry (its
@@ -57,7 +57,7 @@ BZ_PQ_DOOR  equ 3
 VAR bz_fhk,1                    ; the ACTIVE HOOKS: every fetched part's mask, ORed
 VAR bz_fnf,1                    ; ...the families fetched, 0 - BZ_FAMMAX (the slots;
                                 ; one word with bz_fhk)
-VAR bz_fhs,2 * (BZ_NHOOK + 1)   ; THE HOOK LISTS (bz_ffetch's, SPEC.md 130.25.6.3):
+VAR bz_fhs,2 * (BZ_NHOOK + 1)   ; THE HOOK LISTS (bz_ffetch's, SPEC.md 137.25.6.3):
 VAR bz_fhl,BZ_FHENT * BZF_HE    ; hook b's list runs from the word bz_fhs[b] to
                                 ; bz_fhs[b + 1], inside ONE pool of entries,
                                 ; packed: BZ_FHENT the family table's hooks summed,
@@ -66,12 +66,12 @@ VAR bz_fmkp,4                   ; bz_fmark's far pointer, which every dispatch w
                                 ; a hook MARKS a lane by `call far [bz_fmkp]`
 VAR bz_frec,BZ_FAMMAX * BZF_REC ; the slot records
 VAR bz_fls,BZ_FAMMAX * 2        ; per slot, ITS RECORDS (bz_flist, a play's start;
-VAR bz_flst,BZ_PROPALL          ; SPEC.md 130.25.6.10): +0 its list's start in
+VAR bz_flst,BZ_PROPALL          ; SPEC.md 137.25.6.10): +0 its list's start in
                                 ; bz_flst, +1 their count - each a record's
                                 ; index, in record order: the records whose
                                 ; kind is the family's run
 VAR bz_fwk,BZ_FAMMAX * 2        ; per slot, its STEP's WAKE (bz_fstp, SPEC.md
-                                ; 130.25.6.11): the bz_nstep its STEP next runs
+                                ; 137.25.6.11): the bz_nstep its STEP next runs
                                 ; at, 0 every step (a family that never writes it)
 VAR bz_fwkk,2                   ; a waking family's scratch: its nearest wake so far
 VAR bz_ftnp,4                   ; bz_ftnext's far pointer (bz_fstp writes it)
@@ -88,7 +88,7 @@ VAR bz_fwall,1                  ; 1: every STEP runs at the next bz_fstp (a play
 ; the element, both passed through.  -> AX as the last hook called left it
 ; (POSE's AL the pose), 0 when none was called.  Preserves all but AX.  Each
 ; walks the hook's LIST (bz_ffetch's): only the families that have the hook,
-; each entry's far pointer called where it lies (SPEC.md 130.25.6.3).
+; each entry's far pointer called where it lies (SPEC.md 137.25.6.3).
 ; -----------------------------------------------------------------------------
 bz_fall:
     push dx
@@ -153,15 +153,15 @@ bz_fh0:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_fmark - THE HOOKS' MARK (SPEC.md 130.25.6.3): lane BX MARKED for the walk
+; bz_fmark - THE HOOKS' MARK (SPEC.md 137.25.6.3): lane BX MARKED for the walk
 ; (bz_latt) and the next walk MADE (bz_lqt 0) - the quiet walk reads no mark,
 ; so a mark alone, with the camera still, was never walked: a crack broken by
 ; a landing fell the ball through an undrawn hole (the owner, 2026-11-16).  A
 ; family part reaches it by `call far [bz_fmkp]`, which every dispatch points
-; here, BX the element (its lane).  A GROUP MEMBER (SPEC.md 130.32.5: its
+; here, BX the element (its lane).  A GROUP MEMBER (SPEC.md 137.32.5: its
 ; record's flag GRP, +8 - +15 its group lanes, 0FFh after the last) marks
 ; every lane it lists.  A lane OUTSIDE the walk's slice [bz_lr0, bz_lr1) is
-; neither marked nor makes the walk (130.19.10 item 11): entering the range
+; neither marked nor makes the walk (137.19.10 item 11): entering the range
 ; marks it anyway (item 6), so a popspike flipping off the screen costs the
 ; frame nothing; nor is one the last walk held OUT of the column band (item
 ; 12).  Preserves everything.
@@ -196,7 +196,7 @@ bz_fmark:
     retf
 
 ; lane BX (BH 0) marked and the walk made, when it is in the slice and the
-; last walk did not hold it OUT of the column band (130.19.10 item 12: the
+; last walk did not hold it OUT of the column band (137.19.10 item 12: the
 ; band moving marks it back, `.cm`, and its re-entry walks it)
 bz_fm1:
     cmp bl, [bz_lr0]
@@ -211,7 +211,7 @@ bz_fm1:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_flist - EACH FAMILY'S OWN RECORDS (SPEC.md 130.25.6.10), at a play's start
+; bz_flist - EACH FAMILY'S OWN RECORDS (SPEC.md 137.25.6.10), at a play's start
 ; (bz_pinit, before RESET): per slot, the offsets of the records whose kind
 ; lies in its part's run (+9 the count, +10 the first), in record order, into
 ; bz_flst, and bz_fls the list's start and count.  A family's walk reads its
@@ -267,7 +267,7 @@ bz_flist:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_fstp - every family's STEP (SPEC.md 130.25.6.11), bz_step's: as bz_fall's
+; bz_fstp - every family's STEP (SPEC.md 137.25.6.11), bz_step's: as bz_fall's
 ; walk of the STEP list, but a slot whose WAKE (bz_fwk) is a step still AHEAD
 ; is not called - a family that schedules itself (its timers' next flip, its
 ; ball-local work) costs a step nothing until then.  Every slot is called,
@@ -347,7 +347,7 @@ bz_fstp:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_ftnext - a TIMER's next turn (SPEC.md 130.25.6.11), a family STEP's by
+; bz_ftnext - a TIMER's next turn (SPEC.md 137.25.6.11), a family STEP's by
 ; `call far [bz_ftnp]` (fam/bzfwalk.inc's BZ_FTNEXT): ES:SI = its record, DL
 ; its element, AL = the offset of its ON, AH = 1 a turntable's (its MASK turn
 ; always, ON its warning while 0 < ON <= MASK) or 0 a popspike's (ON 0 never
@@ -426,7 +426,7 @@ bz_ftnext:
     retf
 
 ; -----------------------------------------------------------------------------
-; bz_frst - a RESPAWN's families (SPEC.md 130.25.6.3, 130.25.7.2), from bz_step's
+; bz_frst - a RESPAWN's families (SPEC.md 137.25.6.3, 137.25.7.2), from bz_step's
 ; .resp before the place: the RESPAWN class cleared - bz_fst AND NOT the
 ; course's RESPAWN MASK, its NFST bytes after the (ID, FAMV) pairs - then RESET
 ; with AH = 1 (each family marks the lanes whose pose that moved).  DS = ours.
@@ -461,7 +461,7 @@ bz_frst:
 .r:
     pop es
     pop ds
-    mov byte [bz_fwall], 1      ; (every STEP runs next: 130.25.6.11)
+    mov byte [bz_fwall], 1      ; (every STEP runs next: 137.25.6.11)
     mov ax, 0100h | BZ_HK_RESET ; AH = 1: the RESPAWN class (a family with no
     call bz_fall                ; RESET entry is not called)
     pop di
@@ -471,10 +471,10 @@ bz_frst:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_ffetch - the course's FAMILY PARTS (SPEC.md 130.25.6.2), right after
+; bz_ffetch - the course's FAMILY PARTS (SPEC.md 137.25.6.2), right after
 ; bz_crshdr in bz_cload: for each (ID, FAMV) of its family list (BZC2 +45
 ; NFAM, +46 FAMOFF), its part row (bz_ftab: a `fetch` family's own, a
-; `resident` one's the BUNDLE, SPEC.md 130.25.6.9, found inside it by
+; `resident` one's the BUNDLE, SPEC.md 137.25.6.9, found inside it by
 ; bz_fbfind) fetched and its head checked - 'BF', the ID and FAMV the course
 ; names, and the image and bss sizes it was LINKED against, ours (DS:8,
 ; DS:10) - its slot record written (its DATA and CODE segments: op_seg,
@@ -482,7 +482,7 @@ bz_frst:
 ; ORed into bz_fhk; every slot taken, the HOOK LISTS are built from them
 ; (bz_fhs, bz_fhl, .lists).  A part already here is not read again, so a
 ; second call after anything that may MOVE a part (the arena's batch, SPEC.md
-; 130.25.4) re-takes every segment and fetches nothing: the segments are never held
+; 137.25.4) re-takes every segment and fetches nothing: the segments are never held
 ; across a fetch.  A course with no family leaves bz_fhk and bz_fnf 0.  CF =
 ; 1 a fetch was refused (op_fetch toasted why) or a head was not this build's
 ; (toasted here through op_say, quiet inside a bracket; never called): what
@@ -546,7 +546,7 @@ bz_ffetch:
     inc byte [bz_fnf]
     add si, BZF_REC
     jmp .f
-.lists:                         ; THE HOOK LISTS (SPEC.md 130.25.6.3), every
+.lists:                         ; THE HOOK LISTS (SPEC.md 137.25.6.3), every
     mov di, bz_fhl              ; slot fetched: hook by hook (BX = 2b, AH its
     mov ah, 1                   ; mask bit), each slot in order whose part's
     xor bx, bx                  ; mask (+8) has it and whose entry (12 + 2b)
@@ -607,9 +607,9 @@ bz_ftab:                        ; a family ID's part row, ID 1 first (bzcourse.i
 
 %if BZ_NFRES
 ; -----------------------------------------------------------------------------
-; bz_fbfind - record SI's family inside the RESIDENT BUNDLE (SPEC.md 130.25.6.9),
+; bz_fbfind - record SI's family inside the RESIDENT BUNDLE (SPEC.md 137.25.6.9),
 ; whose segments the record holds: the bundle's headers walked from BZ_BALB
-; (the balls are its head, SPEC.md 130.25.5.2),
+; (the balls are its head, SPEC.md 137.25.5.2),
 ; each a part's own but its +11, its PARAGRAPHS there (the step to the next),
 ; to the one whose +2 is the record's ID; the record's data segment is then
 ; OSAPI_SEG's SEG_SUBC over the bundle's at that paragraph, its reach the
@@ -618,7 +618,7 @@ bz_ftab:                        ; a family ID's part row, ID 1 first (bzcourse.i
 ; each time it is asked (so a second bz_ffetch makes none), moving with the
 ; arena and going with it - and its code segment the same distance from it as
 ; the bundle's code segment is from the bundle's data: 0 on a real-mode
-; kernel, a pair's -8 on kern_mega (130.25.6.9).  So a part runs at its own
+; kernel, a pair's -8 on kern_mega (137.25.6.9).  So a part runs at its own
 ; org 0 bundled or alone.  CF = 1 no such header, or no selector (the sum
 ; of the distance and the selector carries on kern_mega: CF cleared after it).
 ; DS = ours.
@@ -630,8 +630,8 @@ bz_fbfind:
     sub [si + BZF_RCSEG], dx    ; ...its code segment's distance from it
     mov dl, [si + BZF_RIDV]     ; DL = the ID
     mov bx, BZ_FAMB             ; BX = a header's byte, from the first: past
-                                ; the three balls at the bundle's head (130.25.5.2)
-                                ; and its sound (130.50.2)
+                                ; the three balls at the bundle's head (137.25.5.2)
+                                ; and its sound (137.50.2)
     xor cx, cx
 .w:
     cmp word [es:bx], 'BF'
@@ -660,6 +660,6 @@ bz_fbfind:
     mov [si + BZF_RDSEG], dx
     add [si + BZF_RCSEG], dx    ; (on kern_mega the distance is -8, FFF8h, and
     clc                         ; the sum CARRIES: without this CF = 1 refused
-.x:                             ; every resident family there, 130.25.6.9)
+.x:                             ; every resident family there, 137.25.6.9)
     ret
 %endif

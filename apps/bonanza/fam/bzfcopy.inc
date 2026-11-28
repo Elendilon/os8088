@@ -1,6 +1,6 @@
 ; =============================================================================
 ; apps/bonanza/fam/bzfcopy.inc - the package's helpers a FAMILY PART needs,
-; COPIED (SPEC.md 130.25.6.2: a part names no code label of the package, so a
+; COPIED (SPEC.md 137.25.6.2: a part names no code label of the package, so a
 ; call into it cannot assemble).  Each answers exactly what the package's
 ; routine of the same name answers; a part asks for the ones it calls with
 ; %define FC_<NAME> before including this.  Written once here for every part
@@ -23,7 +23,7 @@ bz_lrecsi:
 
 %ifdef FC_H4
 ; bz_h4 - the window cell at SI's floor at the point DL = u, DH = v (0 - 16),
-; in quarter px: 8 z0 + sx u + sy v (z0 QUARTER units, SPEC.md 130.48), sx
+; in quarter px: 8 z0 + sx u + sy v (z0 QUARTER units, SPEC.md 137.48), sx
 ; the slope byte's low nibble and sy
 ; its high one, each signed (bzphys.inc's, which reads the products out of
 ; its table bz_prod: here IMUL, the same numbers).  -> AX.  Clobbers BX, CX.

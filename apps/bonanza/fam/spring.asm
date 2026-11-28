@@ -1,9 +1,9 @@
 ; =============================================================================
-; apps/bonanza/fam/spring.asm - BONANZA's SPRING FAMILY (SPEC.md 130.25.20,
-; story 9.8): the SPRING's rule (SPEC.md 130.14.4.6) out of bz_prule, behind
+; apps/bonanza/fam/spring.asm - BONANZA's SPRING FAMILY (SPEC.md 137.25.20,
+; story 9.8): the SPRING's rule (SPEC.md 137.14.4.6) out of bz_prule, behind
 ; the CONTACT hook (bz_prule's family dispatch: kind 24).  The slot SPEC.md
-; 130.25.10 called POST: the bumper's post stays resident, a clock's collision
-; (130.25.10).  Home RESIDENT (130.25.6.9).
+; 137.25.10 called POST: the bumper's post stays resident, a clock's collision
+; (137.25.10).  Home RESIDENT (137.25.6.9).
 ; =============================================================================
 cpu 8086
 org 0
@@ -20,14 +20,14 @@ org 0
     db 0
     dw 0, 0, sp_contact, 0, 0, 0
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 137.25.6.2)"
 %endif
 
 ; CONTACT: BX the spring (the centre's owner), after step 6.  bz_prule's
 ; .spring as it was, with BX - the floor's h4 under the centre, which the hook
 ; is not handed - found again: a spring's cell is a FLAT FLOOR (the tool's and
-; the reader's rule, 130.14.4.1), so step 6 found 8 z0 there (z0 QUARTER
-; units, SPEC.md 130.48)
+; the reader's rule, 137.14.4.1), so step 6 found 8 z0 there (z0 QUARTER
+; units, SPEC.md 137.48)
 sp_contact:
     mov es, [bz_cseg]
     call bz_lrecsi              ; SI = its record
@@ -36,7 +36,7 @@ sp_contact:
     mov cl, 3
     shl ax, cl
     xchg ax, bx                 ; BX = the h4
-.spring:                        ; A SPRING (130.14.4.6), never under a
+.spring:                        ; A SPRING (137.14.4.6), never under a
     cmp byte [bz_mst], BZ_ST_SHAT ; shattering ball
     je .out
     mov ax, [bz_nland]          ; this step's CONTACT (a landing, a bounce, a
@@ -77,7 +77,7 @@ sp_contact:
     pop bx
     mov ax, [es:si + BZP_SGVZ]
     mov [bz_gvz], ax
-    call bz_toff                ; (round 3b, 130.17.17: the launch TAKES the
+    call bz_toff                ; (round 3b, 137.17.17: the launch TAKES the
 .sl:                            ; token, bz_toff's; a contact's, bz_atok's)
     mov byte [bz_bgr], 0        ; wave 6b: a spring closes the grace
     inc word [bz_nspr]

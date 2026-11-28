@@ -1,4 +1,4 @@
-; BOUNCE BONANZA'S INSTRUMENT BANK AND EFFECTS (SPEC.md 130.20.3, 130.20.5) -
+; BOUNCE BONANZA'S INSTRUMENT BANK AND EFFECTS (SPEC.md 137.20.3, 137.20.5) -
 ; shared by every song, carried once in BZSND.BIN. tools/bbmusic.py packs it.
 ;
 ; `fm` is an OPL2 patch in SOUND.DRV's own order (SPEC.md 34.2): the
@@ -17,9 +17,9 @@
 ; AdLib the chip's own (the carrier's VIB bit, 7 cents at 6.1 Hz). Nothing
 ; writes one as pitch - on the speaker that was a tone re-sent every other
 ; sub-tick for a held note, ~1.2k cycles each, which the game's frame cannot
-; spare (SPEC.md 130.20.7); DELAY and DEPTH are kept for the day it can.
+; spare (SPEC.md 137.20.7); DELAY and DEPTH are kept for the day it can.
 ; `spk N` is a DRUM's claim on the speaker: N sub-ticks of blip ahead of the
-; lead (SPEC.md 130.20.4). A drum without one is never heard there.
+; lead (SPEC.md 137.20.4). A drum without one is never heard there.
 ; `alt` puts a drum on the AdLib's SECOND drum channel (6): the noise family
 ; (snare, hat, clap) there, the thumps (kick, toms) on 5, so a hit is never a
 ; re-patch - eleven registers, ~12k cycles on the XT.
@@ -109,7 +109,7 @@ drum t tom    a2
 drum T tom    e3
 drum c clap   e3
 
-; --- THE EFFECTS' VOICES (SPEC.md 130.20.5) -------------------------------------
+; --- THE EFFECTS' VOICES (SPEC.md 137.20.5) -------------------------------------
 ; PERCUSSIVE on the AdLib: a segment sets the level once and the chip's own
 ; envelope decays it (a TL a sub-tick would be a register a sub-tick). On the
 ; speaker the segments' decay is what silences them.
@@ -184,7 +184,7 @@ sfx g_shat   inst glass prio 6 sens 255 : t=2 n=c7 v=15 j=127 ;
 ; SHARED: what the ball does rather than what it hits.
 
 sfx hop      inst zap    prio 1 sens 255 : t=4 n=g3 s=40 v=10 d=16
-; the BOOST (wave 6, SPEC.md 130.16.4.4): rubber's boing taken up higher and
+; the BOOST (wave 6, SPEC.md 137.16.4.4): rubber's boing taken up higher and
 ; longer, a rising slide, above the Hop.  Rubber's alone: nothing else boosts
 sfx boost    inst rubber prio 3 sens 255 : t=2 n=g3 s=64 v=14 d=4 ;
              t=14 n=d4 s=20 v=13 d=10 legato
@@ -193,7 +193,7 @@ sfx tube     inst noise  prio 3 sens 255 : t=24 n=c2 s=4 v=12 d=4 j=15
 sfx goal     inst glock  prio 7 sens 255 : t=4 n=c5 v=14 ; t=4 n=e5 v=14 ;
              t=4 n=g5 v=14 ; t=14 n=c6 v=15 d=8
 
-; WAVE 7 (SPEC.md 130.18.6): what wave 4's props do, and the clock.  A FLAG
+; WAVE 7 (SPEC.md 137.18.6): what wave 4's props do, and the clock.  A FLAG
 ; touched rings up a fourth; a PAD's swap a rising-and-falling zap; the cup's
 ; LIP-OUT a dull short knock; a SPRING a big boing; RETURN a falling zap.  The
 ; clock TICKS under 10 s (a dry high click), warns LOW at 30 s and 10 s (two
@@ -208,7 +208,7 @@ sfx tick     inst glock  prio 1 sens 255 : t=1 n=c7 v=9 d=60
 sfx low      inst glock  prio 4 sens 255 : t=4 n=e6 v=13 d=8 ; t=8 n=a5 v=13 d=12
 sfx timeout  inst zap    prio 7 sens 255 : t=36 n=g4 s=-16 v=14 d=4
 
-; WAVE 8R (SPEC.md 130.22.9): the pathway's shell events.  Short, and each its
+; WAVE 8R (SPEC.md 137.22.9): the pathway's shell events.  Short, and each its
 ; own shape so the ear tells them apart on the speaker: ARRIVE a bright rising
 ; two-note chime (the marble resting on a pad, 12 sub-ticks), GATE a crystal
 ; slide that climbs and ends in a ping (a gate opening, 27 sub-ticks = 0.5 s),
@@ -223,7 +223,7 @@ sfx lifelost inst rubber prio 6 sens 255 : t=4 n=e5 v=14 d=6 ; t=4 n=c5 v=13 d=6
 sfx gameover inst bumper prio 7 sens 255 : t=8 n=a4 v=14 ; t=8 n=e4 v=14 ;
              t=8 n=c4 v=14 ; t=8 n=a3 v=14 ; t=50 n=a2 v=15 d=4
 
-; WAVE 9 (SPEC.md 130.25.19): a PICKUP taken - a quick rising sparkle, three
+; WAVE 9 (SPEC.md 137.25.19): a PICKUP taken - a quick rising sparkle, three
 ; glock notes up a major triad with a shimmer, 10 sub-ticks; above a Hop, below
 ; a flag
 sfx pickup   inst glock  prio 3 sens 255 : t=2 n=e6 v=13 ; t=2 n=g+6 v=13 ;

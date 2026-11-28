@@ -1817,6 +1817,14 @@ op_cseg:
 ; in:  SI = a NUL-terminated string in our segment; out: CF=1
 ; -----------------------------------------------------------------------------
 op_say:
+%ifdef OP_HUSH
+    cmp word [OP_HUSH], 0       ; HUSHED (SPEC.md 20.12.9.7): the package's
+    je .say                     ; word, nonzero, takes the sentence instead -
+    mov [OP_HUSH], si           ; an op_fetch inside an fsx bracket, where a
+    stc                         ; toast is a drawing slot (SPEC.md 53.7), and
+    ret                         ; the package says it after the bracket
+.say:
+%endif
 %ifdef OP_SAYGATE
     cmp byte [OP_SAYGATE], 0    ; a package's byte, nonzero: say NOTHING - an
     jne .quiet                  ; fsx bracket after its mode set, where a toast
@@ -2788,7 +2796,7 @@ op_arset:
     cmp byte [OP_ARFORCE], 0    ; HARNESS: from the CEILING (the verb's bit 0),
     je .lo                      ; with a claim right above it, so the next
     inc bx                      ; growth cannot extend it in place and MOVES
-.lo:                            ; it (SPEC.md 130.25.13, bz_arforce)
+.lo:                            ; it (SPEC.md 137.25.13, bz_arforce)
   %endif
     xor cx, cx
 .go:

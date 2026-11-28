@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""BONANZA's SHEETS in the guest (SPEC.md 130.30.12): the package's own bz_cexp, bz_crshdr, bz_pread, bz_lsync
+"""BONANZA's SHEETS in the guest (SPEC.md 137.30.12): the package's own bz_cexp, bz_crshdr, bz_pread, bz_lsync
 and bz_shchk under unicorn on TTALL, the test course whose picture part does not fit one part - the host half of
 what a MartyPC play of TTALL sees on the glass.
 
     make BZDEV=1 bonanza && python3 tests/bonanza_sheet.py [--art DIR] [--red clamp|lanes|rowplanes|serve|world|wpara]
 
 THE METHOD is bonanza_wide's (bonanza_dsplit's Guest): the package image assembled from the tree against a
-BZDEV=1 art (TTALL is a TEST course, SPEC.md 130.54) and loaded at one segment of an emulated 8086; TTALL's
+BZDEV=1 art (TTALL is a TEST course, SPEC.md 137.54) and loaded at one segment of an emulated 8086; TTALL's
 two sheets and its world part at three others, as bz_cload leaves them; its routines CALLED:
 
-  0  THE ONE PART (130.30.12.5): BZ<K>.BIN - every sheet's stored form and the world part's, each from a
+  0  THE ONE PART (137.30.12.5): BZ<K>.BIN - every sheet's stored form and the world part's, each from a
      paragraph - laid at one segment as op_fetch leaves it; bz_cexp on its base (bz_cload's) and then bz_cload2,
      OSAPI_SEG's SEG_SUB answered as every real-mode kernel answers it (DX + AX): each sheet past 0 and the
      world part at the table's paragraphs (bz_shseg, bz_cseg), each expanded in place to its RAM form.
@@ -24,7 +24,7 @@ two sheets and its world part at three others, as bz_cload leaves them; its rout
      bz_ltmo are the sheet's; every map word a frame may read - block rows [tb - 2, tb + 28] - is the model's
      (a lane's cell its DRAWN pose's); and no byte of any sheet past its map has moved.
 
-  4  THE TWO-PART COURSE'S ONE PART (130.30.5): each two-part course of the build (BZ_CRS_WPARA's, no sheets:
+  4  THE TWO-PART COURSE'S ONE PART (137.30.5): each two-part course of the build (BZ_CRS_WPARA's, no sheets:
      the PLAYGROUND) - its BZ<K>.BIN, the picture part's stored form and the world part's from a paragraph -
      laid at one segment; bz_cexp on its base and bz_cload2: the world part at BZ_CRS_WPARA's paragraphs
      (bz_cseg; bz_mseg the base, the picture part), both RAM forms - the one-sheet case of item 0.
@@ -64,7 +64,7 @@ REDS = {
     "clamp": [("bzgame.inc", "    sub ax, dx                  ; (hic, BZ_MROWS): the hic-th's\n",
                "                                ; (red: not clamped)\n")],
     "lanes": [("bzgame.inc", "    je .n\n    call bz_lsync\n.n:\n    inc bx\n", "    je .n\n.n:\n    inc bx\n")],
-    "rowplanes": [("bonanza.asm", "    xchg ax, cx                 ; SPEC.md 130.30.12.1: its RAM length / ROWB\n"
+    "rowplanes": [("bonanza.asm", "    xchg ax, cx                 ; SPEC.md 137.30.12.1: its RAM length / ROWB\n"
                    "    xor dx, dx                  ; counts (a SHEET's map is n rows, every other\n"
                    "    div word [es:BZC_ROWB]      ; part's BROWS)\n    xchg ax, dx\n",
                    "    mov dx, [es:BZC_BROWS]\n")],

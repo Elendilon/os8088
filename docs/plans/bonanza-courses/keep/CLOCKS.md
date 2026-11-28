@@ -1,7 +1,7 @@
 # CLOCKWORK KEEP: clock options (2026-11-25, for the owner to pick)
 
 **INSTALLED for the pick: A, `hour`** - the tool's `hourp`, `hourk` and `hourc` (`_clock_hour` in
-`tools/bbcourse.py`, SPEC.md 130.18.5.2), named on the three `clock` lines that
+`tools/bbcourse.py`, SPEC.md 137.18.5.2), named on the three `clock` lines that
 [keep/sketch.py](sketch.py) writes into `apps/bonanza/courses/keep.bbc`. The course is complete with them. B,
 `shield` (the designer's own idea), is kept here as scratch frames.
 
@@ -38,7 +38,7 @@ UPPER BULB: no window. Two things change down the course.
 **The stand's FINIAL is the course's own lock** (the designer's three crests, kept): a PADLOCK at the barbican
 (the keep is shut), a KEY at the tower (the ring key is two tiles on), a CROWN at the dais (the throne).
 
-**The digits' ink follows the sand** (SPEC.md 130.18.5.6): BLACK on the white sand at the barbican, WHITE on
+**The digits' ink follows the sand** (SPEC.md 137.18.5.6): BLACK on the white sand at the barbican, WHITE on
 the cyan glass at the tower and the dais (`ink white` on those two clock lines). The sand's level never
 crosses the digits. On the Hercules that is black digits on white, then white digits on the grey checker.
 
@@ -81,5 +81,5 @@ All three compile under `--strict`. The masks are the number to watch: the cours
 
 `hour` costs no guest byte. To take `shield` instead: copy `_clock_shield` from `clocks/frames.py` into
 `tools/bbcourse.py` beside `_clock_hour` (about 50 lines; it reads `_HOUR_CREST`, which stays), add its three
-names to `CLOCK_STYLES` and `_CLOCK_DRAW`, a paragraph to SPEC.md 130.18.5.2, and name them in
+names to `CLOCK_STYLES` and `_CLOCK_DRAW`, a paragraph to SPEC.md 137.18.5.2, and name them in
 `keep/sketch.py`'s three `p.clock(...)` lines without `ink white` (its digits are on white).

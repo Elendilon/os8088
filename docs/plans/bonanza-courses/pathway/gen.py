@@ -5,7 +5,7 @@
 
 writes, for each option in OPTIONS below:
 
-  docs/plans/bonanza-courses/pathway/opt<X>.bbc   the option's pathway SOURCE (SPEC.md 130.22.2's grammar),
+  docs/plans/bonanza-courses/pathway/opt<X>.bbc   the option's pathway SOURCE (SPEC.md 137.22.2's grammar),
                                                   generated from the layout here; it compiles with
                                                   tools/bbcourse.py's own checks and proofs
   docs/plans/bonanza-courses/pathway/icons/*.bba  the icons it names (bbicons.py's placeholders redrawn at
@@ -722,7 +722,7 @@ SHIP_DRAW["castl"] = (_castl, 6)
 
 def scenery():
     """-> {file: (canvas, SX, SY, what)}: the three pieces, each placed in the map's PICTURE px relative to the
-    page-0 CGA window's top-left (an `art` statement's SX SY, SPEC.md 130.23.2), every origin a block's corner"""
+    page-0 CGA window's top-left (an `art` statement's SX SY, SPEC.md 137.23.2), every origin a block's corner"""
     out = {}
     # --- the kites over KITE HILL: three on their strings, gathered over the pad's icon ---
     cv = BaseCanvas(40, 64)

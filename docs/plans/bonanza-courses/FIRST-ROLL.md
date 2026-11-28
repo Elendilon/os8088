@@ -24,7 +24,7 @@ then this course is built under a working name of its own in the tool,
     where the lip's ramp is the visible surface. The owner's four black
     pixels are applied after that (three where the tile showed through
     the leading arm, one to even the forward arrow);
-  - the banner FRAME is replaced by a real ARCHWAY (SPEC.md 130.39; the
+  - the banner FRAME is replaced by a real ARCHWAY (SPEC.md 137.39; the
     owner: *"The ball rolls in front of the arch, because its just art ...
     But we have an actual arch, as a prop"*). An archway stands over flat
     cells, at most 2 x 2, with a whole floor past it, so the leap's
@@ -113,7 +113,7 @@ then this course is built under a working name of its own in the tool,
     - the finish clock stands on top of the block at the goal plateau's
       back-left;
   - **the camera stops once the finish is in view**: `stop down`, a course
-    flag (SPEC.md 130.45.4).
+    flag (SPEC.md 137.45.4).
 - **Revision 2:**
   - the three railed corners became a SHAPED CHUTE: two tiles wide,
     unfenced, the rails back up on its exit, the far end of the corner
@@ -148,7 +148,7 @@ then this course is built under a working name of its own in the tool,
 |---|---|
 | place | tutorial 1: the first node of the pathway, no branch |
 | world | the tutorial (none) |
-| families | **none**: tiles, holes, one shaped chute (FIELD cells, SPEC.md 130.28) and rails |
+| families | **none**: tiles, holes, one shaped chute (FIELD cells, SPEC.md 137.28) and rails |
 | start ball | rubber, the whole way (G13) |
 | finishes | one, the goal plateau; no secret |
 | target time | **about 35 s** (G1). MEASURED on the model: a steered run of the sketch's route finishes in 35.7 s with no fall; the owner's first play (revision 3) was 31.4 s, "not trying hard" |
@@ -220,7 +220,7 @@ by pinning it in the model):
 
 **Taken (the owner, 2026-11-18)**: *"Yes. We won't use this often due to
 visual interest, but for the intro course it fits fine, and it gives a
-'smoother' introduction."* **BUILT as SPEC.md 130.45**, `lock across`:
+'smoother' introduction."* **BUILT as SPEC.md 137.45**, `lock across`:
 - the tool centres the window on the course's picture: column 10 on the
   CGA, 7 on the Hercules;
 - the game holds it, skipping the across axis.
@@ -240,7 +240,7 @@ running down to the ground), and none stands behind a block.
 |---|---|---|
 | start | right of the start plateau, off the hill | 0 - 2.6 s (0 - 4.8 s on the Hercules) |
 | middle | above the far corner after the chute (K3), high enough to clear its back rail | 15.5 - 23.0 s |
-| finish | left of the goal plateau, low enough that every goal cell's centred window holds it (the shipped finish-clock rule, SPEC.md 130.22.6) | 31.3 s to the goal (with the lock) |
+| finish | left of the goal plateau, low enough that every goal cell's centred window holds it (the shipped finish-clock rule, SPEC.md 137.22.6) | 31.3 s to the goal (with the lock) |
 
 - G9 (start) and G10 (never two on one screen) pass at compile.
 - With the lock the longest stretch with none in view is 10.5 s on the
@@ -297,7 +297,7 @@ Each is priced in bytes or clocks. None is built; the owner picks.
      reads as drops.
    - It also SAVES bytes, since most of the picture is those columns.
    - It is the standard column tile's twin, for the kit.
-2. **Decals with `art`** (now allowed on play courses, SPEC.md 130.23.2).
+2. **Decals with `art`** (now allowed on play courses, SPEC.md 137.23.2).
    An art pixel takes the occlusion of the surface it is painted on, so a
    decal on a floor or a face IS part of it, front tiles included. Measured:
    the occluder records and masks are identical with and without.
@@ -309,17 +309,17 @@ Each is priced in bytes or clocks. None is built; the owner picks.
    in front of the path. The window never pans across here, so a backdrop
    stays put like a stage set. Its blocks are the cost, so it is kept
    small.
-4. **Diagonal tiles** (SPEC.md 130.24) on the outer corners of the
+4. **Diagonal tiles** (SPEC.md 137.24) on the outer corners of the
    landings and the goal plateau, to soften the stair-stepped edges. Tool
    and picture only.
-5. **A frame at the finish**: an ARCHWAY (SPEC.md 130.39) over the goal
+5. **A frame at the finish**: an ARCHWAY (SPEC.md 137.39) over the goal
    line, or two pillars and a painted banner between them. The arch is a
    family part with lanes; the pillars and banner are picture only.
 6. **Lone pillars and towers in the void** (single floating tiles, as the
    clock pillars are): rhythm and landmarks down the descent at a tile's
    bytes each. Placed away from the path, they can never be in the way.
 7. **Palette and light**: the course's CGA palette (`palette`, SPEC.md
-   130.16.6) for a bright first course, chosen by the owner on the glass.
+   137.16.6) for a bright first course, chosen by the owner on the glass.
 
 **Suggested first try**: 1 and 2 together on the hill and the lip, one
 playtest, measured against today's 8,622 bytes.

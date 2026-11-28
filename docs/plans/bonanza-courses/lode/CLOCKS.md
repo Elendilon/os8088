@@ -1,7 +1,7 @@
 # LODESTONE GORGE: clock options (2026-11-25, for the owner to pick)
 
 **INSTALLED for the pick: A, `cart`** - the tool's `cart0`, `cart1`, `cart2` and `cart3` (`_clock_cart` in
-`tools/bbcourse.py`, SPEC.md 130.18.5.2), named on the four `clock` lines that
+`tools/bbcourse.py`, SPEC.md 137.18.5.2), named on the four `clock` lines that
 [lode/sketch.py](sketch.py) writes into `apps/bonanza/courses/lode.bbc`. The course is complete with them. A2
 (`ground`, the same frames set on the tile) is one clause a clock away; B, `davy`, is kept here as scratch
 frames.
@@ -43,16 +43,16 @@ What is IN the tub says how far down the quarry the clock stands:
 outline (tub, wheels, trestle) is the same on both cards. The empty one says least: a box on legs until the
 second clock shows what it is filling with.
 
-**Paint, not geometry.** The tub, its wheels and its ore are the clock's keyed face (SPEC.md 130.18.5.4). The
+**Paint, not geometry.** The tub, its wheels and its ore are the clock's keyed face (SPEC.md 137.18.5.4). The
 track, the trestle's three bents, its tie and its braces are PAINT, as a clock's shadow is. MEASURED: with the
 bents keyed the course needs **267 occluder masks of one table's 256** and does not compile; as paint, **244**,
 three FEWER than with the default frame (247). So a ball that goes behind a clock is drawn over the trestle's
-legs and under the cart. That is the price of staying inside one mask table; `masks banded` (SPEC.md 130.52,
+legs and under the cart. That is the price of staying inside one mask table; `masks banded` (SPEC.md 137.52,
 about 750 LZ4 bytes here) is the other way to pay it.
 
 ### A2. `ground`: the same cart on the tile (`digits 0 16`)
 
-The four frames with `digits 0 16` on each clock line (SPEC.md 130.18.5.5): the digits two block rows down,
+The four frames with `digits 0 16` on each clock line (SPEC.md 137.18.5.5): the digits two block rows down,
 the track laid on the tile, no trestle. It is the cheapest (no new block at all) and everything it draws but
 the track is keyed. **Not picked** because the guard rails cross the cart's lower half at the headland, the
 turn and the island, and the tub is white on a white and cyan floor.
@@ -91,4 +91,4 @@ signs and its song it is 18,188 ([LODE.md](../LODE.md) section 10).
 `cart` costs no guest byte. `ground` is `digits 0 16` on each of `lode/sketch.py`'s four `p.clock(...)` frames
 and nothing else. To take `davy`: copy `_clock_davy` and `_FOOT` from `clocks/frames.py` into
 `tools/bbcourse.py` beside `_clock_cart` (about 70 lines), add its four names to `CLOCK_STYLES` and
-`_CLOCK_DRAW`, a paragraph to SPEC.md 130.18.5.2, and name them in the sketch.
+`_CLOCK_DRAW`, a paragraph to SPEC.md 137.18.5.2, and name them in the sketch.

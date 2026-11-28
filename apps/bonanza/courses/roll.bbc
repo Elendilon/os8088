@@ -6,13 +6,13 @@
 course ROLL "First Roll"
 guide                     # a REAL course: held to the course guide's checkable rules (G1, G3, G9 - G12)
 width 64
-uses archway              # the ARCHWAY before the leap (SPEC.md 130.39)
-lock across               # SPEC.md 130.45: the camera held across - the whole course is one window wide
-stop down                 # SPEC.md 130.45.4: the camera scrolls no further once the finish is in view
+uses archway              # the ARCHWAY before the leap (SPEC.md 137.39)
+lock across               # SPEC.md 137.45: the camera held across - the whole course is one window wide
+stop down                 # SPEC.md 137.45.4: the camera scrolls no further once the finish is in view
 ball rubber
 music firstroll           # its own song (2026-11-18); TRIAL's, the owner's favourite, is kept for course 3
 target 30                 # the design class (30, 60 or 90); the sheet aims at about 35 s
-# no `limit`: the TOOL's (SPEC.md 130.18.3) from the autopilot's route, which steers the chute since the
+# no `limit`: the TOOL's (SPEC.md 137.18.3) from the autopilot's route, which steers the chute since the
 # autopilot learned shapes (31.0 s -> 50 s; the owner, 2026-11-18: "50s is fine")
 
 # rooms (the sketch's sections)
@@ -42,11 +42,11 @@ floor rect  50  46  54  51  flat 4.5   # G
 floor rect  50  51  54  53  ramp y 51 53 4.5 3.5   # G
 floor rect  49  53  55  58  flat 3.5   # H
 
-# the chute (SPEC.md 130.28): unfenced, its shape guides
+# the chute (SPEC.md 137.28): unfenced, its shape guides
 chute 2 round depth 8 way 26 32 16 way 26 35 15 way 33 35 12.5
 
 # rails: block rails (wall tiles) on the void side of each railed edge
-# guard rails ON the floors' edges (SPEC.md 130.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
+# guard rails ON the floors' edges (SPEC.md 137.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
 guard rect  19  21  24  22 side -y
 guard tile  24  20 side -x
 wall  tile  22  28  flat 18
@@ -153,7 +153,7 @@ hole  half left tile 8 17          # a diagonal corner
 hole  half right tile 17 14          # a diagonal corner
 hole  half left tile 14 23          # a diagonal corner
 hole  half down tile 17 23          # a diagonal corner
-archway rect 47 47 48 49 along x under 3   # SPEC.md 130.39: a Hop passes under it
+archway rect 47 47 48 49 along x under 3   # SPEC.md 137.39: a Hop passes under it
 goal  rect 49 56 55 58  flat 3.5
 start 9 9
 checkpoint 24 22 ball rubber   # flag 0
@@ -207,6 +207,6 @@ art roll_pen0.bba 127 590
 art roll_pen1.bba 383 830
 # ---- end ART ----
 # the two pennant pillars stand alone in the void, out of every route's reach:
-# no ball is ever behind them, so they cut no occluder records (SPEC.md 130.53)
+# no ball is ever behind them, so they cut no occluder records (SPEC.md 137.53)
 noocclude rect 29 37 34 42
 noocclude rect 49 41 54 46

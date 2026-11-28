@@ -359,7 +359,9 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | ARKANOID | `apps/arkanoid/arkanoid.asm` | §44 | yes |
 | AUDIO PLAYER | `apps/audio/audio.asm` | §86 | yes |
 | ArtfulType | `apps/artful/artful.asm` | §46 | yes |
-| BONANZA | `apps/bonanza/bonanza.asm` | §130 | no |
+| BONANZA | `apps/bonanza/bonanza.asm` | §137 | no |
+| BORATYPE | `apps/boratype/boratype.asm` | §134 | yes |
+| BREADXT | `apps/breadxt/breadxt.asm` |  | yes |
 | BROWSER | `apps/browser/browser.asm` | §71 | yes |
 | BYTEOPOLY | `apps/byteopoly/byteoply.asm` | §131 | no |
 | Bounce | `apps/bounce/bounce.asm` | §112 | yes |
@@ -570,8 +572,15 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 126 | VIDEO BATTLE — a battle played as joined video clips (`apps/vbattle/`, `VBATTLE.O88`, `.VBT`) |
 | 127 | Debug disks — a boot floppy per subsystem that shows what the driver found (`apps/snddiag/`, `drivers/sound/snddiag.inc`) |
 | 128 | Wire Arena — a text-mode arena shooter (`apps/wirearena/`, `WIRERENA.O88`) |
-| 129 | INPUTCHK — Input Check, a keyboard and mouse diagnostic (`apps/inputchk/`) |
-| 130 | BONANZA — Bounce Bonanza, an isometric rolling-ball game (`apps/bonanza/`) |
+| 129 | PageDesk — a native PDF viewer and editor (`apps/pagedesk/`, `PAGEDESK.O88`) |
+| 130 | Breadboard XT — educational circuit workbench, written in C |
+| 131 | Byteopoly — a vintage-computer trading game, written in C (`apps/byteopoly/`, `BYTEOPLY.O88`) |
+| 132 | 2BASIC — a BASIC interpreter and its resource editor (`apps/2basic/`, `2BASIC.O88`, `2BRES.O88`) |
+| 133 | The C game kit - 3D widgets, scenes and music for C packages (`apps/cc/gk.h`) |
+| 134 | Borat Teaches Typing (`apps/boratype/`) |
+| 135 | The wide Control Panel - a second face for VGA and VESA (`kernel/cpw*.inc`, `CPWIDE.DRV`) |
+| 136 | INPUTCHK — Input Check, a keyboard and mouse diagnostic (`apps/inputchk/`) |
+| 137 | BONANZA — Bounce Bonanza, an isometric rolling-ball game (`apps/bonanza/`) |
 
 ## docs/
 
@@ -579,5 +588,5 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 *How it works today - `docs/` (89):* [86BOX.md](86BOX.md), [AGENT-SKILLS.md](AGENT-SKILLS.md), [APPLE2-SPEC.md](APPLE2-SPEC.md), [ARCADE-SPEC.md](ARCADE-SPEC.md), [BIFF-NOTES.md](BIFF-NOTES.md), [BOCHS.md](BOCHS.md), [BORATYPE-SPEC.md](BORATYPE-SPEC.md), [BYTEOPOLY-GUIDE.md](BYTEOPOLY-GUIDE.md), [C-TOOLCHAIN.md](C-TOOLCHAIN.md), [C64-SPEC.md](C64-SPEC.md), [DOS-DEBUGGING.md](DOS-DEBUGGING.md), [ESS-SOUND.md](ESS-SOUND.md), [FIELD-MACHINES.md](FIELD-MACHINES.md), [FIELD-NOTES.md](FIELD-NOTES.md), [HEAP-CLAIMS.md](HEAP-CLAIMS.md), [HERCULES-TESTING.md](HERCULES-TESTING.md), [HOW-ARCADE-WAS-BUILT.md](HOW-ARCADE-WAS-BUILT.md), [HOW-BORATYPE-WAS-BUILT.md](HOW-BORATYPE-WAS-BUILT.md), [HOW-BREADXT-WAS-BUILT.md](HOW-BREADXT-WAS-BUILT.md), [HOW-BYTEOPOLY-WAS-BUILT.md](HOW-BYTEOPOLY-WAS-BUILT.md), [HOW-CDROM-WAS-BUILT.md](HOW-CDROM-WAS-BUILT.md), [HOW-CPWIDE-WAS-BUILT.md](HOW-CPWIDE-WAS-BUILT.md), [HOW-DEBUG-DISKS-WERE-BUILT.md](HOW-DEBUG-DISKS-WERE-BUILT.md), [HOW-INSTALL-WAS-BUILT.md](HOW-INSTALL-WAS-BUILT.md), [HOW-INTERNATIONAL-KEYBOARDS-WERE-BUILT.md](HOW-INTERNATIONAL-KEYBOARDS-WERE-BUILT.md), [HOW-MIXER-WAS-BUILT.md](HOW-MIXER-WAS-BUILT.md), [HOW-PAGEDESK-WAS-BUILT.md](HOW-PAGEDESK-WAS-BUILT.md), [HOW-SYSCHECK-WAS-BUILT.md](HOW-SYSCHECK-WAS-BUILT.md), [HOW-VBATTLE-WAS-BUILT.md](HOW-VBATTLE-WAS-BUILT.md), [HOW-VESA-WAS-BUILT.md](HOW-VESA-WAS-BUILT.md), [HOW-WAVERACK-WAS-BUILT.md](HOW-WAVERACK-WAS-BUILT.md), [HOW-WIN16-WAS-BUILT.md](HOW-WIN16-WAS-BUILT.md), [HOW-WIREFLEET-WAS-BUILT.md](HOW-WIREFLEET-WAS-BUILT.md), [HOW-XTMP3-WAS-BUILT.md](HOW-XTMP3-WAS-BUILT.md), [IMAGER.md](IMAGER.md), [KERNEL-MEMORY.md](KERNEL-MEMORY.md), [KEYBOARDS.md](KEYBOARDS.md), [KODAK-EXAMPLE.md](KODAK-EXAMPLE.md), [LIVE-MEDIA.md](LIVE-MEDIA.md), [MARTYPC-DEBUG.md](MARTYPC-DEBUG.md), [PAGEDESK-GUIDE.md](PAGEDESK-GUIDE.md), [PAGEDESK-SPEC.md](PAGEDESK-SPEC.md), [README.md](README.md), [REALDMG-SPEC.md](REALDMG-SPEC.md), [REDLINE.md](REDLINE.md), [TEST-INCIDENTS.md](TEST-INCIDENTS.md), [TESTING.md](TESTING.md), [UPSTREAM.md](UPSTREAM.md), [WEAVE-SPEC.md](WEAVE-SPEC.md), [WRITING-TESTS.md](WRITING-TESTS.md), [boratype/EVIDENCE.md](boratype/EVIDENCE.md), [boratype/audio.md](boratype/audio.md), [boratype/developer.md](boratype/developer.md), [boratype/engine.md](boratype/engine.md), [boratype/face.md](boratype/face.md), [boratype/target-test.md](boratype/target-test.md), [breadxt/CONTRACT.md](breadxt/CONTRACT.md), [breadxt/DEVELOPER.md](breadxt/DEVELOPER.md), [breadxt/EVIDENCE.md](breadxt/EVIDENCE.md), [breadxt/FORMAT.md](breadxt/FORMAT.md), [breadxt/SOURCES.md](breadxt/SOURCES.md), [breadxt/evidence/manual-report.md](breadxt/evidence/manual-report.md), [breadxt/reviews/final-electrical.md](breadxt/reviews/final-electrical.md), [breadxt/reviews/final-redraw.md](breadxt/reviews/final-redraw.md), [breadxt/reviews/final-rules.md](breadxt/reviews/final-rules.md), [breadxt/reviews/independent-host.md](breadxt/reviews/independent-host.md), [breadxt/reviews/independent-native.md](breadxt/reviews/independent-native.md), [breadxt/reviews/initial-electrical.md](breadxt/reviews/initial-electrical.md), [breadxt/reviews/initial-redraw.md](breadxt/reviews/initial-redraw.md), [breadxt/reviews/initial-rules.md](breadxt/reviews/initial-rules.md), [breadxt/reviews/manual.md](breadxt/reviews/manual.md), [browser/screenshots/README.md](browser/screenshots/README.md), [cpwide/MOCKUP-PROMPT.md](cpwide/MOCKUP-PROMPT.md), [cpwide/README.md](cpwide/README.md), [ess-sound/README.md](ess-sound/README.md), [keyboard/README.md](keyboard/README.md), [lemband-format.md](lemband-format.md), [pagedesk/anypdf/README.md](pagedesk/anypdf/README.md), [syscheck/design/CODEX-PROMPTS.md](syscheck/design/CODEX-PROMPTS.md), [syscheck/design/PROMPT.md](syscheck/design/PROMPT.md), [xtmp3/ENGINE.md](xtmp3/ENGINE.md), [xtmp3/FACE.md](xtmp3/FACE.md), [xtmp3/FIELD.md](xtmp3/FIELD.md), [xtmp3/NUMERICS.md](xtmp3/NUMERICS.md), [xtmp3/STD.md](xtmp3/STD.md), [xtmp3/XT-STUDY-TABLES.md](xtmp3/XT-STUDY-TABLES.md), [xtmp3/XT-STUDY.md](xtmp3/XT-STUDY.md), [xtmp3/XT.md](xtmp3/XT.md), [xtmp3/listen/README.md](xtmp3/listen/README.md)
 
-*Not reference:* 180 open plans in `docs/plans/`, 279 design records in `docs/plans/completed/`, 1 retired plans in `docs/plans/retired/`, 11 superseded files in `docs/history/`, 180 measurements in `docs/reports/`.
+*Not reference:* 197 open plans in `docs/plans/`, 303 design records in `docs/plans/completed/`, 1 retired plans in `docs/plans/retired/`, 11 superseded files in `docs/history/`, 183 measurements in `docs/reports/`.
 

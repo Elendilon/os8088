@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""bbedocc - THE COURSE BUILDER'S OCCLUDER VIEW (SPEC.md 130.58.32): the Iso view's *Occluders* overlay over
+"""bbedocc - THE COURSE BUILDER'S OCCLUDER VIEW (SPEC.md 137.58.32): the Iso view's *Occluders* overlay over
 the picture job's occ.json (tools/bbedjob.py `picture ... --occ`).  (Its second overlay, *Shade: why*, explained
-130.12.4.6's windmill warning and went with it: SPEC.md 130.12.19, 2026-11-25.)
+137.12.4.6's windmill warning and went with it: SPEC.md 137.12.19, 2026-11-25.)
 
-- **Occluders**: the records the PART ships (130.58.44: after AV, 130.29, and the merge) or, with *as cut*,
-  every record the occluder RULE cuts (the records the cells' OCC and OCCG flags are counted on, 130.11.4.3), drawn
+- **Occluders**: the records the PART ships (137.58.44: after AV, 137.29, and the merge) or, with *as cut*,
+  every record the occluder RULE cuts (the records the cells' OCC and OCCG flags are counted on, 137.11.4.3), drawn
   over the picture, tinted by the cell that drew it; the cells a ball CAN be hidden in (OCC /
   OCCG) dithered faintly, `noocclude` cells hatched blue. Hovering names a record's owner cell (and its guard rail),
   the cells whose ball it hides and the cells it flags; a click selects it and the inspector offers *Don't hide the
@@ -37,11 +37,11 @@ class OccView(object):
         self.show = tk.BooleanVar(value=False)
         self.data = None                # occ.json, as loaded with the picture it was cut for
         self.sel = None                 # ("rec", id) - an id of the list shown (recs()) - or ("noocc", cell); SEVERAL
-        #                                 (130.58.47): ("recs", frozenset of ids) or ("noocs", frozenset of cells)
-        self.drag = None                # a press on the overlay: {x, y (picture px), ctrl, moved, e} (130.58.47)
+        #                                 (137.58.47): ("recs", frozenset of ids) or ("noocs", frozenset of cells)
+        self.drag = None                # a press on the overlay: {x, y (picture px), ctrl, moved, e} (137.58.47)
         self.passing = False            # (a click that hit nothing, handed back to the window's own press)
         self.hot = None                 # the record under the pointer
-        self.which = tk.StringVar(value="shipped")     # 130.58.44: "shipped" (c.records) or "cut" (the rule's)
+        self.which = tk.StringVar(value="shipped")     # 137.58.44: "shipped" (c.records) or "cut" (the rule's)
         self.cache = None               # (key, the composited overlay image)
         ttk.Label(row, text="  |").pack(side="left")
         ttk.Checkbutton(row, text="Occluders", variable=self.show, command=self.toggled).pack(side="left")
@@ -49,7 +49,7 @@ class OccView(object):
             ttk.Radiobutton(row, text=t, value=v, variable=self.which, command=self.which_changed).pack(side="left")
         self.row = row
         self.label = ttk.Label(row, text="", foreground="#6b3a0b", justify="left")    # (its own line under the
-        app.wrap_to(self.label, row, 40)                        # row while it says something: _say; 130.58.54)
+        app.wrap_to(self.label, row, 40)                        # row while it says something: _say; 137.58.54)
 
     # -- the job --------------------------------------------------------------
     def wanted(self):
@@ -61,7 +61,7 @@ class OccView(object):
         if self.wanted() and (a.pic_job and a.pic_job.running or a.pic and a.pic["meta"].get("occ") is None):
             a.run_picture()
             self._say("Cutting the occluders (the full rules: tens of seconds on a big course)...")
-        self.hot = None                 # (the list shown may be another now: 130.58.44)
+        self.hot = None                 # (the list shown may be another now: 137.58.44)
         if self.sel and self.sel[0] in ("rec", "recs"):
             self.sel = None
         if not self.wanted():
@@ -71,14 +71,14 @@ class OccView(object):
         a._redraw()
 
     def which_changed(self):
-        """130.58.44: as shipped / as cut - the other list drawn, hovered and selected"""
+        """137.58.44: as shipped / as cut - the other list drawn, hovered and selected"""
         self.sel, self.hot, self.cache = None, None, None
         self.app._fill_inspector()
         self.app._redraw()
         self._counts()
 
     def shipped(self):
-        """-> True when the list shown is the part's (an occ.json from before 130.58.44 has only the rule's)"""
+        """-> True when the list shown is the part's (an occ.json from before 137.58.44 has only the rule's)"""
         return bool(self.show.get() and self.which.get() == "shipped" and self.data is not None
                     and "shipped" in self.data)
 
@@ -87,7 +87,7 @@ class OccView(object):
         return self.data["shipped"] if self.shipped() else self.data["records"]
 
     def _counts(self):
-        """the status: both counts, shipped and as cut (130.58.44)"""
+        """the status: both counts, shipped and as cut (137.58.44)"""
         if self.data is None or not self.wanted() or not self.show.get():
             return
         n, om = len(self.data["records"]), self.app.pic["meta"].get("occ") or {}
@@ -108,7 +108,7 @@ class OccView(object):
         overlay was turned on is drawn again with it"""
         self.data, self.cache, self.hot = None, None, None
         om = meta.get("occ")
-        if om and (not om.get("error") or om.get("partial")):     # (130.58.46: a bound's refusal, the cut shown)
+        if om and (not om.get("error") or om.get("partial")):     # (137.58.46: a bound's refusal, the cut shown)
             try:
                 with open(os.path.join(out, "occ.json")) as f:
                     self.data = json.load(f)
@@ -218,7 +218,7 @@ class OccView(object):
             for y, x0, x1 in r["runs"]:
                 c.create_rectangle(x0 * kx, y * ky, (x1 + 1) * kx, (y + 1) * ky, fill="#00ffd0", outline="#000000")
             ring(r, "#00ffd0")
-        if self.sel and self.sel[0] == "recs":          # several (130.58.47): each filled, no rings
+        if self.sel and self.sel[0] == "recs":          # several (137.58.47): each filled, no rings
             for k in self.sel[1]:
                 for y, x0, x1 in recs[k]["runs"]:
                     c.create_rectangle(x0 * kx, y * ky, (x1 + 1) * kx, (y + 1) * ky, fill="#00ffd0", outline="")
@@ -312,7 +312,7 @@ class OccView(object):
     def press(self, e):
         """-> True when the press is the overlay's.  With Occluders shown every press in Iso is: a click selects a
         record or a noocclude cell (Ctrl-click adds or takes one away) and a drag selects every record - or, with
-        none, every noocclude cell - with a pixel in the rectangle (130.58.47); a click on neither is handed back
+        none, every noocclude cell - with a pixel in the rectangle (137.58.47); a click on neither is handed back
         to the window"""
         if self.passing or not (self.wanted() and self._ready()):
             return False
@@ -380,7 +380,7 @@ class OccView(object):
         self.sel = None if not items else (one, next(iter(items))) if len(items) == 1 else (kind, frozenset(items))
 
     def sel_cells(self):
-        """the selected records' cells (130.58.47) -> (every cell they hide, sorted; those noocclude may take - not
+        """the selected records' cells (137.58.47) -> (every cell they hide, sorted; those noocclude may take - not
         the start's or a route point's; those noocclude already names)"""
         ks = self._sel_set("recs")
         cells = sorted({tuple(c) for k in ks for c in self.recs()[k]["needs"]})
@@ -441,7 +441,7 @@ class OccView(object):
         body = a.ins_body
         a.raw.set("")
         a.ins_err.config(text="")
-        if self.sel[0] == "noocs":                       # several noocclude cells (130.58.47)
+        if self.sel[0] == "noocs":                       # several noocclude cells (137.58.47)
             cells = set(self.sel[1])
             a.ins_title.config(text="%d noocclude cells selected" % len(cells))
             a.ins_line.config(text=_cells(sorted(cells)))
@@ -451,7 +451,7 @@ class OccView(object):
                               "the occluders are cut for them again. Ctrl-click adds or takes away one cell; drag "
                               "a rectangle to choose again.")
             return True
-        if self.sel[0] == "recs":                        # several records (130.58.47)
+        if self.sel[0] == "recs":                        # several records (137.58.47)
             ks = sorted(self.sel[1])
             cells, ok, back = self.sel_cells()
             a.ins_title.config(text="%d %soccluder records selected" % (len(ks), "shipped " if self.shipped()
@@ -479,7 +479,7 @@ class OccView(object):
         if self.sel[0] == "noocc":
             cell = self.sel[1]
             a.ins_title.config(text="No occluding at %d, %d" % cell)
-            a.ins_line.config(text="noocclude (SPEC.md 130.53)")
+            a.ins_line.config(text="noocclude (SPEC.md 137.53)")
             ttk.Button(body, text="Hide the ball here again (remove noocclude)",
                        command=lambda: self.noocclude(remove={cell})).grid(row=0, column=0, sticky="w")
             ttk.Button(body, text="Remove every noocclude (%d cells)" % len(self.noocc),

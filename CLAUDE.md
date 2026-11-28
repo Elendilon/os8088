@@ -1437,7 +1437,10 @@ Default environment serves every repository, so it cannot carry one either.
   pushing a new branch name but refuses deleting one, so a branch pushed
   under the wrong name stays on GitHub until the owner deletes it there.
 - **When this section is lifted for upstream,** `tools/session-sync.sh` and
-  `tools/session-branch.sh` go with it.
+  `tools/session-branch.sh` go with it - **and come back with it at the
+  re-cut.** A three-way merge whose base predates the lift reads their
+  absence from `main` as a deletion and takes it, which is how 2026-11-26's
+  re-cut restored this rule's text without its scripts (docs/UPSTREAM.md).
 
 ### 10. A soak runs in the BACKGROUND, ONE AT A TIME, and never blocks the work or the disks
 

@@ -11,7 +11,7 @@
 # no shipped course moves.  The frame the owner picks is lifted into tools/bbcourse.py beside _clock_frog,
 # its four names into CLOCK_STYLES, and sketch.py's FRAMES names them per position.
 #
-# THE OWNER PICKED `orb` (2026-11-21): it is the tool's now (bbcourse._clock_orb, SPEC.md 130.18.5.2) and DOWN
+# THE OWNER PICKED `orb` (2026-11-21): it is the tool's now (bbcourse._clock_orb, SPEC.md 137.18.5.2) and DOWN
 # wears it.  The PENGUIN and the WATCH stay here, SAVED FOR A LATER COURSE (the watch may need work: the owner
 # was unsure what its antennae are); `sign` stays as the option it was.
 import math
@@ -137,7 +137,7 @@ def _clock_sign(B, p, x0, y0, tops, pos):
 
 # ---- B. ORB: the course's three balls, one object in three materials --------------------------------------
 # THE OWNER'S PICK (2026-11-21): lifted into tools/bbcourse.py as `_clock_orb` (frames orbr, orbh, orbs, orbg;
-# SPEC.md 130.18.5.2) and set per position by ../sketch.py's FRAMES.  The tool's is the one drawn here too.
+# SPEC.md 137.18.5.2) and set per position by ../sketch.py's FRAMES.  The tool's is the one drawn here too.
 def _clock_orb(B, p, x0, y0, tops, mat):
     return B._clock_orb(p, x0, y0, tops, mat)
 

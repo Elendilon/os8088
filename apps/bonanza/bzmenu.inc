@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/bzmenu.inc - BONANZA's WINDOW (SPEC.md 130.26), resident: the
+; apps/bonanza/bzmenu.inc - BONANZA's WINDOW (SPEC.md 137.26), resident: the
 ; Play Game button, the Game and Saves menus, the window's keys, the replays in
 ; SYSTEM\APPDATA, and suspending the bracket for the window and resuming it.
 ; The face's pictures are the shell part's (bzwface.inc); the button's record
@@ -13,19 +13,19 @@ BZ_BY_S     equ 17              ; ...its top below the ledge picture's, SHORT an
 BZ_BY_T     equ 38              ; TALL: centred on the ledge's top face (the owner's
                                 ; mock-up, 2026-11-16), left of the ledge
 BZ_SU_PATH  equ 1               ; [bz_susp]: the window was asked for from the
-BZ_SU_CRS   equ 2               ; pathway, or from inside a course (130.26.4)
-BZ_KSC_F5   equ 3fh             ; F5 and F6's make codes (130.26.3)
+BZ_SU_CRS   equ 2               ; pathway, or from inside a course (137.26.4)
+BZ_KSC_F5   equ 3fh             ; F5 and F6's make codes (137.26.3)
 BZ_KSC_F6   equ 40h
 
 ; the window's size on VGA / Hercules / CGA: FIXED (the art does not scale,
-; SPEC.md 130.26.1)
+; SPEC.md 137.26.1)
     OS88_PREFER bz_sizes, 440, 260,  440, 230,  440, 128
 
     OS88UI_BTNREC bz_btrec, bz_btr, bz_btlab, bz_btfl, 1, bz_bplace
 bz_btlab:   dw bz_s_play
 bz_s_play:  db 'Play Game', 0
 
-; --- the menus (SPEC.md 130.26.3).  Every item's first byte is its MARK: ' ',
+; --- the menus (SPEC.md 137.26.3).  Every item's first byte is its MARK: ' ',
 ; or '*' when chosen; a greyed item is pointed at the MENU_DIS byte before it.
     OS88_MENUSET bz_menus, bz_title, bz_oncmd
         OS88_MENU bz_m_game, bz_mi_game, 7
@@ -127,7 +127,7 @@ bz_mlabels:
     ret
 
 ; bz_canplay - CF = 1 when Play Game cannot run here: kern_small, or a display
-; the bracket cannot drive (SPEC.md 130.1).  Preserves all but the flags.
+; the bracket cannot drive (SPEC.md 137.1).  Preserves all but the flags.
 bz_canplay:
     cmp byte [bz_small], 0
     stc
@@ -172,7 +172,7 @@ bz_bplace:
     xor ax, ax
 .f:
     mov [bz_btfl], ax
-    mov bx, [bz_win]            ; THE PLACE (SPEC.md 130.26.1): centred in the
+    mov bx, [bz_win]            ; THE PLACE (SPEC.md 137.26.1): centred in the
     call OSAPI_WM_GEOM          ; space left of the ledge, its middle on the
     push cx                     ; ledge's top face - the ledge's own place is
     push dx                     ; bzwface.inc's, worked the same way
@@ -315,12 +315,12 @@ bz_gcmds:   dw bz_playgame, bz_rsavedk, bz_rloaddlg, bz_oncmd.out
 
 ; bz_playgame - Play Game (the button, the menu, Enter, F, Alt+Enter): where
 ; the player left the bracket for the window, else the title (SPEC.md
-; 130.26.4).  bz_title8 makes the refusals and runs the bracket.
+; 137.26.4).  bz_title8 makes the refusals and runs the bracket.
 bz_playgame:
     call bz_title8
     jmp bz_mlabels
 
-; bz_unsusp - a suspended bracket given up (SPEC.md 130.26.3, 130.26.4): a
+; bz_unsusp - a suspended bracket given up (SPEC.md 137.26.3, 137.26.4): a
 ; course's parts back, its game read again from the slot (where its life is
 ; written already).  bz_unsuscrs only when a COURSE is held.  Preserves all.
 bz_unsuscrs:
@@ -346,7 +346,7 @@ bz_unsusp:
     call bz_phfree
     mov byte [bz_tgame], 0      ; (the slot on the disk is the game)
     mov byte [bz_xmode], 0
-    mov byte [bz_lfx], 0        ; (a life the play gave is the disk's no more, 130.55)
+    mov byte [bz_lfx], 0        ; (a life the play gave is the disk's no more, 137.55)
 .p:
     mov byte [bz_susp], 0
     pop es
@@ -360,7 +360,7 @@ bz_unsusp:
     ret
 
 ; -----------------------------------------------------------------------------
-; THE REPLAYS (SPEC.md 130.26.3): SYSTEM\APPDATA\NNNCOURS.BZR
+; THE REPLAYS (SPEC.md 137.26.3): SYSTEM\APPDATA\NNNCOURS.BZR
 ; -----------------------------------------------------------------------------
 ; bz_rscan - in APPDATA (od_enter done), course AL's saves: AX = the greatest
 ; number (0 none), and that file's name in [bz_dname] and its size in DX:CX
@@ -443,7 +443,7 @@ bz_rscan:
     ret
 
 ; bz_rsave - the held log, recorded by a play, to APPDATA as the course's next
-; number (130.26.3).  CF = 1 refused, SI = why (a TOASTSTR; the bracket's
+; number (137.26.3).  CF = 1 refused, SI = why (a TOASTSTR; the bracket's
 ; cards say their own); else [bz_dname] the name written.  Preserves nothing.
 bz_rsave:
     mov si, bz_t_nolog
@@ -482,7 +482,7 @@ bz_rsave:
     or al, al
     jnz .n
     push es
-    call bz_rout                ; ES:BX, CX = the log, one piece (130.11.12.1)
+    call bz_rout                ; ES:BX, CX = the log, one piece (137.11.12.1)
     mov si, bz_dname
     xor dx, dx
     call OSAPI_FILE_WRITE
@@ -541,7 +541,7 @@ TOASTSTR bz_t_rfail, 'Replay not saved'
 TOASTSTR bz_t_rsaved, 'Replay saved'
 
 ; -----------------------------------------------------------------------------
-; THE PATHWAY's F5, F6 and V (SPEC.md 130.26.3), from bz_grounds once the
+; THE PATHWAY's F5, F6 and V (SPEC.md 137.26.3), from bz_grounds once the
 ; pathway's play has ended with [bz_pwq] 'r', 'l' or 'v'.  The cards say what
 ; happened; nothing here toasts (the bracket's framebuffer is ours).
 ; -----------------------------------------------------------------------------
@@ -578,7 +578,7 @@ bz_gfload:
     cmp al, 'v'
     jne .f6
     mov al, bl                  ; V: the course's shipped demo, its row found
-    xor bx, bx                  ; in bz_dcrs (130.14.7.4: by the table, never
+    xor bx, bx                  ; in bz_dcrs (137.14.7.4: by the table, never
 .dr:                            ; by K - 1)
     cmp al, [bz_dcrs + bx]
     je .dg

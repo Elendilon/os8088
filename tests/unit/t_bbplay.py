@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""t_bbplay - TEST ROLL's model and frame (SPEC.md 130.58.16), on the host, no Tk, no emulator:
+"""t_bbplay - TEST ROLL's model and frame (SPEC.md 137.58.16), on the host, no Tk, no emulator:
 
  1. THE PLAY-ONLY COMPILE: MILL compiled with no occluders and the block limit lifted
     (bbplay.compile_play) leaves bbcourse.BLK_MAX as it found it, and the AUTOPILOT from the start
@@ -20,11 +20,11 @@
  6. REWIND: a run rewound 5 s goes back 5 s to 5.5 s (a rewind point every 27 steps), and driven
     again with the same keys ends where it ended.
 
- 7. THE PROPS' POSES (SPEC.md 130.58.48): TURN's turntable lanes drawn, each its own picture at its own
+ 7. THE PROPS' POSES (SPEC.md 137.58.48): TURN's turntable lanes drawn, each its own picture at its own
     place, in tt_pose at the physics' step, Heavy's drawn poses made stale on purpose (LAGGED: the stale);
  8. EVERY LANE OF MILL (windmills, clocks, posts, flags, seesaw, the jump, turntable cells) drawn in
     Heavy.pose_now at its own place, the ball poked beside each.
- 9. THE AUTOPILOT (SPEC.md 130.58.50): a course whose last leg crosses a gap no Hop clears - no plan, so the
+ 9. THE AUTOPILOT (SPEC.md 137.58.50): a course whose last leg crosses a gap no Hop clears - no plan, so the
     search's furthest progress and the arrows on, ending the step before the fall, heading for way 2; Roll replays
     the keys to the bare replay's world state, way and cell (rewound and again, and on the full compile), the note
     names way 2, its cell, line and the fall, the way is ringed red; bridged, the planner's run finishes; plan_job
@@ -209,7 +209,7 @@ BRIDGE = "floor rect 12 7 20 12 flat 4\n"
 
 
 def item9(bad):
-    """THE AUTOPILOT (SPEC.md 130.58.50): on a course whose last leg crosses a gap no Hop clears, autopilot_run
+    """THE AUTOPILOT (SPEC.md 137.58.50): on a course whose last leg crosses a gap no Hop clears, autopilot_run
     finds no plan and gives the search's furthest progress and the arrows on, ending the step before the fall,
     heading for way 2; Roll replays its keys frame by frame to that end - the world state a bare Physics replay
     has, the way it heads for, no fall - rewinds and replays again to it, and replays on the full compile; the
@@ -446,10 +446,10 @@ def main():
     print("6: rewound %d steps (%.2f s) and driven again: %s" % (n0 - back, (n0 - back) / B.STEP_HZ,
                                                                   "the same end" if P.wstate(r1.p) == end else "DIFFERENT"))
 
-    # 7. the props' poses: what the ball meets (SPEC.md 130.58.48)
+    # 7. the props' poses: what the ball meets (SPEC.md 137.58.48)
     item7(bad)
     item8(bad, full)
-    item9(bad)                                  # 9. the autopilot (SPEC.md 130.58.50)
+    item9(bad)                                  # 9. the autopilot (SPEC.md 137.58.50)
 
     for b in bad:
         print("FAIL " + b)

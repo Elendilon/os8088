@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """BONANZA (Bounce Bonanza) ball generator and the shared encoders
-(SPEC.md 130.3, 130.10.5.3, 130.11.9).
+(SPEC.md 137.3, 137.10.5.3, 137.11.9).
 
     python3 tools/bonanza_assets.py -o build/bonanza-art     # what `make` runs
     python3 tools/bonanza_assets.py --selfcheck              # invariants + determinism
@@ -13,23 +13,23 @@ same tool gives byte-identical outputs, no timestamps, sorted iteration.
 
 Since wave 1 the COURSES are text, compiled by tools/bbcourse.py, which
 imports this module's palette and encoders (`cga_bytes`, `herc_pair`,
-`herc_bytes`: 130.3's Hercules checker, which the ball must match, 130.9
+`herc_bytes`: 137.3's Hercules checker, which the ball must match, 137.9
 item 7) - so a course and the ball cannot disagree about a mid-level pixel.
 The renderer and wave 0's generated test course MOVED there (SPEC.md
-130.10.4); this tool keeps the ball and the encoders.
+137.10.4); this tool keeps the ball and the encoders.
 
 Outputs, in the -o directory (the three ball PARTS of BONANZA.O88, then NASM):
-    BZBALR.BIN    the rubber ball, BZB2, the CGA's (SPEC.md 130.11.9.1)
+    BZBALR.BIN    the rubber ball, BZB2, the CGA's (SPEC.md 137.11.9.1)
     BZBALS.BIN    the steel ball
     BZBALG.BIN    the glass ball (with its four shatter frames)
     bzconst.inc   the ball parts' layout
     .bz-art       stamp: sha256 of this tool (make's rebuild key), written FIRST
 The Hercules parts are NOT shipped: the guest builds htab() (512 bytes) and
-translates a fetched part in place (SPEC.md 130.11.3); herc_translate_ball()
+translates a fetched part in place (SPEC.md 137.11.3); herc_translate_ball()
 is that translation on the host.  Wave 1's BZB1 builder (build_ball_part) is
 kept as the reference the rubber part is held to.
 
-Ball part, BZB2 (SPEC.md 130.11.9.1): +0 'BZB2', +4 frames (64), +6 rows (16),
+Ball part, BZB2 (SPEC.md 137.11.9.1): +0 'BZB2', +4 frames (64), +6 rows (16),
 +8 bytes a row (5), +10 the material, +11 squash frames (2), +12 shatter
 frames (0 or 4), +13 shadow rows (6), +14 stretch frames (1 rubber, else 0,
 wave 6), +15 a zero byte; +16 the masks (4
@@ -38,15 +38,15 @@ shifts x 16 rows x 5, the material's silhouette, a SET bit keeps); +336 the
 shifts x 2 line parities x (mask 80 + frame 80)); +8,016 the shadow masks (2
 parities x 4 shifts x 6 rows x 5, AND only); +8,256 glass's shatter entries
 (4 x 4 x 2 x 160), or rubber's STRETCH entry (1 x 4 x 2 x 160, wave 6, SPEC.md
-130.16.4.4).  Steel 8,256 bytes, rubber 9,536, glass 13,376.
+137.16.4.4).  Steel 8,256 bytes, rubber 9,536, glass 13,376.
 
-Wave 1's ball part, BZB1 (SPEC.md 130.10.5.3), the reference:
+Wave 1's ball part, BZB1 (SPEC.md 137.10.5.3), the reference:
     +0 'BZB1'  +4 word frames (64)  +6 word rows (16)  +8 word bytes a row (5)
     +10 six zero bytes
     +16 masks: 4 shifts x 16 rows x 5 bytes, shift-major
     +336 frames: 64 x 16 rows x 5 bytes, frame f at shift f & 3.
     Hercules ball pixels: 0 -> 00, 3 -> 11, 1 and 2 -> the COURSE's checker
-    (SPEC.md 130.9 item 7): 10 where (line + column) is even, 01 where odd.
+    (SPEC.md 137.9 item 7): 10 where (line + column) is even, 01 where odd.
 
 Host reference for the rows (import this module):
     ball_frame_indices(f)   16 rows of 16 entries, an index or None (clear)
@@ -65,7 +65,7 @@ import os
 import struct
 import sys
 
-# The data ROOT (SPEC.md 130.58.11): the checkout, or the `data/` folder beside this file in the
+# The data ROOT (SPEC.md 137.58.11): the checkout, or the `data/` folder beside this file in the
 # course builder's bundle (`make bbeditbundle`), whose tools sit at its top with their working files under it.
 ROOT = (os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
         if os.path.isdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "apps"))
@@ -179,8 +179,8 @@ def cga_bytes(pixels):
 
 def herc_pair(c, line, col):
     """one game pixel at world (line, col) -> its two card bits as a number
-    0..3 (left bit high).  The course and the ball share it (SPEC.md 130.3,
-    130.9 item 7): the mid level is 10 / 01 by (line + column)"""
+    0..3 (left bit high).  The course and the ball share it (SPEC.md 137.3,
+    137.9 item 7): the mid level is 10 / 01 by (line + column)"""
     if c == BLK:
         return 0
     if c == WHT:
@@ -202,7 +202,7 @@ def herc_bytes(pixels, line, col0=0):
 
 
 def htab():
-    """BZ_HTAB (SPEC.md 130.11.3): 512 bytes, [256 p + b] = the byte whose pixel
+    """BZ_HTAB (SPEC.md 137.11.3): 512 bytes, [256 p + b] = the byte whose pixel
     j (0 the leftmost, bits 7 - 6) is herc_pair(c_j, p, j), c_j = (b >> (6 -
     2j)) & 3.  A block, a ball row and a squash row all start on a 4-pixel
     world column, so a byte's pixel j sits at an even column + j and only the
@@ -220,7 +220,7 @@ def htab():
 
 
 # =============================================================================
-# the ball part (BZB1, SPEC.md 130.10.5.3)
+# the ball part (BZB1, SPEC.md 137.10.5.3)
 # =============================================================================
 
 def _ball_row(frame_row, shift):
@@ -275,7 +275,7 @@ def build_ball_part(herc, _fixed_mid=False):
 
 
 # =============================================================================
-# wave 2: three balls (BZB2, SPEC.md 130.11.9)
+# wave 2: three balls (BZB2, SPEC.md 137.11.9)
 # =============================================================================
 
 MAT_RUBBER, MAT_STEEL, MAT_GLASS = 0, 1, 2
@@ -290,7 +290,7 @@ SHD_ROWS = 6                  # the shadow: a 16 x 6 ellipse, AND only
 NST = 1                       # rubber's STRETCH frames (wave 6, the boost's cue)
 ST_W = 12                     # the stretch: an ellipse 12 wide, 16 tall, centred
 ENT = 2 * D * RB              # a squash or shatter entry: mask 80 + frame 80
-# THE DEATH AND SQUASH FRAMES (SPEC.md 130.11.9.1 as 130.38.10 amends it, the owner's B): a squash, shatter,
+# THE DEATH AND SQUASH FRAMES (SPEC.md 137.11.9.1 as 137.38.10 amends it, the owner's B): a squash, shatter,
 # stretch or pop FRAME is its entry at each of the 4 shifts, ONE line-parity copy each (it was two: the same
 # bytes on the CGA; on the Hercules the one copy's mid colours are a checker phase off on odd lines) - 640
 # bytes a frame.  A (one shift, shifted at the draw) is parked: docs/plans/bounce-bonanza/patches/
@@ -301,7 +301,7 @@ B2_SQOFF = B2_FRMOFF + NFRAMES * D * RB            # 5,456
 B2_SHDOFF = B2_SQOFF + NSQ * ENTS                  # 8,016 as it was
 B2_SHAOFF = B2_SHDOFF + 2 * SHIFTS * SHD_ROWS * RB  # 8,256 as it was
 B2_STROFF = B2_SHAOFF                              # 8,256: rubber's stretch, where glass's shatter is
-NPOP = 3                      # rubber's POP frames (SPEC.md 130.38): its shatter entries 1 - 3, after its stretch
+NPOP = 3                      # rubber's POP frames (SPEC.md 137.38): its shatter entries 1 - 3, after its stretch
                               # (entry 0, which a pop shows first: the ball bulging), BZB2 +12
 B2_POPOFF = B2_STROFF + NST * ENTS                 # 9,536 as it was
 B2_SIZE = (B2_POPOFF + NPOP * ENTS, B2_SHAOFF, B2_SHAOFF + NSH * ENTS)     # 13,376, 8,256, 13,376 as it was
@@ -310,7 +310,7 @@ assert NST + NPOP == NSH      # (the sprite's SHATTER k reads entry k of the one
 
 def ent_at(base, k, s, p):
     """the STORED entry of frame k of the table at BASE that a sprite drawn at shift s on a line of parity p
-    reads (SPEC.md 130.38.10): its shift s's one copy, whatever the parity"""
+    reads (SPEC.md 137.38.10): its shift s's one copy, whatever the parity"""
     return base + (k * SHIFTS + s) * ENT
 
 
@@ -327,13 +327,13 @@ def _ent_out(enc_of_shift):
 
 
 def nshatter(mat):
-    """BZB2 +12: the material's shatter frames - glass's four, rubber's POP (SPEC.md 130.38: three, after its
+    """BZB2 +12: the material's shatter frames - glass's four, rubber's POP (SPEC.md 137.38: three, after its
     stretch), steel none"""
     return NSH if mat == MAT_GLASS else NPOP if mat == MAT_RUBBER else 0
 
 
 def pop_frame(k):
-    """rubber's POP frame k (1 - 3; SPEC.md 130.38), {(x, y): index} in footprint slots x = -2 .. 17: 1 the BURST
+    """rubber's POP frame k (1 - 3; SPEC.md 137.38), {(x, y): index} in footprint slots x = -2 .. 17: 1 the BURST
     (the skin torn into six jagged shreds round a white flash), 2 the SHREDS flung out and falling, 3 the
     SKIN, a crumpled magenta rag on the ground.  Every piece gets its black ring at the entry (_ring_slots)"""
     out = {}
@@ -368,7 +368,7 @@ def pop_frame(k):
 
 
 def nstretch(mat):
-    """BZB2 +14: the material's stretch frames (SPEC.md 130.16.4.4)"""
+    """BZB2 +14: the material's stretch frames (SPEC.md 137.16.4.4)"""
     return NST if mat == MAT_RUBBER else 0
 
 
@@ -483,7 +483,7 @@ def squash_frame(mat, k):
 
 
 def _stretch_shape(x, y):
-    """the stretch (SPEC.md 130.16.4.4): an ellipse ST_W wide and 16 tall,
+    """the stretch (SPEC.md 137.16.4.4): an ellipse ST_W wide and 16 tall,
     centred in the 16 x 16 frame"""
     cx = cy = (D - 1) / 2.0
     ax, ay = ST_W / 2.0, D / 2.0
@@ -539,7 +539,7 @@ def shatter_frame(k):
     # the pieces: the disc's four quadrants pushed out, smaller each frame.
     # Every piece is outlined BLACK where the entry is built (_ring_slots,
     # after the clip to the footprint), so a shard is never the course's own
-    # colour against it (SPEC.md 130.11.9.1: the ring is on every frame)
+    # colour against it (SPEC.md 137.11.9.1: the ring is on every frame)
     spread = (0, 2, 4, 5)[k]
     fall = (0, 0, 1, 2)[k]
     for y in range(D):
@@ -570,7 +570,7 @@ def shatter_frame(k):
 def _ring_slots(rows):
     """a shatter entry's 16 rows of 20 slots, clipped: every piece pixel with a
     4-neighbour clear (or past the entry's edge) made BLACK - the outer ring
-    of SPEC.md 130.11.9.1 on every shatter frame at every shift"""
+    of SPEC.md 137.11.9.1 on every shatter frame at every shift"""
     out = []
     for r, sl in enumerate(rows):
         row = list(sl)
@@ -607,7 +607,7 @@ def _rows_of(frame):
 
 
 def build_ball2(mat):
-    """BZB2, the CGA's (SPEC.md 130.11.9.1); the Hercules one is made at the fetch"""
+    """BZB2, the CGA's (SPEC.md 137.11.9.1); the Hercules one is made at the fetch"""
     nsh = nshatter(mat)
     nst = nstretch(mat)
     hdr = b"BZB2" + struct.pack("<HHHBBBBBB", NFRAMES, D, RB, mat, NSQ, nsh, SHD_ROWS, nst, 0)
@@ -641,7 +641,7 @@ def build_ball2(mat):
     for k in range(nst):                           # STRETCH (rubber): the squash's entry
         rows = _rows_of(stretch_frame(mat))        # format, at +8,256
         out += _ent_out(lambda s, rows=rows: plain(rows, s))
-    for k in range(1, nsh + 1 if mat == MAT_RUBBER else 1):  # POP (rubber, SPEC.md 130.38): shatter entries 1 - 3
+    for k in range(1, nsh + 1 if mat == MAT_RUBBER else 1):  # POP (rubber, SPEC.md 137.38): shatter entries 1 - 3
         pix = pop_frame(k)
         rows = [{x: c for (x, y), c in pix.items() if y == r} for r in range(D)]
         out += _ent_out(lambda s, rows=rows: ringed(rows, s))
@@ -672,7 +672,7 @@ def shadow_mask(p, s):
 
 
 def herc_translate_ball(part, table=None):
-    """the Hercules ball part bz_hxlat makes at the fetch (SPEC.md 130.11.3):
+    """the Hercules ball part bz_hxlat makes at the fetch (SPEC.md 137.11.3):
     roll frame f's row r through table ((f >> 3) + r) & 1; the FRAME half of a
     squash, shatter or stretch entry of parity copy p, row r, through (p + r) & 1;
     masks and the shadow untouched (a mask is the same bytes on both cards)"""
@@ -697,7 +697,7 @@ def herc_translate_ball(part, table=None):
 
 
 # =============================================================================
-# wave 9 (SPEC.md 130.25.5): BZB3, the ball part's STORED form.  BZB2's header,
+# wave 9 (SPEC.md 137.25.5): BZB3, the ball part's STORED form.  BZB2's header,
 # zeros, and a BLOCK at the head of the squash slot (BG_BLK) which the guest's
 # bz_ballgen (apps/bonanza/bzballgen.inc) expands, in place and forwards, into
 # BZB2 byte for byte; glass's shatter entries stay as they are (literal).
@@ -741,7 +741,7 @@ def _tex_classes(mat):
 
 
 def rank_tables(mat):
-    """the phase sum's test RANK-CODED (SPEC.md 130.25.5.1): ink at column x of
+    """the phase sum's test RANK-CODED (SPEC.md 137.25.5.1): ink at column x of
     roll phase fx, row j = fy * 16 + r, is G[fx][x] + G[fy][r] < T, which is
     R'[fx][x] < E'[j] for small integers: R the rank of G among its distinct
     values, E the count of distinct values under T - G[j]; cuts that split no
@@ -836,7 +836,7 @@ def build_ball3(mat):
     out[BG_BLK:BG_BLK + BG_LEN] = blk
     if mat == MAT_GLASS:
         out[B2_SHAOFF:] = ref[B2_SHAOFF:]
-    if mat == MAT_RUBBER:                           # (rubber's POP entries as they are, after its stretch: 130.38)
+    if mat == MAT_RUBBER:                           # (rubber's POP entries as they are, after its stretch: 137.38)
         out[B2_POPOFF:] = ref[B2_POPOFF:]
     return bytes(out)
 
@@ -940,12 +940,12 @@ def _paras(n):
 
 def emit_const():
     lines = [
-        "; bzconst.inc - GENERATED by tools/bonanza_assets.py (SPEC.md 130.3, 130.11.9).",
+        "; bzconst.inc - GENERATED by tools/bonanza_assets.py (SPEC.md 137.3, 137.11.9).",
         "; Do not edit: change the tool and rebuild.  The ball parts' layout; the",
         "; courses' are tools/bbcourse.py's bzcourse.inc and their parts' headers.",
         "",
         "; the ball parts (BZBALR/S/G.BIN, BZB2, the CGA's; the Hercules part is",
-        "; made from it at the fetch, SPEC.md 130.11.3)",
+        "; made from it at the fetch, SPEC.md 137.11.3)",
         "BZ_BAL_FRAMES   equ %d" % NFRAMES,
         "BZ_BAL_SHIFTS   equ %d" % SHIFTS,
         "BZ_BAL_ROWS     equ %d" % D,
@@ -970,7 +970,7 @@ def emit_const():
         "BZ_BAL_SIZER    equ %d      ; rubber" % B2_SIZE[0],
         "BZ_BAL_SIZE     equ %d      ; steel" % B2_SIZE[1],
         "BZ_BAL_SIZEG    equ %d     ; glass" % B2_SIZE[2],
-        "; BZB3's block (SPEC.md 130.25.5): at the head of the squash slot",
+        "; BZB3's block (SPEC.md 137.25.5): at the head of the squash slot",
         "BZ_BG_BLK       equ %d" % BG_BLK,
         "BZ_BG_NP        equ %d      ; byte: the mask table's entries" % BG_NP,
         "BZ_BG_CLO       equ %d" % BG_CLO,
@@ -992,15 +992,15 @@ def emit_const():
 
 
 def compile_all(stored=False):
-    """stored: the files `make` ships, BZB3 (wave 9, SPEC.md 130.25.5); else BZB2, the RAM form.
+    """stored: the files `make` ships, BZB3 (wave 9, SPEC.md 137.25.5); else BZB2, the RAM form.
     A material whose BZB3 the generator's model does not expand back to its BZB2 is REFUSED
-    (130.25.5: a texture V2 cannot reproduce), never shipped to be drawn wrong"""
+    (137.25.5: a texture V2 cannot reproduce), never shipped to be drawn wrong"""
     files = {}
     for m in range(3):
         if stored:
             st = build_ball3(m)
             if model_ball3(st) != build_ball2(m):
-                raise SystemExit("bonanza_assets: %s: BZB3 does not expand back to BZB2 (SPEC.md 130.25.5: "
+                raise SystemExit("bonanza_assets: %s: BZB3 does not expand back to BZB2 (SPEC.md 137.25.5: "
                                  "V2 cannot reproduce this texture, and there is no V1)" % MAT_NAMES[m])
             files[BALL_FILES[m]] = st
         else:
@@ -1035,7 +1035,7 @@ def write_out(out):
 
 
 # =============================================================================
-# --selfcheck: the ball alone (SPEC.md 130.10.11.3's bonanzaassets)
+# --selfcheck: the ball alone (SPEC.md 137.10.11.3's bonanzaassets)
 # =============================================================================
 
 def _check_ball(part, herc, results):
@@ -1060,7 +1060,7 @@ def _check_ball(part, herc, results):
     results.append(("%s frame bits only where the frame's own shift's mask is clear (%d stray)"
                     % (name, under), under == 0))
     # the silhouette is the disc, shift s is shift 0 moved s pixels right, and
-    # frame f decodes back to 130.3's frame at shift f & 3
+    # frame f decodes back to 137.3's frame at shift f & 3
     good = True
     for s in range(SHIFTS):
         for r in range(D):
@@ -1083,12 +1083,12 @@ def _check_ball(part, herc, results):
                     good = good and v == c
             for j in list(range(s)) + list(range(s + D, RB * 4)):
                 good = good and ((frames[o + (j >> 2)] >> (6 - 2 * (j & 3))) & 3) == 0
-    results.append(("%s frame f decodes back to 130.3's frame f at shift f & 3, every frame; %s"
+    results.append(("%s frame f decodes back to 137.3's frame f at shift f & 3, every frame; %s"
                     % (name, "the Hercules checker" if herc else "CGA 2-bit"), good))
 
 
 def _check_herc_ball_checker(part):
-    """SPEC.md 130.9 item 7, read off the part independently of the encoder:
+    """SPEC.md 137.9 item 7, read off the part independently of the encoder:
     each lit mid pixel (not 00, not 11) of frame f is 10 where the world
     (line + column) it lands on is even and 01 where odd, the world position
     reckoned both from the ball's (px, py) and from the byte it lands in (the
@@ -1130,11 +1130,11 @@ def _decode_pix(maskrow, frmrow):
 
 
 def _check_ball2(mat, part, results, tag=None):
-    """BZB2's own checks for one material (SPEC.md 130.11.17.2's bonanzaassets)"""
+    """BZB2's own checks for one material (SPEC.md 137.11.17.2's bonanzaassets)"""
     name = tag or "%s (%s)" % (BALL_FILES[mat], MAT_NAMES[mat])
     nsh = nshatter(mat)
     nst = nstretch(mat)
-    sbase = B2_POPOFF if mat == MAT_RUBBER else B2_SHAOFF   # (rubber's POP entries follow its stretch, 130.38)
+    sbase = B2_POPOFF if mat == MAT_RUBBER else B2_SHAOFF   # (rubber's POP entries follow its stretch, 137.38)
     hdr = struct.unpack_from("<HHHBBBBBB", part, 4)
     results.append(("%s header: BZB2, 64 frames, 16 rows, 5 bytes, material %d, %d squash, %d shatter, %d shadow "
                     "rows, %d stretch, %d bytes" % (name, mat, NSQ, nsh, SHD_ROWS, nst, B2_SIZE[mat]),
@@ -1236,7 +1236,7 @@ def _check_ball2(mat, part, results, tag=None):
 
 
 def _check_stretch(mat, part, results, name):
-    """the boost's STRETCH entry (SPEC.md 130.16.4.4, wave 6): at every shift
+    """the boost's STRETCH entry (SPEC.md 137.16.4.4, wave 6): at every shift
     and line parity the mask is the stretch's 12 x 16 ellipse, the frame
     decodes to stretch_frame() there, no frame bit lies under a kept pixel,
     the two parity copies are identical and the outer ring is black"""
@@ -1333,7 +1333,7 @@ def selfcheck():
     _check_ball2(MAT_GLASS, bytes(gl), sub, "glass, interior mask SOLID")
     results.append(("negative control: glass's interior mask made solid is caught", not all(g for _, g in sub)))
     sq = bytearray(a_files["BZBALS.BIN"])
-    sq[B2_SQOFF + 40] = (sq[B2_SQOFF + 40] & 0x3F) | 0x40     # (one copy, SPEC.md 130.38.10: a mask pixel
+    sq[B2_SQOFF + 40] = (sq[B2_SQOFF + 40] & 0x3F) | 0x40     # (one copy, SPEC.md 137.38.10: a mask pixel
                                                                 # made half-kept)
     sub = []
     _check_ball2(MAT_STEEL, bytes(sq), sub, "steel, a squash parity copy altered")
@@ -1363,7 +1363,7 @@ def selfcheck():
                     hit is not None and [w for w, g in sub if not g] == [w for w, _ in sub if "outer ring" in w]))
     nz = all(a_files[BALL_FILES[m]][14] == 0 for m in (MAT_STEEL, MAT_GLASS)) and a_files["BZBALR.BIN"][14] == NST
     results.append(("BZB2 +14: rubber's stretch count %d, steel's and glass's 0" % NST, nz))
-    # wave 9 (130.25.5): the stored form BZB3 and the guest's generator
+    # wave 9 (137.25.5): the stored form BZB3 and the guest's generator
     st3 = {m: build_ball3(m) for m in range(3)}
     results.append(("BZB3: the host model of bz_ballgen expands every stored part to build_ball2's, every byte",
                     all(model_ball3(st3[m]) == a_files[BALL_FILES[m]] for m in range(3))))
@@ -1385,7 +1385,7 @@ def selfcheck():
         results.append(("negative control: bz_ballgen with its mask table's byte step removed differs, every material",
                         all(bzballchk.run(broke, st3[m]) != a_files[BALL_FILES[m]] for m in range(3))))
         # ...and the ROUTINE handing back the ball's selector in ES (9f73af482's fix: the
-        # ES a later POP takes must not be a part's, 130.14.26 item 2)
+        # ES a later POP takes must not be a part's, 137.14.26 item 2)
         pr = {}
         bzballchk.run(bzballchk.assemble(patch=("    pop es\n    pop ax\n    ret", "    pop ax\n    pop ax\n    ret")),
                       st3[MAT_STEEL], probe=pr)
@@ -1405,7 +1405,7 @@ def selfcheck():
     _check_ball2(MAT_RUBBER, bytes(rs), sub, "rubber, one stretch frame pixel flipped")
     results.append(("negative control: one stretch frame pixel flipped against its mask is caught (at the stretch "
                     "check)", [w for w, g in sub if not g] == [w for w, _ in sub if " stretch:" in w]))
-    # wave 8R (130.22.8): the crystal material and the pad overlay
+    # wave 8R (137.22.8): the crystal material and the pad overlay
     c1 = crystal_tile_pixmap()
     c2 = crystal_tile_pixmap()
     ins = sum(1 for r in c1 for c in r if c is not None)
@@ -1447,7 +1447,7 @@ def selfcheck():
 
 
 # =============================================================================
-# wave 8R (SPEC.md 130.22.8): the pathway's LOOK - the CRYSTAL route material and
+# wave 8R (SPEC.md 137.22.8): the pathway's LOOK - the CRYSTAL route material and
 # the GLOWING PAD overlay.  PROVISIONAL, the owner's to refine; pure functions of
 # tile-local coordinates, so a course tool paints them wherever a tile lands.
 #
@@ -1457,13 +1457,13 @@ def selfcheck():
 # below takes (u, v) and needs no tile, origin or height.  Ink is a CGA colour
 # index: 0 black, 1 / 2 / 3 the palette's (palette 1: cyan, magenta, white;
 # palette 0: green, red, brown), or None (transparent, an overlay's).  The
-# Hercules gets them through htab() like every other pixel (130.11.3): 3 white,
+# Hercules gets them through htab() like every other pixel (137.11.3): 3 white,
 # 0 black, 1 and 2 the checker, so the LIT facets (3) and the dark edge (0) carry
 # the look there and the mid facets (1, 2) read as grey.
 # =============================================================================
 
 CRYSTAL = "crystal"
-PAD_POSES = 4                 # 0 OPEN (glowing), 1 DONE, 2 SILVER, 3 GOLD (SPEC.md 130.22.2)
+PAD_POSES = 4                 # 0 OPEN (glowing), 1 DONE, 2 SILVER, 3 GOLD (SPEC.md 137.22.2)
 PAD_POSE_NAMES = ("open", "done", "silver", "gold")
 TILE_W, TILE_H = 32, 16
 
@@ -1513,7 +1513,7 @@ def crystal_side_ink(face, k, j):
     the facets' glints (colour 2) every fourth column on 'sw', and a black
     'se' lit only at its seams, so on the Hercules the edge is a dark band.
     Both faces' glints stop at line 6 (the owner, 2026-11-16: the 'icicles'
-    on the left were long and the right's short), SPEC.md 130.22.8"""
+    on the left were long and the right's short), SPEC.md 137.22.8"""
     if face == "sw":
         if j == 0:
             return 2
@@ -1525,7 +1525,7 @@ def crystal_side_ink(face, k, j):
 
 def crystal_ink(wx, wy, x0, y0, z0=0):
     """crystal_top_ink as a picture-pixel function for the flat tile (wx, wy)
-    at height z0 UNITS (8 px a unit, SPEC.md 130.10.2 - a bbcourse Tile's z0 is
+    at height z0 UNITS (8 px a unit, SPEC.md 137.10.2 - a bbcourse Tile's z0 is
     HALF units, so pass t.z0 / 2), in a picture whose origin is x0 across and
     Y0 = y0 down, bbcourse's convention (picture y = the Y0 = 0 line + y0, as
     render() / _top_fn() / clock_face_geom() have it): ink(x, y) -> index or None"""
@@ -1581,7 +1581,7 @@ def pad_rows(pose):
 
 
 def bba_text(rows, frames=None, comment=None):
-    """rows of ink / None -> 130.23.2's text: '.' transparent, '0'..'3', one
+    """rows of ink / None -> 137.23.2's text: '.' transparent, '0'..'3', one
     line a pixel row, `#` comments; a `# frames K` line for an icon"""
     out = []
     if comment:
@@ -1612,7 +1612,7 @@ def _ground(g, x, y):
 
 def previews(out):
     """every material's roll frames as a sheet, and the look step's required
-    set (SPEC.md 130.11.9.1): each ball - roll, squash, shatter - and its
+    set (SPEC.md 137.11.9.1): each ball - roll, squash, shatter - and its
     shadow composited over a cyan tile, a white tile, a ramp's checker and a
     magenta face, on the CGA and (through the guest's translation) the
     Hercules"""

@@ -1,4 +1,4 @@
-"""bbedopts.py - every clause a course statement may take, as data, for the builder's inspector (SPEC.md 130.58.37)
+"""bbedopts.py - every clause a course statement may take, as data, for the builder's inspector (SPEC.md 137.58.37)
 
 The Bounce Bonanza course builder (tools/bbedit.py) shows a control for EVERY option a statement has, written or
 not: an optional clause the author has not typed is still a spinbox, a choice or a tick box, and setting it writes
@@ -30,7 +30,7 @@ DEDICATED = {
 
 
 def _ga_names(kind):
-    """the art a gate (KIND B.GT_KG) or a bridge (B.GT_KB) may name (`art <name>`: SPEC.md 130.41.12): the .bba
+    """the art a gate (KIND B.GT_KG) or a bridge (B.GT_KB) may name (`art <name>`: SPEC.md 137.41.12): the .bba
     files there drawn for it"""
     out = []
     try:
@@ -67,7 +67,7 @@ def O(w, t, label, hint="", **kw):
     sides guard's `side` edges: any of +x -x +y -y (none ticked: the clause out, the floor's open edges)
     bare  one of `vals` written alone (gap's sw | se)
     mode  one of `modes`: (value, label, clauses [(word, default)], words it takes out)
-    piece which piece of each cell the statement lays (SPEC.md 130.24.4, 130.58.53): "half <side>", "quarter
+    piece which piece of each cell the statement lays (SPEC.md 137.24.4, 137.58.53): "half <side>", "quarter
           <edge>" (PIECES), or blank: the whole cell - written right after the statement word
     `at` where a new clause goes: None the end (before a trailing `hidden`), an index, or (word, k) k past that
     word; `need` a test of the statement's tokens for when the row applies; `req` no way to clear it; `skip`
@@ -81,9 +81,9 @@ def O(w, t, label, hint="", **kw):
 
 
 CHANNELS = tuple(B.GT_CHANNELS)
-BASE_DEPTHS = tuple("%g" % (q / 4.0) for q in range(1, 13))     # a see-saw's `base <units>`: 0.25 - 3 (130.42.12)
+BASE_DEPTHS = tuple("%g" % (q / 4.0) for q in range(1, 13))     # a see-saw's `base <units>`: 0.25 - 3 (137.42.12)
 DIRS4 = ("+x", "-x", "+y", "-y")
-# the pieces a statement may lay of each cell (SPEC.md 130.24.3 - 130.24.4): halves named by the side of the SCREEN
+# the pieces a statement may lay of each cell (SPEC.md 137.24.3 - 137.24.4): halves named by the side of the SCREEN
 # they are on, quarters by the one cell edge they own
 HALVES = ("up", "down", "left", "right")
 QUARTERS = ("n", "e", "s", "w")
@@ -95,7 +95,7 @@ def _no_box(t):
 
 
 def _piece_rows():
-    """the Piece row and the box's chamfer: what floor, wall, goal and hole share (SPEC.md 130.58.53)"""
+    """the Piece row and the box's chamfer: what floor, wall, goal and hole share (SPEC.md 137.58.53)"""
     return [
         O("half", "piece", "Piece", "the whole cell, or one half or quarter of each cell of its shape (the other "
           "part left as it was: empty, or what an earlier statement laid)", d="half left", need=_no_box),
@@ -141,13 +141,13 @@ OPTIONS = {
         O("rest", "choice", "At rest", "the end down while nothing tips it (- the -x / -y end)",
           vals=("-", "+"), blank="-", at=("pivot", 2)),
         O("base", "choice", "Column under it", "a solid column under the plate, to the ground or that many "
-          "units deep; its top clear of the plate in every pose (SPEC.md 130.42.12)",
+          "units deep; its top clear of the plate in every pose (SPEC.md 137.42.12)",
           vals=("ground",) + BASE_DEPTHS, blank="none"),
     ],
     ("archway", None): [
         O("along", "choice", "Runs along", req=True, vals=("x", "y")),
         O("under", "num", "Clearance", "units over the floor, 2 - 4 (blank 2)", lo=2, hi=4, inc=0.5, d="2.5"),
-        O("top", "flag", "Walkable top: the ball lands and rolls on the lintel and the legs (130.12.3.7)"),
+        O("top", "flag", "Walkable top: the ball lands and rolls on the lintel and the legs (137.12.3.7)"),
     ],
     # -- game --------------------------------------------------------------------------------------------------
     ("cup", None): [
@@ -179,7 +179,7 @@ OPTIONS = {
         O("branch", "name", "Branch", "1 - 5 of A-Z 0-9; blank: the main route", pattern=r"^[A-Z0-9]{1,5}$",
           d="B"),
     ],
-    # -- movers (SPEC.md 130.12.3.3, 130.43) -----------------------------------------------------------------
+    # -- movers (SPEC.md 137.12.3.3, 137.43) -----------------------------------------------------------------
     ("prop", "windmill"): [
         O("period", "choice", "Turns every", "steps, a blade's turn", vals=tuple(map(str, B.WM_PERIODS)),
           blank="64"),
@@ -519,7 +519,7 @@ def _fix(t, o):
 
 
 def statement_error(code):
-    """the compiler's refusal of one statement on its own (SPEC.md 130's grammar), or None: what the tests hold a
+    """the compiler's refusal of one statement on its own (SPEC.md 137's grammar), or None: what the tests hold a
     row's default to"""
     try:
         B._parse_text(code)

@@ -45,7 +45,7 @@ wall  rect  32  16  34  18  flat 15   # the north-east tower
 wall  rect  18  30  20  32  flat 14   # the south-west tower (low: it stands in front of the battlement)
 wall  rect  24  19  25  20  flat 12.5   # a merlon: the walk is one lane here, the flag's
 wall  rect  18  20  19  21  flat 12.5   # a merlon: the flag's lane is the inner one, beside the parapet
-wall  rect  20  21  21  23  flat 12.5   # a buttress: a spiked cell may not stand beside a LOWER floor (SPEC.md 130.38.4)
+wall  rect  20  21  21  23  flat 12.5   # a buttress: a spiked cell may not stand beside a LOWER floor (SPEC.md 137.38.4)
 floor rect  30  24  32  25  flat 10   # the door's sill and the keep's passage
 guard rect  31  24  32  25 side -y +y
 wall  rect  30  23  31  24  flat 12   # the door's jamb

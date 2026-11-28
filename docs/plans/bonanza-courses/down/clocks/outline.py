@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """a fast PROXY for what a frame costs the occluder masks (no compile): each frame's geometry pixels on a
 block-aligned tile, its width, the blocks it touches and how many of them it covers only PARTLY (a partly
-covered block is the one that needs an occluder mask, SPEC.md 130.15.5).  crystal and Little Hop's frogs for
+covered block is the one that needs an occluder mask, SPEC.md 137.15.5).  crystal and Little Hop's frogs for
 scale.    python3 docs/plans/bonanza-courses/down/clocks/outline.py"""
 import os
 import sys

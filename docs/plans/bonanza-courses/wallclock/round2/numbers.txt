@@ -48,30 +48,30 @@ MILL as shipped: picture part 58838 B RAM, 23095 B LZ4, 1175 blocks (MEASURED)
 
 == COSTS: each piece compiled into its course as an `art` statement, then its digits' new pose blocks parked in the void (MEASURED, picture part) ==
   E1 station clock (2 col, sw)           art: +19 blocks, +304 B RAM, +228 B LZ4
-    level 5x7, black digits                                      poses +10 blocks, +160 B RAM, +128 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
-    level 5x7, white digits                                      poses +10 blocks, +160 B RAM, +143 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
-    stepped, black digits                                        poses +28 blocks, +448 B RAM, +257 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
-    stepped, white digits                                        poses +28 blocks, +448 B RAM, +250 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
-    italic, black digits                                         poses +10 blocks, +160 B RAM, +128 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
-    italic, white digits                                         poses +10 blocks, +160 B RAM, +131 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+    level 5x7, black digits                                      poses +10 blocks, +160 B RAM, +128 B LZ4; + lane records/maps 108 B (PREDICTED, 137.12.3.1)
+    level 5x7, white digits                                      poses +10 blocks, +160 B RAM, +143 B LZ4; + lane records/maps 108 B (PREDICTED, 137.12.3.1)
+    stepped, black digits                                        poses +28 blocks, +448 B RAM, +257 B LZ4; + lane records/maps 130 B (PREDICTED, 137.12.3.1)
+    stepped, white digits                                        poses +28 blocks, +448 B RAM, +250 B LZ4; + lane records/maps 130 B (PREDICTED, 137.12.3.1)
+    italic, black digits                                         poses +10 blocks, +160 B RAM, +128 B LZ4; + lane records/maps 108 B (PREDICTED, 137.12.3.1)
+    italic, white digits                                         poses +10 blocks, +160 B RAM, +131 B LZ4; + lane records/maps 108 B (PREDICTED, 137.12.3.1)
   E2 scoreboard (3 col, sw)              art: +18 blocks, +288 B RAM, +223 B LZ4
-    level 5x7, white digits                                      poses +10 blocks, +160 B RAM, +142 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
-    stepped, white digits                                        poses +28 blocks, +448 B RAM, +246 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
-    italic, white digits                                         poses +10 blocks, +160 B RAM, +132 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+    level 5x7, white digits                                      poses +10 blocks, +160 B RAM, +142 B LZ4; + lane records/maps 108 B (PREDICTED, 137.12.3.1)
+    stepped, white digits                                        poses +28 blocks, +448 B RAM, +246 B LZ4; + lane records/maps 130 B (PREDICTED, 137.12.3.1)
+    italic, white digits                                         poses +10 blocks, +160 B RAM, +132 B LZ4; + lane records/maps 108 B (PREDICTED, 137.12.3.1)
   E5 rail banner (4 col, 2 units, sw)    art: +9 blocks, +144 B RAM, +128 B LZ4
-    stepped, black digits                                        poses +28 blocks, +448 B RAM, +253 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
-    stepped, white digits                                        poses +28 blocks, +448 B RAM, +256 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
+    stepped, black digits                                        poses +28 blocks, +448 B RAM, +253 B LZ4; + lane records/maps 130 B (PREDICTED, 137.12.3.1)
+    stepped, white digits                                        poses +28 blocks, +448 B RAM, +256 B LZ4; + lane records/maps 130 B (PREDICTED, 137.12.3.1)
   E6 sundial (floor)                     art: +23 blocks, +368 B RAM, +281 B LZ4
-    level 5x7, black digits                                      poses +20 blocks, +320 B RAM, +234 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
-    level 5x7, white digits                                      poses +20 blocks, +320 B RAM, +242 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+    level 5x7, black digits                                      poses +20 blocks, +320 B RAM, +234 B LZ4; + lane records/maps 108 B (PREDICTED, 137.12.3.1)
+    level 5x7, white digits                                      poses +20 blocks, +320 B RAM, +242 B LZ4; + lane records/maps 108 B (PREDICTED, 137.12.3.1)
   E3 scoreboard (3 col, se)              art: +19 blocks, +304 B RAM, +203 B LZ4
-    level 5x7, white digits                                      poses +20 blocks, +320 B RAM, +185 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
-    stepped, white digits                                        poses +30 blocks, +480 B RAM, +239 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
-    italic, white digits                                         poses +20 blocks, +320 B RAM, +180 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+    level 5x7, white digits                                      poses +20 blocks, +320 B RAM, +185 B LZ4; + lane records/maps 108 B (PREDICTED, 137.12.3.1)
+    stepped, white digits                                        poses +30 blocks, +480 B RAM, +239 B LZ4; + lane records/maps 130 B (PREDICTED, 137.12.3.1)
+    italic, white digits                                         poses +20 blocks, +320 B RAM, +180 B LZ4; + lane records/maps 108 B (PREDICTED, 137.12.3.1)
   E4 Delft panel (4 col, sw)             art: +40 blocks, +640 B RAM, +459 B LZ4
-    level 5x7, black digits                                      poses +20 blocks, +320 B RAM, +178 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
-    stepped, black digits                                        poses +28 blocks, +448 B RAM, +252 B LZ4; + lane records/maps 130 B (PREDICTED, 130.12.3.1)
-    italic, black digits                                         poses +20 blocks, +320 B RAM, +182 B LZ4; + lane records/maps 108 B (PREDICTED, 130.12.3.1)
+    level 5x7, black digits                                      poses +20 blocks, +320 B RAM, +178 B LZ4; + lane records/maps 108 B (PREDICTED, 137.12.3.1)
+    stepped, black digits                                        poses +28 blocks, +448 B RAM, +252 B LZ4; + lane records/maps 130 B (PREDICTED, 137.12.3.1)
+    italic, black digits                                         poses +20 blocks, +320 B RAM, +182 B LZ4; + lane records/maps 108 B (PREDICTED, 137.12.3.1)
 
 == the PER-FACING FONT alone: its 10 digits' blocks on a plain field, laid in FIRST's void (MEASURED) ==
   sw digits, black on cyan   : 10 blocks, +160 B RAM, +117 B LZ4 in FIRST's part; the 10 alone LZ4 129 B

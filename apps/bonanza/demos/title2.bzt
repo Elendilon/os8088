@@ -1,4 +1,4 @@
-# Bounce Bonanza's TITLE DEMO 2 (SPEC.md 130.23.3), written by `python3 tools/bbcourse.py tauthor`
+# Bounce Bonanza's TITLE DEMO 2 (SPEC.md 137.23.3), written by `python3 tools/bbcourse.py tauthor`
 # from bbcourse.TITLE_AUTHOR[2] and the model: the steel ball stunned on LL, sprung from LL's edge short of the gap into the pit, respawned on LL (the side it fell from), down the step into the brown tube and down the ramp off the bottom (the owner, 2026-11-16).  1 falls, 1 tube rides; the build
 # replays it from its start and checks every `expect`.
 tdemo   2

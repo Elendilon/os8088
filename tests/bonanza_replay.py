@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""BONANZA: a play recorded, and replayed on the guest and on the host model, the same run (SPEC.md 130.11.12, 130.11.17.2).
+"""BONANZA: a play recorded, and replayed on the guest and on the host model, the same run (SPEC.md 137.11.12, 137.11.17.2).
 
     make bonanzadisk && python3 tests/bonanza_replay.py [--leg record|replay|inject|all]
     python3 tests/bonanza_replay.py --red hopbit|framekeys|propclock|noident     (a red arm, below)
     python3 tests/bonanza_replay.py --check                     (the host half only)
 
 Physics is a function of the step count and the key byte alone, so a play is
-its course, its ball and a byte a step (130.11.12.1): the package RECORDS
+its course, its ball and a byte a step (137.11.12.1): the package RECORDS
 every step's key byte into bz_rlog (BZR1, run-length pairs), and R on the
 desktop REPLAYS it.  This row holds the recorder, the player and
 bbcourse.Physics.run_log to one another:
 
-  Every leg runs on a TEST course of the BZDEV=1 build (SPEC.md 130.54;
+  Every leg runs on a TEST course of the BZDEV=1 build (SPEC.md 137.54;
   docs/plans/BOUNCE-BONANZA-SOAK.md's TPLAY table) - TPLY for the record,
   inject, mouse and play legs (its H, F, the gap and G are TRIAL's turned a
   quarter: TRIAL's +wx is TPLY's +wy, so Left and Right swap in every key
@@ -21,12 +21,12 @@ bbcourse.Physics.run_log to one another:
   without this row noticing.
 
   1  RECORD (the CGA): TPLY chosen for F's free play ([bz_crsel] POKED:
-     there is no course key since 2026-11-19, SPEC.md 130.11.5.4; the play
+     there is no course key since 2026-11-19, SPEC.md 137.11.5.4; the play
      rolls TPLY's own ball), F, then REAL keys held and released through MartyPC's debug server
      at chosen frames for about 600 frames - every arrow, Space (a Hop),
      Left Shift (Grip), the chord off H's lip (3.5 tiles along +wy from the
      start) and the bounce over the gap - and Esc.  At every frame's bz_presented the guest's state is read (the
-     eight values and 130.11.8.1's).  Then bz_rlog is read out: its runs,
+     eight values and 137.11.8.1's).  Then bz_rlog is read out: its runs,
      decoded, run through bbcourse.Physics from the course's start must
      equal the guest's state at EVERY one of those frames and at the play's
      end; and the log must be COMPLETE - `BZR1`, the course and the ball the
@@ -45,7 +45,7 @@ bbcourse.Physics.run_log to one another:
      (those events, at those steps), poked into bz_rlog and replayed with R,
      every frame against the model.
 
-  4  MILL (SPEC.md 130.12.8, 130.12.13.2), on TMIL: every log carries its course's
+  4  MILL (SPEC.md 137.12.8, 137.12.13.2), on TMIL: every log carries its course's
      IDENTITY at +14 (R.make_log).  RECORD on the CGA: Enter on TMIL, no key
      for the steps that make the autopilot's first approach to its windmill
      a KNOCK-BACK (found on the model), then REAL keys - the arrows the
@@ -73,12 +73,12 @@ and PASSES only if its leg FAILS - at its own check:
   noident    the identity check taken out (the MILL leg): the log with
              another identity PLAYS - refuse: fails
 
-WAVE 4 (SPEC.md 130.14.8, 130.14.14): a MOUSE play on TPLY, on the CGA - T to
+WAVE 4 (SPEC.md 137.14.8, 137.14.14): a MOUSE play on TPLY, on the CGA - T to
 MOUSE, the pointer driven by the row (tools/os88mouse.py's absolute `to`, closed
 on the kernel's own mouse_x) through MOUSE_SCRIPT's offsets round the anchor on
 both axes, each at the MIDDLE of a cap's band so the hysteresis cannot decide
 it: at every checked bz_presented the frame's tilt byte (bz_tilt) equals
-130.14.8.1's mapping of the pointer read at that frame's bz_t0, against the
+137.14.8.1's mapping of the pointer read at that frame's bz_t0, against the
 anchor and the extent the guest read in the bracket (bz_tax, bz_tay); a frame
 after a respawn re-anchored on the pointer (clamped); the log a TILT log whose
 model run equals the play's end; replayed on the Hercules equal to the model at
@@ -87,7 +87,7 @@ keyboard play of the same route is bonanzaperf's to report, not this row's.
   tiltmap    the dead zone left out of the mapping (bz_tinit's DZ 0): the caps
              the row expects differ - `tilt map`
 
-WAVE 6 (SPEC.md 130.16.14): THE PLAYGROUND'S APRON (TPLY's), a real-key play RECORDED on the
+WAVE 6 (SPEC.md 137.16.14): THE PLAYGROUND'S APRON (TPLY's), a real-key play RECORDED on the
 CGA and REPLAYED on the Hercules (leg `play`).  TPLY selected, F,
 then keys decided at each bz_presented off the guest's own state (a model
 poked from it predicts what the next steps do - the keys are still the
@@ -102,9 +102,9 @@ at every frame and at its end; the model's run of it BOOSTS (nboost >= 1)
 and holds Grip on a strip cell; the Hercules' replay of the CGA's log is
 the model's at every frame, its end the play's.  The INJECT leg's rubber
 log now boosts at its Hop's contact (rubber's Space there since wave 6,
-SPEC.md 130.11.7.2 as amended).  No new red arm: `hopbit` covers Space's bit.
+SPEC.md 137.11.7.2 as amended).  No new red arm: `hopbit` covers Space's bit.
 
-WAVE 6B (SPEC.md 130.17.4, 130.17.10): the apron play's boost is taken
+WAVE 6B (SPEC.md 137.17.4, 137.17.10): the apron play's boost is taken
 by a MID-FLIGHT second press (Space again when the model poked from the
 guest says the first contact is BOOST_AHEAD, 12, steps off or nearer: it
 arms the flight), and the `mouse` leg adds a MOUSE play on TPLY's apron
@@ -180,7 +180,7 @@ def open_pkg(ui, tag, sym):
 
 
 def select(g, k):
-    """course K for F's free play: [bz_crsel] POKED (no course key since 2026-11-19, SPEC.md 130.11.5.4)"""
+    """course K for F's free play: [bz_crsel] POKED (no course key since 2026-11-19, SPEC.md 137.11.5.4)"""
     g.m.pause()
     g.putb("bz_crsel", k)
     g.m.run()
@@ -203,7 +203,7 @@ def record(g):
             g.check_base()
             if g.b("bz_mode") != 0 or g.b("bz_crs") != crs or g.b("bz_mat") != mat:
                 fails.append("record: F launched mode %d on course %d with ball %d, not a play of TPLY with its "
-                             "own ball %d (SPEC.md 130.11.5.4)" % (g.b("bz_mode"), g.b("bz_crs"), g.b("bz_mat"), mat))
+                             "own ball %d (SPEC.md 137.11.5.4)" % (g.b("bz_mode"), g.b("bz_crs"), g.b("bz_mat"), mat))
                 break
         frames += 1
         st, s2, ext = rd.read()
@@ -279,7 +279,7 @@ def replay(g, log, model_of, end=None, what="replay"):
     rd = P.Reader(g)
     _k, _m, kt, fl = BB.decode_log_t(log)
     keys = [k_ for k_, _t in kt]
-    tilts = [t_ for _k2, t_ in kt] if fl & BB.RL_TILT else None   # a TILT log's (130.14.8.3)
+    tilts = [t_ for _k2, t_ in kt] if fl & BB.RL_TILT else None   # a TILT log's (137.14.8.3)
     fails = []
     m.pause()
     g.write_log(log)
@@ -380,9 +380,9 @@ def injects():
     return out
 
 
-# ---- the apron (TPLY's, the PLAYGROUND's; SPEC.md 130.16.14 bonanzareplay) -------------
+# ---- the apron (TPLY's, the PLAYGROUND's; SPEC.md 137.16.14 bonanzareplay) -------------
 PLAY_MAX = 900                      # frames, at most: the Hop, its boost, the run to the lane and the strip
-BOOST_AHEAD = 12                    # wave 6b (SPEC.md 130.17.10): the boost's second press about this many steps
+BOOST_AHEAD = 12                    # wave 6b (SPEC.md 137.17.10): the boost's second press about this many steps
                                     # before the model's first contact - mid-flight, where it ARMS the flight
 KEYNAME = {K.K_L: "ArrowLeft", K.K_R: "ArrowRight", K.K_U: "ArrowUp", K.K_D: "ArrowDown", K.K_HOP: "Space",
            K.K_GRIP: "ShiftLeft"}
@@ -595,7 +595,7 @@ def judge_play(log):
     return fails, (p.nhop, p.nboost, grip, p.nfall)
 
 
-# ---- MILL (SPEC.md 130.12.8, 130.12.13.2) ----------------------------------------
+# ---- MILL (SPEC.md 137.12.8, 137.12.13.2) ----------------------------------------
 MILL_FRAMES = 700                   # about 640 CGA steps: past the knock, the tunnel, the green and the chute
 MILL_MAX = 1400                     # ...and on, while no plain tube's transit has been seen and left (a ball
                                     # the closed loop leaves ricocheting in the bumper cluster: the model's
@@ -715,7 +715,7 @@ def record_mill(g, delay):
 
 
 def refused(g, log):
-    """SPEC.md 130.12.8: the log with its +14 identity changed is REFUSED - R
+    """SPEC.md 137.12.8: the log with its +14 identity changed is REFUSED - R
     plays nothing ([bz_err] 3, the bracket never up, bz_nstep untouched) and the
     face says "Another course's log".  -> failures"""
     m = g.m
@@ -724,7 +724,7 @@ def refused(g, log):
     m.pause()
     g.write_log(bytes(bad))
     n0 = g.d("bz_nstep")
-    fl = R.FaceLines(g, extra=(g.a("bz_t0"),))  # (bz_line is in the shell part, SPEC.md 130.19.2)
+    fl = R.FaceLines(g, extra=(g.a("bz_t0"),))  # (bz_line is in the shell part, SPEC.md 137.19.2)
     fl.arm()
     m.run()
     g.key("KeyR")
@@ -748,7 +748,7 @@ def refused(g, log):
     if played or g.b("bz_err") != 3 or g.d("bz_nstep") != n0 or not found:
         fails.append("refuse: a log whose identity is not TMIL's PLAYED, or was not refused as another course's "
                      "log (a play reached bz_t0: %s, [bz_err] %d, bz_nstep %d -> %d, the face's line %r; SPEC.md "
-                     "130.12.8)" % (played, g.b("bz_err"), n0, g.d("bz_nstep"), found))
+                     "137.12.8)" % (played, g.b("bz_err"), n0, g.d("bz_nstep"), found))
     print("%s refuse: the TMIL log with its identity %04Xh changed to %04Xh: %s" % (
         g.tag, BB.log_ident(log), BB.log_ident(bytes(bad)), "refused, the face says %r" % found if not fails
         else "PLAYED or not refused"), flush=True)
@@ -767,12 +767,12 @@ def judge_mill(log, seen, end):
            "a kick": any(e[0] == "kick" for e in ev),
            "a tube's capture": any(e[0] == "capture" and recs[e[2]]["kind"] == BB.PK_TUBE for e in ev)}
     if not f:
-        f += ["record MILL: the play went through no %s (SPEC.md 130.12.13.2)" % w for w, ok in has.items() if not ok]
+        f += ["record MILL: the play went through no %s (SPEC.md 137.12.13.2)" % w for w, ok in has.items() if not ok]
     f = [x.replace("record:", "record MILL:", 1) for x in f]
     return f, ev
 
 
-# ---- WAVE 4 (SPEC.md 130.14.8, 130.14.14): a MOUSE play on TPLY ------------------
+# ---- WAVE 4 (SPEC.md 137.14.8, 137.14.14): a MOUSE play on TPLY ------------------
 BZT = {"anc": 0, "lo": 2, "hi": 4, "h": 6, "cap": 8, "neg": 9}     # bzgame.inc BZT_*
 # the stick's targets, (x cap, y cap, x sign, y sign): every cap at a MIDPOINT
 # between its boundaries, so no hysteresis band can decide it
@@ -788,7 +788,7 @@ def axis(g, name):
 
 
 def cap_of(d, E, nodz=False):
-    """130.14.8.1's mapping without the hysteresis, |d| at a midpoint: the cap"""
+    """137.14.8.1's mapping without the hysteresis, |d| at a midpoint: the cap"""
     full = E // 4
     dz = 0 if nodz else full // 4
     r = full - dz
@@ -867,7 +867,7 @@ def record_mouse(g, ui):
             dx, dy = ptr[0] - ax["anc"], ptr[1] - ay["anc"]
             want = cap_of(dx, ax["E"]) << 4 | cap_of(dy, ay["E"])
             if got != want:
-                fails.append("tilt map frame %d: the pointer %s, the anchor %s: the tilt byte %02Xh, 130.14.8.1's "
+                fails.append("tilt map frame %d: the pointer %s, the anchor %s: the tilt byte %02Xh, 137.14.8.1's "
                              "mapping %02Xh" % (g.w("bz_frames"), ptr, (ax["anc"], ay["anc"]), got, want))
         m.bp_exec()
         m.run()
@@ -894,7 +894,7 @@ def record_mouse(g, ui):
             fails.append("the mouse play's end %s is not the model's run off its TILT log %s" % (
                 P.show(end[0]), P.show(p.state())))
     caps = sorted(set(t_ for _k, t_ in BB.decode_log_t(log)[2])) if log[6] & BB.RL_TILT else []
-    print("%s mouse play on TPLY: %d frames checked against 130.14.8.1's mapping, a TILT log of %d runs and %d steps "
+    print("%s mouse play on TPLY: %d frames checked against 137.14.8.1's mapping, a TILT log of %d runs and %d steps "
           "(%d distinct tilt bytes); the model run off it equals the play's end: %s; the anchor at %s" % (
               g.tag, seen, struct.unpack_from("<H", log, 12)[0], struct.unpack_from("<I", log, 8)[0], len(caps),
               "yes" if not fails else "NO", (axis(g, "bz_tax")["anc"], axis(g, "bz_tay")["anc"])), flush=True)
@@ -902,7 +902,7 @@ def record_mouse(g, ui):
 
 
 def record_mouse_boost(g, ui):
-    """WAVE 6B (SPEC.md 130.17.4.3, 130.17.10): the left button under T MOUSE
+    """WAVE 6B (SPEC.md 137.17.4.3, 137.17.10): the left button under T MOUSE
     is the key byte's Space bit, so a mid-flight second CLICK arms the boost.
     T MOUSE, TPLY selected, the pointer at the window's centre (the
     anchor: caps 0, the ball rests on the apron), Enter; at bz_presented the
@@ -1012,7 +1012,7 @@ def run_all(legs, apps=None, src=None):
         if delay is None:
             fails.append("record MILL: no delay makes the autopilot's first approach a knock-back (the model)")
             return fails
-    for tag in ("cga", "herc", "vga"):         # (the VGA, SPEC.md 130.46: the CGA's logs replayed there too)
+    for tag in ("cga", "herc", "vga"):         # (the VGA, SPEC.md 137.46: the CGA's logs replayed there too)
         if tag != "cga" and "replay" not in legs and "inject" not in legs and "mill" not in legs \
                 and "mouse" not in legs and "play" not in legs:
             break
@@ -1133,7 +1133,7 @@ REDS = {
                    "    mov bl, [bz_keys]           ; PLAY: the frame's key byte and tilt byte\n"
                    "    mov byte [bz_tby], BZ_TILT_KEYS ; RED framekeys: not a step's\n"
                    "    jmp .key\n")],
-    # wave 3 (SPEC.md 130.12.13.2).  A windmill's gate judged on the FRAME count, not the step's
+    # wave 3 (SPEC.md 137.12.13.2).  A windmill's gate judged on the FRAME count, not the step's
     # n: the play depends on the display - the model run off its log parts at the gate
     "propclock": [("fam/rotor.asm", "    call bz_lrecsi\n    mov ax, [bz_nstep]\n    add ax, [es:si + BZP_SEED]\n"
                    "    and al, [es:si + BZP_MASK]\n    cmp al, [es:si + BZP_TC0]\n",
@@ -1142,7 +1142,7 @@ REDS = {
     # the identity check taken out: another course's log plays
     "noident": [("bonanza.asm", "    cmp ax, [bz_rlog + BZR_ID]\n    jne .drop\n",
                  "    cmp ax, [bz_rlog + BZR_ID]\n    nop                         ; RED noident\n")],
-    # wave 4 (SPEC.md 130.14.14): the tilt stick's dead zone left out of the mapping
+    # wave 4 (SPEC.md 137.14.14): the tilt stick's dead zone left out of the mapping
     "tiltmap": [("bzgame.inc", "    mov cx, ax\n    shr cx, 1\n    shr cx, 1                   ; CX = DZ\n",
                  "    xor cx, cx                  ; RED tiltmap: no dead zone\n")],
 }
@@ -1159,7 +1159,7 @@ def main():
     ap.add_argument("--check", action="store_true",
                     help="the host half only: the inject logs proved on the model, every red arm assembled")
     a = ap.parse_args()
-    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
+    R.dev()                             # the BZDEV=1 build (SPEC.md 137.26.6.1)
     if a.check:
         bad = 0
         for name, k, mat, keys, what, ok in injects():

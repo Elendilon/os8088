@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""BONANZA: nothing is left behind, and a held key is one press (SPEC.md 130.10.6.2, 130.11.11.2, 130.11.17.2).
+"""BONANZA: nothing is left behind, and a held key is one press (SPEC.md 137.10.6.2, 137.11.11.2, 137.11.17.2).
 
     make bonanzadisk && python3 tests/bonanza_exit.py [--adapter cga|herc|both] [--no-keys]
     python3 tests/bonanza_exit.py --red NAME                    (a red arm, below)
     python3 tests/bonanza_exit.py --check            (the host half: the red arms assemble, the test courses
                                                       carry what each leg and each red arm is aimed at)
 
-ON THE TEST COURSES (SPEC.md 130.54, docs/plans/BOUNCE-BONANZA-SOAK.md phase 3): ONE BOOT A CARD, and
+ON THE TEST COURSES (SPEC.md 137.54, docs/plans/BOUNCE-BONANZA-SOAK.md phase 3): ONE BOOT A CARD, and
 every leg on a course built for it, found by NAME - TQUIK (the goal 165 autopilot steps from the start, a
 KEEP tube off the route, `palette 0`), TCUP (the cup, steel, the default palette) and BENCH (B's own) -
-never on a prototype course.  The balls are HELD in the resident bundle (130.25.5.2), so one ball's pass
+never on a prototype course.  The balls are HELD in the resident bundle (137.25.5.2), so one ball's pass
 is the test: there is no loop over the materials any more.
 
 A launch fetches course K's lazy, compressed part (row K) - and a two-part course its world part too
-(130.30.5) - and holds them for the bracket's whole life, so they stay PINNED and every way out must drop
+(137.30.5) - and holds them for the bracket's whole life, so they stay PINNED and every way out must drop
 them.  This row takes every way out, on every card:
 
     Esc, F, Alt+Enter    a play of TQUIK (F, [bz_crs] poked at bz_launch), left by that key
@@ -28,7 +28,7 @@ them.  This row takes every way out, on every card:
                          poked to BZ_BENCH less BENCH_TAIL once the bracket is up (the end is the same
                          compare at frame 1,200; nothing here needs the 1,200 frames before it)
     the world part       every TWO-PART course of the build (the tool's compile), F then Esc: its ONE
-                         part fetched, its world part a segment of it, and dropped (130.30.5).  NO TEST COURSE IS TWO PARTS yet
+                         part fetched, its world part a segment of it, and dropped (137.30.5).  NO TEST COURSE IS TWO PARTS yet
                          (a two-part picture is over 65,024 bytes), so this is the PLAYGROUND today - by
                          the build's list, never by name: when it leaves, the leg says it ran on none
 
@@ -48,8 +48,8 @@ and asserts, against what was read on the desktop BEFORE that launch:
      course's own ball (a replay's the log's), and the claims the desktop's less the shell plus the
      course's part(s) and the arena.
 
-THE DESKTOP KEYS (130.11.11.2): T (HANDLERS: C, the camera mode, went
-with TRICKLE, 130.46.12, and M and N on 2026-11-19, 130.11.5.4) - counted by
+THE DESKTOP KEYS (137.11.11.2): T (HANDLERS: C, the camera mode, went
+with TRICKLE, 137.46.12, and M and N on 2026-11-19, 137.11.5.4) - counted by
 a logged breakpoint on its handler (bz_tkey), since a two-way toggle would
 hide an odd count - HELD for 1.5 s (MartyPC's keyboard
 repeats after 0.5 s, ten times a second) it advances EXACTLY ONCE; pressed,
@@ -58,16 +58,16 @@ released for 0.2 s and pressed again it advances TWICE.
 It reports, for each launch, the floppy controller's reads from the key to the
 bracket (MartyPC's own counter, m.disk(): no guest instrument).  A refused
 fetch is not driven (it needs a heap too short at one moment and not the
-next, SPEC.md 130.10.11.3); the review reads that path.
+next, SPEC.md 137.10.11.3); the review reads that path.
 
-WAVE 4 (SPEC.md 130.14.14): a launch fetches only the course (the balls are held, 130.25.5.2); the part
+WAVE 4 (SPEC.md 137.14.14): a launch fetches only the course (the balls are held, 137.25.5.2); the part
 rows are BZ_NCRS + the world parts + BZ_NDEMO + the shell and the rows after it (no ball rows, no sound
-rows, 130.50).  Then, last (it closes the window): V's fetch and drop (ROLL's SHIPPED demo, [bz_vk] poked
+rows, 137.50).  Then, last (it closes the window): V's fetch and drop (ROLL's SHIPPED demo, [bz_vk] poked
 to its row - the shipped demos are the shipped courses' alone), D's end (a TQUIK log made from the model's
 autopilot play, bbcourse.encode_log), W through the Save dialog, L through the Open dialog and the
 DOUBLE-CLICK of the saved .BZR (a new instance): every row as before and the claims as before after each.
 
-WAVE 5B (SPEC.md 130.15.4.5, 130.15.13): THE CLAIM LEG.  A course part is
+WAVE 5B (SPEC.md 137.15.4.5, 137.15.13): THE CLAIM LEG.  A course part is
 fetched in its STORED form and expanded in place by bz_cexp; between that
 (and bz_hxlat on the Hercules) and OSAPI_FSX_RUN nothing writes it, and inside
 the bracket the lanes' writer does.  So EVERY launch the row makes - and one cheap launch (F, then Esc)
@@ -82,7 +82,7 @@ its BZC2 section.  The full run must have compared EVERY course K of
 BZ_COURSES (on the CGA and the Hercules: the VGA converts its art in place).
 V opens no bracket and is checked as before.
 
-WAVE 6 (SPEC.md 130.16.6, 130.16.8, 130.16.14): THE PALETTE, once a card: a launch of TQUIK (`palette 0`,
+WAVE 6 (SPEC.md 137.16.6, 137.16.8, 137.16.14): THE PALETTE, once a card: a launch of TQUIK (`palette 0`,
 10h) and one of TCUP (the default 30h), each stopped at the kernel's fsx_run and then at the first of
 bz_vinit.vpal (bz_vinit's labelled `out` to 3D9h, resolved through the package's own symbols) and
 bz_presented:
@@ -168,10 +168,10 @@ class Q(object):
 
 
 def ndemo():
-    """the shipped demos, one part each after the courses' (bzcourse.inc's BZ_NDEMO, SPEC.md 130.14.7.4)"""
+    """the shipped demos, one part each after the courses' (bzcourse.inc's BZ_NDEMO, SPEC.md 137.14.7.4)"""
     import re
     inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
-    if "%macro BZ_CRS_COUNTS" in inc:   # SPEC.md 130.58.36: BZ_CRS_MAX demo rows, the list's first
+    if "%macro BZ_CRS_COUNTS" in inc:   # SPEC.md 137.58.36: BZ_CRS_MAX demo rows, the list's first
         return R.crs_rows()
     m_ = re.search(r"^BZ_NDEMO\s+equ\s+(\d+)", inc, re.M)
     return int(m_.group(1)) if m_ else 0
@@ -179,10 +179,10 @@ def ndemo():
 
 def title_rows():
     """the rows held while the window is open: the desktop's song's held none
-    since SPEC.md 130.26.5 (the window is silent); story 9.8 (SPEC.md
-    130.25.6.9): the RESIDENT BUNDLE, one row (BZ_P_FBUN), fetched once at
-    the start and never dropped - the three balls at its head since 130.25.5.2,
-    so a row in every build - and (SPEC.md 130.37.5) THE KIT, BZ_P_KIT,
+    since SPEC.md 137.26.5 (the window is silent); story 9.8 (SPEC.md
+    137.25.6.9): the RESIDENT BUNDLE, one row (BZ_P_FBUN), fetched once at
+    the start and never dropped - the three balls at its head since 137.25.5.2,
+    so a row in every build - and (SPEC.md 137.37.5) THE KIT, BZ_P_KIT,
     fetched quietly at the open before the bundle and held for the instance
     (kern_small gives it back at the open; none of these rows boots it)"""
     k = kit_row()
@@ -190,34 +190,34 @@ def title_rows():
 
 
 def kit_row():
-    """BZ_P_KIT, the standard kit's row (SPEC.md 130.37.5) as the package
-    assembled it - None for a tree older than 130.37"""
+    """BZ_P_KIT, the standard kit's row (SPEC.md 137.37.5) as the package
+    assembled it - None for a tree older than 137.37"""
     return link_row("BZ_P_KIT")
 
 
 def kit_held(g, rws):
     """-> failures: THE KIT held - its row FETCHED and bz_kseg its segment
-    (SPEC.md 130.37.5) - for a tree that has one"""
+    (SPEC.md 137.37.5) - for a tree that has one"""
     k = kit_row()
     if k is None:
         return []
     out = []
     if not rws[k][0] & OP_FETCHED:
-        out.append("the kit (row %d) is not held (SPEC.md 130.37.5: fetched at the open, held)" % k)
+        out.append("the kit (row %d) is not held (SPEC.md 137.37.5: fetched at the open, held)" % k)
     elif "bz_kseg" in g.sym and g.w("bz_kseg") == 0:
         out.append("the kit's row %d is fetched but [bz_kseg] is 0 (bz_kget did not keep its segment)" % k)
     return out
 
 
 def fbun_row():
-    """BZ_P_FBUN, the resident bundle's row (the balls and the resident families, SPEC.md 130.25.5.2)"""
+    """BZ_P_FBUN, the resident bundle's row (the balls and the resident families, SPEC.md 137.25.5.2)"""
     import re
     link = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzlink.inc")).read()
     return int(re.search(r"^BZ_P_FBUN\s+equ\s+(0x[0-9A-Fa-f]+|\d+)", link, re.M).group(1), 0)
 
 
 def bsegs(g):
-    """the three HELD balls' segments, bz_bsegs (SPEC.md 130.25.5.2)"""
+    """the three HELD balls' segments, bz_bsegs (SPEC.md 137.25.5.2)"""
     return list(struct.unpack("<3H", bytes(g.m.read(g.a("bz_bsegs"), 6))))
 
 
@@ -231,11 +231,11 @@ def link_row(name):
 
 
 def snd_row():
-    """the row after the courses': the DEMOS' first since SPEC.md 130.50 (the sound part went into the
+    """the row after the courses': the DEMOS' first since SPEC.md 137.50 (the sound part went into the
     RESIDENT BUNDLE, each song into its course part - no sound rows), and no WORLD rows since SPEC.md
-    130.30.5 (a two-part course's world part is in its ONE part, as a sheeted course's)"""
+    137.30.5 (a two-part course's world part is in its ONE part, as a sheeted course's)"""
     R.crs_fill()                        # (fills the course table: BZ_NCRS of them)
-    return CRS_ROW0 + R.crs_rows()      # (BZ_CRS_MAX rows since SPEC.md 130.58.36, the list's first)
+    return CRS_ROW0 + R.crs_rows()      # (BZ_CRS_MAX rows since SPEC.md 137.58.36, the list's first)
 
 
 def crs_row(name):
@@ -252,8 +252,8 @@ def bench_frames():
 
 def two_part():
     """the build's TWO-PART courses, by name, in K order (the tool's compile: a world part and no sheets): the
-    world part's leg.  Since SPEC.md 130.30.5 a two-part course is ONE part on the disk, its world part a
-    segment of its one claim, so there is no list of world rows to read; a SHEETED course (SPEC.md 130.30.12)
+    world part's leg.  Since SPEC.md 137.30.5 a two-part course is ONE part on the disk, its world part a
+    segment of its one claim, so there is no list of world rows to read; a SHEETED course (SPEC.md 137.30.12)
     is not among them"""
     R.crs_fill()
     names = sorted(dict.keys(R.CRS_K), key=R.CRS_K.__getitem__)
@@ -261,7 +261,7 @@ def two_part():
 
 
 def one_plan(k):
-    """course K's ONE part's layout when it has a world part (SPEC.md 130.30.5, 130.30.12.5: a two-part
+    """course K's ONE part's layout when it has a world part (SPEC.md 137.30.5, 137.30.12.5: a two-part
     course's picture part, or a sheeted course's sheets, and its world part, each from a paragraph of the one
     claim - plan["k"] the picture pieces, plan["paras"] their paragraphs and the world part's last), else
     None"""
@@ -269,12 +269,12 @@ def one_plan(k):
 
 
 def shell_row():
-    """the SHELL PART's row (SPEC.md 130.19.2): after the demos - held on the
+    """the SHELL PART's row (SPEC.md 137.19.2): after the demos - held on the
     desktop, never inside a bracket.  Counted from the build's own lists (the
     courses, the sound, the songs, the demos) and
     held to the package's BZ_P_SHELL, so a row the table gains that this count
     does not know of is a refusal here rather than a wrong row read quietly"""
-    k = snd_row() + ndemo()             # (no sound rows since SPEC.md 130.50)
+    k = snd_row() + ndemo()             # (no sound rows since SPEC.md 137.50)
     pk = link_row("BZ_P_SHELL")
     assert pk is None or pk == k, ("the shell part's row: the build's lists count %d, the package's "
                                    "BZ_P_SHELL is %d - a part row this row does not know of" % (k, pk))
@@ -323,7 +323,7 @@ def leave(g, way):
         m.key("AltLeft", down=False)
 
 
-# ---- WAVE 5B (SPEC.md 130.15.13): THE CLAIM LEG --------------------------------------
+# ---- WAVE 5B (SPEC.md 137.15.13): THE CLAIM LEG --------------------------------------
 CLAIMED = {}                    # tag -> the courses whose claim was compared, by name
 
 
@@ -333,22 +333,22 @@ _SHEETS = {}
 
 def ram_forms(k, tag, art=None):
     """course K's part(s) as the card holds them between bz_cexp (and bz_hxlat on
-    the Hercules) and OSAPI_FSX_RUN (SPEC.md 130.15.4.5): THE TOOL'S RAM FORM
+    the Hercules) and OSAPI_FSX_RUN (SPEC.md 137.15.4.5): THE TOOL'S RAM FORM
     (bbcourse's cga), or its htab() translation
     (herc_translate_course) -> (the part, None) - or for a TWO-PART course
-    (SPEC.md 130.30) (the picture part, the world part), herc_translate_parts'
-    on the Hercules.  The art's BZ<K>.BIN (a two-part course's ONE part, SPEC.md 130.30.5) must be the same
+    (SPEC.md 137.30) (the picture part, the world part), herc_translate_parts'
+    on the Hercules.  The art's BZ<K>.BIN (a two-part course's ONE part, SPEC.md 137.30.5) must be the same
     compile's STORED forms, or the comparison would be with another tree's
-    courses.  A SHEETED course (SPEC.md 130.30.12): the picture part is its
+    courses.  A SHEETED course (SPEC.md 137.30.12): the picture part is its
     sheet 0 (its ONE part's first piece, what bz_crshdr shows), its other
-    sheets' forms sheet_forms(); its BZ<K>.BIN is the one part (130.30.12.5).
+    sheets' forms sheet_forms(); its BZ<K>.BIN is the one part (137.30.12.5).
     """
     art = art or R.at("build/bonanza-art")
     key = (k, tag, art)
     if key not in _RAM:
         c = R.course_k(k)
         ram, stored = c.cga, (c.bstored or c.stored)
-        wram = c.wcga if c.split else None  # (SPEC.md 130.30.5, 130.30.12.5: the world part is in the one part)
+        wram = c.wcga if c.split else None  # (SPEC.md 137.30.5, 137.30.12.5: the world part is in the one part)
         for f_, want in [("BZ%d.BIN" % k, stored)]:
             with open(os.path.join(ROOT, art, f_), "rb") as f:
                 if f.read() != want:
@@ -365,7 +365,7 @@ def ram_forms(k, tag, art=None):
 
 def sheet_forms(k, tag, art=None):
     """a SHEETED course K's other sheets (1, 2, ...) as the card holds them at the claim leg (SPEC.md
-    130.30.12.5: on the Hercules each translated, bz_hxshs) - [] for any other course"""
+    137.30.12.5: on the Hercules each translated, bz_hxshs) - [] for any other course"""
     ram_forms(k, tag, art)
     return _SHEETS.get((k, tag, art or R.at("build/bonanza-art")), [])
 
@@ -388,18 +388,18 @@ def section_at(ram, off):
 
 
 def claim_check(g, what):
-    """THE CLAIM LEG (SPEC.md 130.15.13), at the kernel's fsx_run - the
+    """THE CLAIM LEG (SPEC.md 137.15.13), at the kernel's fsx_run - the
     launch's OSAPI_FSX_RUN call, after bz_cexp and bz_hxlat, before the lanes'
     writer: the course claim ([bz_cseg], found in the heap map, its claim at
     least the part's length) equal byte for byte to the tool's RAM form (CGA)
     or its htab() translation (Hercules).  On the VGA the course's art is
-    converted IN PLACE to planar pairs (BZV_CONV, SPEC.md 130.46.5) at
+    converted IN PLACE to planar pairs (BZV_CONV, SPEC.md 137.46.5) at
     bz_cload, so the claim is no byte-for-byte copy of either: the leg is not
     run there (bonanzaring's VGA card checks every converted pixel instead,
     on the card).  -> failures"""
     m = g.m
     if g.tag == "vga":
-        print("vga THE CLAIM LEG: not run on the VGA (its art converted in place, SPEC.md 130.46.5; "
+        print("vga THE CLAIM LEG: not run on the VGA (its art converted in place, SPEC.md 137.46.5; "
               "bonanzaring's VGA card checks it on the card)", flush=True)
         return []
     k = g.b("bz_crs")
@@ -408,11 +408,11 @@ def claim_check(g, what):
     pic, world = ram_forms(k, g.tag)
     cpic, cworld = ram_forms(k, "cga")
     mp = heapmap.Map(Q(m), {n: m.sym(n) for n in ("mem_base", "mem_top", "spl_live", "mem_tab")})
-    # a TWO-PART course (SPEC.md 130.30.5): the picture part in [bz_mseg], the world part in [bz_cseg] - ONE
+    # a TWO-PART course (SPEC.md 137.30.5): the picture part in [bz_mseg], the world part in [bz_cseg] - ONE
     # claim, the picture part at its base and the world part a SEGMENT inside it at the plan's paragraphs
     legs = [("bz_cseg", pic, cpic, "")] if world is None else [("bz_mseg", pic, cpic, "picture "),
                                                                ("bz_cseg", world, cworld, "world ")]
-    # a SHEETED course (SPEC.md 130.30.12.5): ONE claim - sheet 0 at its base ([bz_shseg], the picture part's
+    # a SHEETED course (SPEC.md 137.30.12.5): ONE claim - sheet 0 at its base ([bz_shseg], the picture part's
     # above), every other sheet ([bz_shseg + 2 i]) and the world part ([bz_cseg]) SEGMENTS inside it at the
     # plan's paragraphs, each its RAM form (on the Hercules its blocks translated, bz_hxshs) - and at fsx_run
     # the SHOWN sheet, [bz_mseg], is sheet 0 (bz_crshdr's)
@@ -427,7 +427,7 @@ def claim_check(g, what):
     out = []
     if shs and g.w("bz_mseg") != g.w("bz_shseg"):
         out.append("%s: claim leg, %s: [bz_mseg] %04X at fsx_run is not sheet 0's segment [bz_shseg] %04X "
-                   "(bz_crshdr shows sheet 0, SPEC.md 130.30.12.3)" % (what, name.upper(), g.w("bz_mseg"),
+                   "(bz_crshdr shows sheet 0, SPEC.md 137.30.12.3)" % (what, name.upper(), g.w("bz_mseg"),
                                                                        g.w("bz_shseg")))
     for word, want, cwant, which in legs:
         if isinstance(word, tuple):             # (a sheet's word: the i-th of bz_shseg)
@@ -438,12 +438,12 @@ def claim_check(g, what):
         key = word
         if isinstance(word, str) and word.startswith("bz_shseg + "):
             key = ("bz_shseg", int(word.split()[-1]) // 2)
-        if key in inner:                        # (a segment of the course's one claim, 130.30.5, 130.30.12.5:
+        if key in inner:                        # (a segment of the course's one claim, 137.30.5, 137.30.12.5:
             base = g.w("bz_mseg")               # its base the picture part's, or sheet 0's, checked above)
             cl = [c for c in mp.claims if c.seg == base]
             if not cl or seg - base != inner[key] or (cl[0].para - inner[key]) * 16 < len(want):
                 out.append("%s: claim leg, %s: [%s] %04X is not the one claim's (at %04X) paragraph %d with "
-                           "room for its %d bytes (SPEC.md 130.30.12.5)" % (what, name.upper(), word, seg, base,
+                           "room for its %d bytes (SPEC.md 137.30.12.5)" % (what, name.upper(), word, seg, base,
                                                                             inner[key], len(want)))
                 continue
             cl = []
@@ -461,7 +461,7 @@ def claim_check(g, what):
             continue
         bad = [i for i in range(len(want)) if got[i] != want[i]]
         out.append("%s: claim leg, %s: the course's %sclaim differs from the tool's RAM form%s at %d byte(s), the "
-                   "first at offset %d in %s (%02Xh, the tool's %02Xh) - SPEC.md 130.15.13" % (
+                   "first at offset %d in %s (%02Xh, the tool's %02Xh) - SPEC.md 137.15.13" % (
                        what, name.upper(), which, " through htab()" if g.tag == "herc" else "", len(bad), bad[0],
                        section_at(cwant, bad[0]), got[bad[0]], want[bad[0]]))
     if world is not None and not out and g.w("bz_mseg") == g.w("bz_cseg"):
@@ -492,7 +492,7 @@ def launch(g, way, crs=None, fails=None):
     fails = [] if fails is None else fails
     m.disk(reset=True)
     key = "KeyB" if way == "bench" else "KeyR" if way.startswith("replay") else "KeyF"
-    # (F plays BZ_CRS_DEFAULT, pathway pad 0's course, SPEC.md 130.14.7.4, and B BENCH: every leg here
+    # (F plays BZ_CRS_DEFAULT, pathway pad 0's course, SPEC.md 137.14.7.4, and B BENCH: every leg here
     # names its course, so a play is POKED onto it at bz_launch - CRS None leaves the key's own)
     if crs and not way.startswith("replay"):
         m.bp_exec(g.a("bz_launch"))
@@ -545,7 +545,7 @@ def goal(g, crs):
 
 def into_tube(g, crs):
     """the ball poked onto the centre of the course's first plain tube's IN
-    cell (a DRAIN: SPEC.md 130.12.6.1) at bz_t0: the next step captures it;
+    cell (a DRAIN: SPEC.md 137.12.6.1) at bz_t0: the next step captures it;
     -> once the guest says it is hidden ([bz_tube])"""
     tb = next(r for r in R.course(crs).part["props"] if r["kind"] == BB.PK_TUBE)
     p = BB.Physics(R.course(crs), play=True, mat=g.b("bz_mat")).poke(*tb["at"])
@@ -568,16 +568,16 @@ def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
         g.write_log(R.make_log([0] * (120 if way == "replayend" else 600), R.CRS_K[crs], mat))
         m.run()
     if way.startswith("replay"):
-        want_mat = m.read(g.a("bz_rlog") + 5, 1)[0]   # R the log's (SPEC.md 130.11.12.2)
+        want_mat = m.read(g.a("bz_rlog") + 5, 1)[0]   # R the log's (SPEC.md 137.11.12.2)
     else:
-        want_mat = R.course(crs).ball               # a play its course's own (SPEC.md 130.11.5.4), B's too
+        want_mat = R.course(crs).ball               # a play its course's own (SPEC.md 137.11.5.4), B's too
     reads = launch(g, way, None if way == "bench" else crs, fails)
     pc = g.b("bz_pc")
     r_in, c_in = rows(g), claims(g)
-    # SPEC.md 130.25.5.2: the balls have no rows - all three are HELD in the resident bundle (its row is
+    # SPEC.md 137.25.5.2: the balls have no rows - all three are HELD in the resident bundle (its row is
     # fetched since the open), so the control is the course's row and the bundle's FETCHED, the three
     # ball segments (bz_bsegs) set, and the sprite's (bz_bseg) the material's
-    shd = one_plan(g.b("bz_crs")) is not None   # SPEC.md 130.30.5, 130.30.12.5: a course's WORLD part is a
+    shd = one_plan(g.b("bz_crs")) is not None   # SPEC.md 137.30.5, 137.30.12.5: a course's WORLD part is a
     for i in [pc, fbun_row()]:                  # segment of its ONE part, no row of its own
         f, z = r_in[i]
         if not f & OP_FETCHED or not z:
@@ -586,19 +586,19 @@ def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
     bs = bsegs(g)
     if g.b("bz_mat") != want_mat or not all(bs) or g.w("bz_bseg") != bs[want_mat] or pc != CRS_ROW0 + g.b("bz_crs"):
         fails.append("%s: the launch rolls material %d (bz_bseg %04X, the held balls %s) with course row %d; want "
-                     "material %d and course row %d (SPEC.md 130.25.5.2)" % (
+                     "material %d and course row %d (SPEC.md 137.25.5.2)" % (
                          way, g.b("bz_mat"), g.w("bz_bseg"), ["%04X" % b_ for b_ in bs], pc, want_mat,
                          CRS_ROW0 + g.b("bz_crs")))
     if r_in[shell_row()][0] & OP_FETCHED:
         fails.append("%s: inside the bracket the SHELL part (row %d) is still fetched: it may never share memory "
-                     "with a course (SPEC.md 130.19.2)" % (way, shell_row()))
-    # wave 9 (SPEC.md 130.25.4): the balls, the sound part, the song and the fanfare are ONE claim, the ARENA,
+                     "with a course (SPEC.md 137.19.2)" % (way, shell_row()))
+    # wave 9 (SPEC.md 137.25.4): the balls, the sound part, the song and the fanfare are ONE claim, the ARENA,
     # so a play holds the course and the arena - the shell gone, the desktop title's arena (if it had one)
     # become the play's: two claims however many balls, and no fanfare term
     ar_in = 1 if g.w("op_arena") else 0
-    np = 1                                      # (130.30.5: a two-part course's picture and world parts ONE
-                                                # claim; 130.30.12.5: a SHEETED course's sheets and world part)
-    if g.tag == "vga":                          # (130.46.6: the VGA's code part and the balls' converted
+    np = 1                                      # (137.30.5: a two-part course's picture and world parts ONE
+                                                # claim; 137.30.12.5: a SHEETED course's sheets and world part)
+    if g.tag == "vga":                          # (137.46.6: the VGA's code part and the balls' converted
         np += 2                                 # copies, both held through the bracket)
     if len(c_in) != len(base_claims) - 1 + np - g.ar0 + ar_in or not ar_in:
         fails.append("%s: inside the bracket the instance holds %d claims, not the desktop's %d - the shell + the "
@@ -608,7 +608,7 @@ def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
         cs, ms = g.w("bz_cseg"), g.w("bz_mseg")
         if not cs or (ms != cs) != shd:
             fails.append("%s: inside the bracket [bz_cseg] %04X and [bz_mseg] %04X - a %d-part course's (SPEC.md "
-                         "130.30.5)" % (way, cs, ms, np))
+                         "137.30.5)" % (way, cs, ms, np))
     if way == "bench":                          # (the guest paused with the bracket up: BENCH_TAIL frames
         g.put("bz_frames", max(g.w("bz_frames"), bench_frames() - BENCH_TAIL))     # to B's own end)
         m.run()
@@ -655,18 +655,18 @@ def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
     M.until(m, lambda _: g.w("bz_cseg") == 0 and g.w("bz_bseg") == 0, "the launch to drop its parts (%s)" % way,
             guest=30)
     if "bzs_desk" in g.sym:                     # ...and the title's parts READ BACK: bz_launch's last
-        M.until(m, lambda _: g.b("bzs_desk") == 1 or g.b("bzs_mode") == 3,   # act (SPEC.md 130.20.6)
+        M.until(m, lambda _: g.b("bzs_desk") == 1 or g.b("bzs_mode") == 3,   # act (SPEC.md 137.20.6)
                 "the title to be back (%s)" % way, guest=30)
     M.until(m, lambda _: rows(g)[shell_row()][0] & OP_FETCHED and g.b("bz_shpend") == 0,
-            "the shell part to be fetched back and the face repainted (%s, SPEC.md 130.19.2)" % way, guest=30)
+            "the shell part to be fetched back and the face repainted (%s, SPEC.md 137.19.2)" % way, guest=30)
     m.pause()
     r_out, c_out = rows(g), claims(g)
     title = title_rows() | {shell_row()}
     for i, (before, after) in enumerate(zip(base_rows, r_out)):
         if i in title:                      # the title's music, held on the desktop
             if (after[0] & OP_FETCHED) != (before[0] & OP_FETCHED):
-                fails.append("%s: the held part row %d is %s after the launch, %s before (SPEC.md 130.20.6, "
-                             "130.37.5)"
+                fails.append("%s: the held part row %d is %s after the launch, %s before (SPEC.md 137.20.6, "
+                             "137.37.5)"
                              % (way, i, "fetched" if after[0] & OP_FETCHED else "not fetched",
                                 "fetched" if before[0] & OP_FETCHED else "not fetched"))
             continue
@@ -680,7 +680,7 @@ def one(g, way, base_rows, base_claims, mat=None, crs="tquik"):
         fails.append("%s: the instance's claims after the launch %s, before it %s" % (way, c_out, base_claims))
     m.run()
     if "bz_mseg" in g.sym and g.w("bz_mseg"):
-        fails.append("%s: [bz_mseg] %04X after the launch: bz_cdrop zeroes it (SPEC.md 130.30.5)"
+        fails.append("%s: [bz_mseg] %04X after the launch: bz_cdrop zeroes it (SPEC.md 137.30.5)"
                      % (way, g.w("bz_mseg")))
     line = "%s %s (%s): rows %s fetched inside; %d floppy reads to the bracket; after it every row as before " \
            "and the claims as before: %s" % (crs.upper(), way, BB.MAT_NAMES[want_mat],
@@ -697,7 +697,7 @@ def after(g, what, base_rows, base_claims):
     if "bzs_desk" in g.sym:
         M.until(m, lambda _: g.b("bzs_desk") == 1 or g.b("bzs_mode") == 3, "%s: the title back" % what, guest=30)
     M.until(m, lambda _: rows(g)[shell_row()][0] & OP_FETCHED and g.b("bz_shpend") == 0,
-            "%s: the shell part fetched back (SPEC.md 130.19.2)" % what, guest=30)
+            "%s: the shell part fetched back (SPEC.md 137.19.2)" % what, guest=30)
     m.pause()
     r_out, c_out = rows(g), claims(g)
     m.run()
@@ -733,7 +733,7 @@ def quik_log():
 
 
 def wave4_exits(g, ui, base_rows, base_claims):
-    """SPEC.md 130.14.14: V's fetch and drop (ROLL's shipped demo), D's end (a TQUIK log made from the
+    """SPEC.md 137.14.14: V's fetch and drop (ROLL's shipped demo), D's end (a TQUIK log made from the
     model), W, L and the double-click - each with the rows and the claims as before"""
     m = g.m
     fails = []
@@ -788,7 +788,7 @@ MENU_EIGHTH = 8                             # the rendered frame's top 1/8 (the 
 
 
 def pal_colour(byte, idx):
-    """the CGA colour (0 - 15) that colour-select BYTE (3D9h, SPEC.md 130.16.6)
+    """the CGA colour (0 - 15) that colour-select BYTE (3D9h, SPEC.md 137.16.6)
     gives mode 4's index IDX: 0 the ground (bits 0 - 3); 1 - 3 palette 1's
     cyan, magenta, white or palette 0's green, red, brown (bit 5), or palette
     2's cyan, red, white (bit 6, mode 5's B/W bit), +8 bright (bit 4)"""
@@ -840,7 +840,7 @@ def desktop_colours(a):
 
 
 def palette_leg(g, crss=("tquik", "tcup")):
-    """SPEC.md 130.16.6 (bonanzaexit's wave 6 leg): the colour select on the
+    """SPEC.md 137.16.6 (bonanzaexit's wave 6 leg): the colour select on the
     CGA, none on the Hercules, the desktop restored after each bracket"""
     m, tag = g.m, g.tag
     fails, say = [], []
@@ -867,7 +867,7 @@ def palette_leg(g, crss=("tquik", "tcup")):
         if tag == "herc":
             if at == vpal:
                 fails.append("palette %s: the bz_vinit.vpal breakpoint was HIT on the Hercules (AL %02Xh): the "
-                             "colour select written to 3D9h where the picture has no palette (SPEC.md 130.16.6)"
+                             "colour select written to 3D9h where the picture has no palette (SPEC.md 137.16.6)"
                              % (crs.upper(), r["ax"] & 0xFF))
             say.append("%s: bz_presented first, bz_vinit.vpal never hit" % crs.upper())
         else:
@@ -933,7 +933,7 @@ def palette_leg(g, crss=("tquik", "tcup")):
             fails.append("palette %s: after the bracket the desktop renders the colours %s, before it %s: the "
                          "palette not restored" % (crs.upper(), sorted(c.hex() for c in ca),
                                                    sorted(c.hex() for c in cb)))
-    print("%s palette (SPEC.md 130.16.6): %s; the desktop restored after each: %s" % (
+    print("%s palette (SPEC.md 137.16.6): %s; the desktop restored after each: %s" % (
         tag, "; ".join(say), "yes" if not fails else "NO"), flush=True)
     return fails
 
@@ -947,7 +947,7 @@ def ui_settle(g):
 
 
 def held_keys(g):
-    """SPEC.md 130.11.11.2 on the desktop: -> failures.  Each key's handler is
+    """SPEC.md 137.11.11.2 on the desktop: -> failures.  Each key's handler is
     counted by a logged breakpoint (T's two controls would hide an odd count);
     the control is put back to KEYS after."""
     m = g.m
@@ -958,7 +958,7 @@ def held_keys(g):
             m.key(key, up=False)                # ITS make code: it swallows nothing of this one)
             M.pace(m, 1.5)
             m.key(key, down=False)
-            # the guard's timer polls a tick at a time (130.11.11.2): a fixed guest
+            # the guard's timer polls a tick at a time (137.11.11.2): a fixed guest
             # interval, then a LOOK, so a guard that never clears is a failure here
             # and the second press below is still judged (the overswallow red's check)
             M.pace(m, .4)
@@ -999,7 +999,7 @@ def run(tag, ways=WAYS, apps=None, src=None, tube=True, cup=True, bench=True, wo
         m = g.m
         m.pause()
         base_rows, base_claims = rows(g), claims(g)
-        g.ar0 = 1 if g.w("op_arena") else 0     # the title's arena (130.25.4): one claim on the desktop
+        g.ar0 = 1 if g.w("op_arena") else 0     # the title's arena (137.25.4): one claim on the desktop
         m.run()
         nlazy = sum(1 for f, _ in base_rows if f & OP_LAZY)
         title = title_rows() | {shell_row()}
@@ -1013,24 +1013,24 @@ def run(tag, ways=WAYS, apps=None, src=None, tube=True, cup=True, bench=True, wo
         fails += kit_held(g, base_rows)
         m.run()
         if any(not base_rows[i][0] & OP_FETCHED for i in title):
-            fails.append("the title's parts (rows %s) are not held on the desktop (SPEC.md 130.20.6)"
+            fails.append("the title's parts (rows %s) are not held on the desktop (SPEC.md 137.20.6)"
                          % sorted(title))
         R.crs_fill()                        # (fills the course table: BZ_NCRS of them)
         if len(base_rows) != shell_row() + 1 + R.after_shell():
             fails.append("the package has %d part rows, not %d courses, %d shipped demos, the shell, the "
                          "pathway, the title's two, the families' and the VGA's - no sound rows, no world rows "
-                         "(SPEC.md 130.11.3.1, 130.30.5, 130.50, 130.14.7.4, 130.19.2, 130.19.5, 130.23, 130.46.6)" % (
+                         "(SPEC.md 137.11.3.1, 137.30.5, 137.50, 137.14.7.4, 137.19.2, 137.19.5, 137.23, 137.46.6)" % (
                              len(base_rows), dict.__len__(R.CRS_K), ndemo()))
-        plan = [(w, "tquik") for w in ways]     # the six ways out, ONCE, on TQUIK (130.25.5.2: the balls held)
+        plan = [(w, "tquik") for w in ways]     # the six ways out, ONCE, on TQUIK (137.25.5.2: the balls held)
         if tube:
             plan.append(("tubeesc", "tquik"))   # Esc with the ball HIDDEN in TQUIK's KEEP tube
         if cup:
             plan.append(("goal", "tcup"))       # the CUP's way out (and padleak's leg)
         if bench:
             plan.append(("bench", None))        # B, BENCH, to its end
-        if world:                               # a TWO-PART course's world part (130.30.5): no test course is
+        if world:                               # a TWO-PART course's world part (137.30.5): no test course is
             two = two_part()                    # two parts, so the build's own list (the PLAYGROUND today)
-            print("%s the world part's leg (SPEC.md 130.30.5): %s" % (
+            print("%s the world part's leg (SPEC.md 137.30.5): %s" % (
                 tag, ", ".join(n.upper() for n in two) if two else
                 "NO two-part course in this build - the leg ran on none"), flush=True)
             plan += [("esc", n) for n in two]
@@ -1049,7 +1049,7 @@ def run(tag, ways=WAYS, apps=None, src=None, tube=True, cup=True, bench=True, wo
                 fails += f
                 if f:
                     break
-        if pal and not fails and tag != "vga":  # wave 6 (SPEC.md 130.16.6): the colour select - the CGA's
+        if pal and not fails and tag != "vga":  # wave 6 (SPEC.md 137.16.6): the colour select - the CGA's
             fails += palette_leg(g)             # 3D9h (the VGA's four colours are its attribute controller's,
                                                 # BZV_INIT, and bonanzaring's VGA glass compares them)
         if keys and not fails:
@@ -1058,15 +1058,15 @@ def run(tag, ways=WAYS, apps=None, src=None, tube=True, cup=True, bench=True, wo
             fails += wave4_exits(g, ui, base_rows, base_claims)
         R.crs_fill()
         seen = CLAIMED.get(tag, set())
-        print("%s THE CLAIM LEG (SPEC.md 130.15.13): the course claim = the tool's RAM form at fsx_run on %s" % (
+        print("%s THE CLAIM LEG (SPEC.md 137.15.13): the course claim = the tool's RAM form at fsx_run on %s" % (
             tag, ", ".join(sorted(n.upper() for n in seen)) or "no launch"), flush=True)
         if cover and not fails and tag != "vga" and seen != set(dict.keys(R.CRS_K)):
-            fails.append("the claim leg compared %s, not all %d courses of BZ_COURSES (SPEC.md 130.15.13)" % (
+            fails.append("the claim leg compared %s, not all %d courses of BZ_COURSES (SPEC.md 137.15.13)" % (
                 sorted(seen), dict.__len__(R.CRS_K)))
     return fails
 
 
-CRS_ROW0 = 0                                # BZ_P_CRS: no ball rows since SPEC.md 130.25.5.2 (it was 3)
+CRS_ROW0 = 0                                # BZ_P_CRS: no ball rows since SPEC.md 137.25.5.2 (it was 3)
 REDS = {
     # the goal path does not drop the course's row: bz_fin is set only by a play that reached the goal
     "leak": [("bonanza.asm", "    call op_areserve            ; into given back (a refused first fetch)\n"
@@ -1081,12 +1081,12 @@ REDS = {
     # bz_dkk never cleared: the key never reads as come up
     "overswallow": [("bonanza.asm", ".up:\n    mov byte [bz_dkk], 0\n", ".up:                            ; RED overswallow\n")],
 }
-# (SPEC.md 130.25.5.2, 130.50.2: no ball row and no sound part's row is dropped any more - both are held in
+# (SPEC.md 137.25.5.2, 137.50.2: no ball row and no sound part's row is dropped any more - both are held in
 # the bundle - so the cup's leak is the COURSE PART's, TCUP's row, kept at the cup)
 REDS["padleak"] = [("bonanza.asm", "    call op_drop\n%if BZ_PATH_NPAD\n.held:\n%endif\n",
                     "    cmp byte [bz_hid], 0        ; RED padleak: the course part kept at the cup\n"
                     "    jne .rpl\n    call op_drop\n.rpl:\n%if BZ_PATH_NPAD\n.held:\n%endif\n")]
-# wave 5b (SPEC.md 130.15.13): the expansion broken, each red at the CLAIM LEG's first differing offset -
+# wave 5b (SPEC.md 137.15.13): the expansion broken, each red at the CLAIM LEG's first differing offset -
 # WDIFF's count one record short (the last record left as differences), ROWTAB's last word never written,
 # and the guest's SAFE rule without its OBS test (a prop's cell made SAFE: TQUIK's tube's)
 REDS["expoff1"] = [("bonanza.asm", "    sub cx, bx\n    shr cx, 1                   ; the words after the first record\n",
@@ -1097,7 +1097,7 @@ REDS["rowtab1"] = [("bonanza.asm", "bz_cxrtb:\n    mov bx, [es:BZC_GRID]\n    mo
                     "    dec cx                      ; RED rowtab1: NROWS - 1 words\n")]
 REDS["cellsafe"] = [("bonanza.asm", "    test ah, BZ_FL_OBS          ; a prop's cell: never SAFE\n    jnz .sk\n",
                      "    ; RED cellsafe: no OBS test\n")]
-# wave 6 (SPEC.md 130.16.14): the colour select's write left out (TQUIK renders palette 1), and its
+# wave 6 (SPEC.md 137.16.14): the colour select's write left out (TQUIK renders palette 1), and its
 # Hercules branch removed (the labelled write runs there)
 REDS["nopal"] = [("bzvideo.inc", ".vpal:\n    out dx, al\n",
                   ".vpal:\n    nop                         ; RED nopal: no write\n")]
@@ -1107,17 +1107,17 @@ REDS["hercpal"] = [("bzvideo.inc", ".nvga:\n    cmp byte [bz_herc], 0\n    jne .
                     ".nvga:\n    mov bl, [bz_crs]            ; RED hercpal: the write on the Hercules too\n"
                     "    xor bh, bh\n    mov al, [bz_cpals + bx]\n    mov dx, 3d9h\n.vpal:\n    out dx, al\n"
                     "    cmp byte [bz_herc], 0\n    jne .herc\n")]
-# SPEC.md 130.37.5: the kit not fetched at the open (the first launch's bz_kget fetches it, so only the
+# SPEC.md 137.37.5: the kit not fetched at the open (the first launch's bz_kget fetches it, so only the
 # desktop's check sees it), and the kit dropped with each course (held no longer: re-read every launch)
-REDS["kitlate"] = [("bonanza.asm", "    push es                     ; THE KIT (SPEC.md 130.37.5), HELD for the instance:\n"
+REDS["kitlate"] = [("bonanza.asm", "    push es                     ; THE KIT (SPEC.md 137.37.5), HELD for the instance:\n"
                     "    call bz_kget0 ",
                     "    push es                     ; RED kitlate: no fetch at the open\n"
                     "    nop\n   ")]
-REDS["kitdrop"] = [("bonanza.asm", "                                ; (NO BALL: held for the instance, 130.25.5.2)\n",
+REDS["kitdrop"] = [("bonanza.asm", "                                ; (NO BALL: held for the instance, 137.25.5.2)\n",
                     "    mov al, BZ_P_KIT            ; RED kitdrop: the kit dropped with the course\n"
                     "    call op_drop\n")]
 # the VGA's part and the balls' converted copies never dropped after a launch (bz_vdrop a RET): the rows and the
-# claims after the bracket are not the desktop's (SPEC.md 130.46.6)
+# claims after the bracket are not the desktop's (SPEC.md 137.46.6)
 REDS["vgakeep"] = [("bonanza.asm", "bz_vdrop:\n", "bz_vdrop:\n    ret                         ; RED vgakeep\n")]
 
 
@@ -1220,7 +1220,7 @@ def main():
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true", help="the host half only: every red arm assembles")
     a = ap.parse_args()
-    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
+    R.dev()                             # the BZDEV=1 build (SPEC.md 137.26.6.1)
     if a.check:
         lines, bad = aims()
         for line in lines:

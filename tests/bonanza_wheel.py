@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BONANZA: the wheel - lanes paced by the retrace wait (SPEC.md 130.12.4, 130.12.5, 130.12.13.2, 130.12.15).
+"""BONANZA: the wheel - lanes paced by the retrace wait (SPEC.md 137.12.4, 137.12.5, 137.12.13.2, 137.12.15).
 
     make bonanzadisk && python3 tests/bonanza_wheel.py [--adapter cga|herc|both] [--leg bench|low|corner|stale|side|clock|gate|all]
     python3 tests/bonanza_wheel.py --red NAME      (a red arm, below)
@@ -16,7 +16,7 @@ On MartyPC's CGA and Hercules XTs, five legs a card:
          bz_lclip left: bz_lra, bz_lrb) and on bz_presented; LOGGED (no
          stop, MartyPC's own cycle count) at bz_tw, bz_tv, bz_tf, bz_vr's
          .rose and .high and inside bz_wcore at its CLI, the pass's call
-         and return (bz_wpass, SPEC.md 130.13.5.1) and its POPF.  From frame HOLD_FROM, one frame in
+         and return (bz_wpass, SPEC.md 137.13.5.1) and its POPF.  From frame HOLD_FROM, one frame in
          HOLD_EVERY is made LATE on purpose: [bz_hold] poked (bz_t0 then spins
          bz_hold x 256 PIT counts, past the frame's first sync).
   LOW    bonanza_ring's LOW SCENARIO (play mode on MILL, the ball HELD above a
@@ -25,13 +25,13 @@ On MartyPC's CGA and Hercules XTs, five legs a card:
          beam, the CGA's LEAD, a 2-word lane's - judged as BENCH's are; (3)'s
          and (5)'s "each kind at least once" are over BENCH's and LOW's
          commits together (the final pass).  Then THE BEAM SWEEP (SPEC.md
-         130.13.7 item 2): every 8 frames the post is KICKED ([bz_pkick] + 1),
+         137.13.7 item 2): every 8 frames the post is KICKED ([bz_pkick] + 1),
          and on the frame after its lit frames are poked to 0 (DUE) and that
          frame made late by [bz_hold] 24 - 40 (x 256 counts), so the wheel
          decides with the beam crossing the post's lines; at least 15 of the 17
          due frames have the post a wheel candidate at bz_tw, ASSERTED.
-  CORNER play mode on MILL, a LIGHT diagonal step (SPEC.md 130.13.7 item 5,
-         8R.13): the SCRIPTED camera ([bz_camscr] 1, 130.17.6.7, [bz_scnt]
+  CORNER play mode on MILL, a LIGHT diagonal step (SPEC.md 137.13.7 item 5,
+         8R.13): the SCRIPTED camera ([bz_camscr] 1, 137.17.6.7, [bz_scnt]
          poked at each bz_t0 to pick the frame's step); the ball RESTING
          (re-poked each frame) inside a window whose bottom edge lies under a
          POST's first row and whose left edge is one word inside it - the
@@ -51,7 +51,7 @@ On MartyPC's CGA and Hercules XTs, five legs a card:
          bottom-RIGHT corner where no window reaches the left; on the
          Hercules no window reaches either (its 45 words hold every MILL
          lane's columns): REPORTED there.
-  STALE  play mode on MILL, the window held (R.cam_hold; SPEC.md 130.13.7 item 4): a centred full
+  STALE  play mode on MILL, the window held (R.cam_hold; SPEC.md 137.13.7 item 4): a centred full
          write puts a ROTOR wholly above the window's top (its last card row
          R0 - 1) with the ball held; after 16 steps, on a frame whose true pose
          has a different lowest row from the full write's, the ball is poked
@@ -62,13 +62,13 @@ On MartyPC's CGA and Hercules XTs, five legs a card:
          bz_rlog, R, the ball poked at the first bz_t0), the windmill's drawn
          pose read at every bz_presented and the model stepped beside it.
 
-THE CHECKS (SPEC.md 130.12.13.2's bonanzawheel), each failure line opening
+THE CHECKS (SPEC.md 137.12.13.2's bonanzawheel), each failure line opening
 with its number:
 
   (1)  every write to bz_ldrw CHANGES its value, and every lane-writer commit
        (bz_wcommit) makes one - TITHE's titheframe property;
   (2)  a shown rotor's drawn pose is never AHEAD of its true one (the true
-       pose of the frame's last step, 130.12.15 item 1: the first step on
+       pose of the frame's last step, 137.12.15 item 1: the first step on
        which the drawn pose comes round again is not nearer than the last on
        which it was true), and the results' bz_wlate 0;
   (3)  no pass's write while the beam is in the window lines it writes,
@@ -80,20 +80,20 @@ with its number:
        the last; and no wait commit on a frame made late (bz_hold), whose
        candidates bz_wskip counts.  ASSERTED on the CGA; on the Hercules
        REPORTED, the guest's verdict (its pass) beside the counter's at 98
-       lines and 63.4 counts a line (SPEC.md 130.12.15 item 5);
+       lines and 63.4 counts a line (SPEC.md 137.12.15 item 5);
   (4)  every wait commit ends by its deadline - the results' bz_wover 0 - and
        the wait after a frame's wait commits finds the sync RISING (.rose);
   (5)  each commit's calibrated cost - its OWN cost' (bz_wcst: bz_lcf's for a
        whole lane, else warr + (words (wcw + lines wlw)) >> 4 and its terms,
-       SPEC.md 130.13.5.2), the trim's scale apart - within CAL_TOL of its whole span on the cycle
+       SPEC.md 137.13.5.2), the trim's scale apart - within CAL_TOL of its whole span on the cycle
        counter (from the TEST's clock sample - bz_wnow's entry before the
        commit, where the calibration's span starts - to bz_wcore's POPF, the
        closing latch a few instructions before), over 2-word lanes (posts) and 3-word lanes (rotors): a
        WHOLE-LANE commit's (bz_lcf's price) within CAL_TOL, a CLIPPED
        commit's span at most (1 + CAL_TOL) times its price, asserted on the
        CGA, reported on the Hercules (item 5); a commit priced at NOTHING
-       fails on both; each kind's pass span REPORTED against 130.13.5.1;
-  (6)  no commit's cells outside the SHOWN window and 130.2 rule 1's row cells
+       fails on both; each kind's pass span REPORTED against 137.13.5.1;
+  (6)  no commit's cells outside the SHOWN window and 137.2 rule 1's row cells
        (the entering rows LESS the entering column), the allowed cells
        derived here from the window words, and none left out; on the CORNER
        leg's LIGHT down-and-left step the commit LANDS (ASSERTED on the CGA)
@@ -110,11 +110,11 @@ with its number:
        stale bz_ldrw: bonanzaring's oracle cannot see it);
   (10) at every knock-back and doorway capture of the GATE replays the rotor's
        drawn pose at that frame's bz_presented is closed or open to match -
-       but (130.12.15 item 1) a step other than the frame's last, on a frame
+       but (137.12.15 item 1) a step other than the frame's last, on a frame
        of two or more steps, may be one phase off what is shown;
   (11) a LEAD only for the lane the wait marked ([bz_wld]), at most one a
        frame, never on a heavy frame;
-  (12) the owner's preview, TIGHTENED (SPEC.md 130.13.12): every KICK
+  (12) the owner's preview, TIGHTENED (SPEC.md 137.13.12): every KICK
        ([bz_pkick] changing between two presented frames) has its post drawn
        LIT ([bz_ldrw] 1) on the KICK's frame - the next only when a second
        lighting post took the slot, a strip met the slab or the slab's box
@@ -124,7 +124,7 @@ with its number:
        frames of its lit frames running out while shown; on BENCH and LOW;
   (13) after every walk, each rotor in the walk's range has bz_lnext equal to
        the model's next change step - the step at which its pose, from the
-       seed and the mask, next differs (SPEC.md 130.13.5.3);
+       seed and the mask, next differs (SPEC.md 137.13.5.3);
 
 --red NAME builds a broken package in a temporary directory (never build/)
 and PASSES only if the row FAILS at its own check:
@@ -152,13 +152,13 @@ and PASSES only if the row FAILS at its own check:
              after its first frame (wave 3's first rule, a few STEPS lit, the
              preview's "rarely lights up"): (12)
 
-WAVE 5B (SPEC.md 130.15.13): unchanged in logic.  The course parts are BZC2's
+WAVE 5B (SPEC.md 137.15.13): unchanged in logic.  The course parts are BZC2's
 now - stored compact, expanded in place at the fetch - and every model here
 reads the TOOL'S RAM FORM (bbcourse's compile: the prop records, the lanes'
 pose maps and the cells at that form's offsets, which moved with the header
 and D's 4-byte records), the form the guest holds after the expansion; the
 legs re-run on the new parts.  Every red tree packs its parts in the shipped
-build's format (bonanza_ring.build_tree, SPEC.md 130.15.9).  (Wave 4's check
+build's format (bonanza_ring.build_tree, SPEC.md 137.15.9).  (Wave 4's check
 (14), the HUD's rect, and its red arm `hudrect` went in wave 5a with the HUD.)
 """
 import argparse
@@ -178,7 +178,7 @@ import bonanza_phys as P       # noqa: E402
 
 BENCH = 1200                   # bzgame.inc BZ_BENCH
 # PHASE 3 (docs/plans/BOUNCE-BONANZA-SOAK.md): every leg on the TEST course TMIL ("Wheel and Ring", SPEC.md
-# 130.54) - MILL's top cell for cell (both windmills on their KEEP tubes, seed 16 and the derived 36, the
+# 137.54) - MILL's top cell for cell (both windmills on their KEEP tubes, seed 16 and the derived 36, the
 # clock at (6, 13)), posts crossing the ring's end on both cards, a lift - found by NAME, so no row
 # notices when the prototype courses leave the build
 WHEEL_CRS = "tmil"
@@ -188,7 +188,7 @@ WHEEL_CRS = "tmil"
 # 120 and the kick's lit spell - and TMIL's route reaches its goal at ~795 / ~665 frames
 BENCH_STOP = {"cga": 420, "herc": 370}
 LSH = {"cga": 1, "herc": 2}    # card rows to lines: rl = 1 << lsh
-TO0 = {"cga": 38, "herc": 98}  # lines from the sync's rise to window line 0 (SPEC.md 130.12.5.3)
+TO0 = {"cga": 38, "herc": 98}  # lines from the sync's rise to window line 0 (SPEC.md 137.12.5.3)
 LINE = {"cga": 304.0, "herc": 63.4 * 4}     # clocks a line (76 counts; the Hercules about 63.4)
 P0 = {"cga": 79648.0, "herc": 93790.0}      # a refresh, clocks, NOMINAL: refined from the rises
 SPIN_TOL = R.SPIN_TOL          # clocks: bz_vr's tight spin turn (the rise to the .rose stop)
@@ -197,7 +197,7 @@ HOLD_VALS = tuple(range(72, 124, 4))        # x 256 PIT counts: 0.93 - 1.56 CGA 
 CAL_TOL = 0.15
 RATE_MIN = 0.90
 VRAM = {"cga": (0xB8000, 0x4000), "herc": (0xB0000, 0x8000)}
-CORNER_TRIES = 10                               # (SPEC.md 130.13.7 item 5; 8R.13: 6 -> 10, a try lands when its step
+CORNER_TRIES = 10                               # (SPEC.md 137.13.7 item 5; 8R.13: 6 -> 10, a try lands when its step
                                                 # frame ran no step or one, bz_tw about 44 - 51k)
 CORNER_STEP = 2                                 # the corner leg's spare steering frames: bz_first poked at the
                                                 # first bz_t0 makes the NEXT frame the full write, the wheel
@@ -269,7 +269,7 @@ def lane_cells(rects, lane, lsh):
 
 
 def allowed(cm, lane_rect, H, Wc):
-    """SPEC.md 130.12.4.4 rule 1a / rule 5, from the window words alone: ->
+    """SPEC.md 137.12.4.4 rule 1a / rule 5, from the window words alone: ->
     (the shown cells' rect, the entering rows' rect).  A wheel commit (before
     the flip) writes the lane's cells in the SHOWN window (bz_R0, bz_c0) and in
     this frame's entering rows less the entering column; the LEAD (after it,
@@ -365,17 +365,17 @@ def pres_snap(g):
     cnt = Snap(g, ("bz_frames", "bz_wcom", "bz_wover", "bz_wlate", "bz_wlead", "bz_wskip", "bz_wtmin"))
     ph = Snap(g, ("bz_nstep", "bz_pkick", "bz_tube", "bz_estp"))
     n = h.b("bz_nlane")
-    pn = R.guest_propmax()                      # (130.19.10: the guest's tables)
+    pn = R.guest_propmax()                      # (137.19.10: the guest's tables)
     out = {"frames": cnt.w("bz_frames"), "R0": w.w("bz_R0"), "c0": w.w("bz_c0"), "S": w.w("bz_S"),
            "full": w.b("bz_full"), "nstep": struct.unpack_from("<I", ph.bytes("bz_nstep", 4))[0],
            "pkick": [ph.w("bz_pkick", k) for k in range(pn)], "drawn": list(h.bytes("bz_ldrw", n)),
            "hold": list(h.bytes("bz_lhold", pn)), "wcn": h.b("bz_wcn"), "wskip": cnt.w("bz_wskip"),
            "heavy": h.b("bz_heavy"), "ctype": h.b("bz_ctype"), "cln": h.b("bz_cln"), "mustp": g.b("bz_mustp")}
-    # THE EARLY STEP (SPEC.md 130.4) runs after the walk and the boxes, in the retrace wait: bz_estp says one
+    # THE EARLY STEP (SPEC.md 137.4) runs after the walk and the boxes, in the retrace wait: bz_estp says one
     # did, so the step count the frame was DRAWN at (the walk's, and the gate's) is bz_nstep less it
     out["ndraw"] = out["nstep"] - ph.b("bz_estp")
     out["tsec"] = g.w("bz_tsec") if "bz_tsec" in g.sym else None   # wave 7: the clocks' seconds left
-    if "bz_lnext" in g.sym:                     # (13): the walk's range and bz_lnext (SPEC.md 130.13.5.3)
+    if "bz_lnext" in g.sym:                     # (13): the walk's range and bz_lnext (SPEC.md 137.13.5.3)
         out["lnext"] = list(struct.unpack("<%dH" % n, g.m.read(g.a("bz_lnext"), 2 * n))) if n else []
         out["lrw"] = list(struct.unpack("<%dh" % n, g.m.read(g.a("bz_lrw"), 2 * n))) if n else []
         out["lhh"] = list(g.m.read(g.a("bz_lhh"), n)) if n else []
@@ -426,7 +426,7 @@ def rotor_next(rec, nstep):
 
 def lnext_check(frames, recs, fails, rep, label=""):
     """(13): after every walk, each rotor in the walk's range has bz_lnext equal
-    to the model's next change step (SPEC.md 130.13.5.3, 130.13.12)"""
+    to the model's next change step (SPEC.md 137.13.5.3, 137.13.12)"""
     nj = nbad = 0
     for fi, fr in enumerate(frames):
         pr = fr.get("pr")
@@ -453,7 +453,7 @@ def lnext_check(frames, recs, fails, rep, label=""):
 
 
 def post_checks(frames, rects, recs, lsh, H, Wc, fails, rep, label="", cuts=False):
-    """(12), tightened (SPEC.md 130.13.12): every KICK ([bz_pkick] changing
+    """(12), tightened (SPEC.md 137.13.12): every KICK ([bz_pkick] changing
     between two presented frames) has its post drawn LIT ([bz_ldrw] 1) on the
     KICK's frame - one frame later only when that frame's contact slot went to a
     second lighting post (bz_mustp another), a strip meeting the slab (bz_ctype
@@ -564,7 +564,7 @@ def bench_leg(g, ref, wr):
     wc = g.a("bz_wcore")
     code = m.read(wc, 10)
     assert (code[0], code[1], code[2], code[5], code[8], code[9]) == (0x9C, 0xFA, 0xE8, 0xE8, 0x9D, 0xC3), \
-        "bz_wcore is not PUSHF CLI CALL(bz_wpass) CALL(bz_clk_sample) POPF RET (SPEC.md 130.13.12): the row's " \
+        "bz_wcore is not PUSHF CLI CALL(bz_wpass) CALL(bz_clk_sample) POPF RET (SPEC.md 137.13.12): the row's " \
         "logged offsets moved (%s)" % code.hex()
     wa = [g.base + o for o in wr]
     site_wc = [i for i, o in enumerate(wr) if g.sym["bz_wcommit"] <= o < g.sym["bz_wcore"]]
@@ -574,7 +574,7 @@ def bench_leg(g, ref, wr):
     # bz_wnow's entry: the instruction after the clock sample a commit's TEST is made on (bz_wtest's, bz_lead's)
     # - where the calibration's span starts too, so (5) times what the price covers (the review of wave 3b, C5)
     # (bz_tv is a STOP, not logged: the posts' kicks as the frame's walk DREW them are read there, before the
-    # early step - a kick in the early step is drawn by the NEXT frame's walk, SPEC.md 130.4: (12))
+    # early step - a kick in the early step is drawn by the NEXT frame's walk, SPEC.md 137.4: (12))
     logged = [A["bz_tw"], A["bz_tf"], A["bz_vr.rose"], A["bz_vr.high"], wc + 1, wc + 2, wc + 5, wc + 8,
               A["bz_wnow"]]
     Wc, H = BB.CARDS[tag == "herc"][:2]
@@ -598,7 +598,7 @@ def bench_leg(g, ref, wr):
         # (9): a lane brought onto the glass by an entering strip shows its TRUE pose
         st["enter"] += enter_check(g, ref, prev, out, rects, recs)
         st["pr"] = out
-        # a frame made LATE on purpose: the NEXT frame's bz_t0 spins (SPEC.md 130.12.5.6)
+        # a frame made LATE on purpose: the NEXT frame's bz_t0 spins (SPEC.md 137.12.5.6)
         f = out["frames"] + 1
         if f >= BENCH_STOP[tag] and "end" not in st:  # (phase 3: the leg's last needed frame)
             st["end"] = R.bench_end(g)
@@ -668,7 +668,7 @@ def commit_checks(g, frames, rises, held, rects, H, Wc, fails):
                              "must skip a frame past its first sync" % (fi + 1, kind, lane, held(fr)))
             wcx = cm["wcore"]
             # (5) its calibrated cost against its span: the commit's OWN cost' (its slot's, bz_wcst, read at
-            # bz_wcommit), the trim apart - bz_lcf's for a whole lane, the model's otherwise (SPEC.md 130.13.5.2)
+            # bz_wcommit), the trim apart - bz_lcf's for a whole lane, the model's otherwise (SPEC.md 137.13.5.2)
             if 1 in wcx and 8 in wcx:
                 lines_ = sum(((r[1] - r[0]) << lsh) * 1 for r in (cm["lra"], cm["lrb"]) if r[1] > r[0] and r[3] > r[2])
                 cst = cm["wcst"] * 4 * (cm["trim"] / 100.0 if cm["trim"] < 100 else 1.0)
@@ -710,19 +710,19 @@ def commit_checks(g, frames, rises, held, rects, H, Wc, fails):
     return beam, nbad3, cost, leads
 
 PASS_PRED = {("cga", 3): 7000, ("herc", 3): 7000, ("cga", 2): 5100, ("herc", 2): 5100}
-                               # 130.13.5.1 (130.13.14 item 6): a whole rotor's (3 x 3) and post's (2 x 3: MILL's
+                               # 137.13.5.1 (137.13.14 item 6): a whole rotor's (3 x 3) and post's (2 x 3: MILL's
                                # shape) pass, PREDICTED clk
 
 
 def cost_checks(cost, tag, fails, rep, label=""):
-    """(5) with wave 3b's model (SPEC.md 130.13.5.2, 130.13.12): each commit's
+    """(5) with wave 3b's model (SPEC.md 137.13.5.2, 137.13.12): each commit's
     OWN cost' (its slot's bz_wcst, the trim apart) against its span from the
     TEST's clock sample (bz_wnow's entry) to the closing one, what the
     calibration times and so what the price covers - a WHOLE-LANE commit's (bz_lcf's price) within CAL_TOL of its
     span, a CLIPPED commit's span at most (1 + CAL_TOL) times its cost - both
     ASSERTED on the CGA, the ratios REPORTED by kind; a commit priced at
     NOTHING fails on either; and each kind's PASS span (bz_wcore + 2 to + 5)
-    REPORTED against 130.13.5.1's prediction"""
+    REPORTED against 137.13.5.1's prediction"""
     for wd in sorted(cost):
         xs = cost[wd]
         if not xs:
@@ -754,7 +754,7 @@ def cost_checks(cost, tag, fails, rep, label=""):
         ps = [x[6] for x in xs if x[5] and x[6]]
         if ps:
             rep.append("(5)%s a whole %s's PASS (bz_wcore + 2 to + 5): %d commits, mean %.0f clk, %d - %d "
-                       "(PREDICTED about %d, SPEC.md 130.13.5.1)" % (label, kind, len(ps), sum(ps) / float(len(ps)),
+                       "(PREDICTED about %d, SPEC.md 137.13.5.1)" % (label, kind, len(ps), sum(ps) / float(len(ps)),
                                                                      min(ps), max(ps), PASS_PRED.get((tag, wd), 0)))
 
 
@@ -838,7 +838,7 @@ def judge_bench(g, ref, hits, res, st, A, wa, wsite, wc, rects, recs, rotors, H,
                                  "last true %d steps back)" % (fi + 1, i, pr["drawn"][i],
                                                                rotor_pose(recs[i], pr["nstep"] - 1), on, back))
     if res["bz_rwlate"]:
-        fails.append("(2) bz_wlate %d: a lane due and shown for 8 frames (SPEC.md 130.12.5.2)" % res["bz_rwlate"])
+        fails.append("(2) bz_wlate %d: a lane due and shown for 8 frames (SPEC.md 137.12.5.2)" % res["bz_rwlate"])
     rep.append("(2) %d shown-rotor frames judged, %d ahead; bz_wlate %d" % (nj, nah, res["bz_rwlate"]))
     # (3) the beam, (5) the cost, (6) the cells, (11) the lead
     beam, nbad3, cost, leads = commit_checks(g, frames, rises, held, rects, H, Wc, fails)
@@ -854,7 +854,7 @@ def judge_bench(g, ref, hits, res, st, A, wa, wsite, wc, rects, recs, rotors, H,
     nb = len(beam)
     rep.append("(3) %d commits with lines on the glass judged against the cycle counter (the refresh %.1f clk from "
                "%d rises), %d under the beam%s; %d frames made late by bz_hold, %d of them with candidates" % (
-                   nb, rises.P, len(rises.c), nbad3, " (the Hercules: REPORTED, SPEC.md 130.12.15 item 5)"
+                   nb, rises.P, len(rises.c), nbad3, " (the Hercules: REPORTED, SPEC.md 137.12.15 item 5)"
                    if tag == "herc" else "", len(st["holds"]), hc))
     for b in [x for x in beam if not x[7]][:6] + beam[:3]:
         rep.append("    frame %d %s lane %d lines %d-%d: ahead by %d clk, behind by %d clk: %s" % (
@@ -946,7 +946,7 @@ def judge_bench(g, ref, hits, res, st, A, wa, wsite, wc, rects, recs, rotors, H,
 
 
 # ---- the LOW leg: bonanza_ring's LOW SCENARIO, AHEAD of the beam and the LEAD ----
-# THE BEAM SWEEP (SPEC.md 130.13.7 item 2), after the LOW cycles: every SWEEP_CYCLE frames the LOW post is
+# THE BEAM SWEEP (SPEC.md 137.13.7 item 2), after the LOW cycles: every SWEEP_CYCLE frames the LOW post is
 # KICKED (bz_pkick + 1: it lights as the frame's must-draw), and on the frame after, at bz_t0, its lit frames
 # are poked to 0 (true dark, drawn lit: DUE, a wheel candidate) and [bz_hold] set to the sweep's next value -
 # SWEEP_HOLD (x 256 PIT counts: a spin of 24.6k - 41k clk in bz_t0), so bz_tw falls about 52 - 69k clk after
@@ -969,7 +969,7 @@ def sweep_poke(g, lane, k0, k):
     if r == 0:
         a = g.a("bz_pkick") + 2 * lane
         n = struct.unpack("<H", g.m.read(a, 2))[0]
-        g.m.write(a, struct.pack("<H", (n + 1) & 0xFFFF))     # a kick (130.13.14 item 10)
+        g.m.write(a, struct.pack("<H", (n + 1) & 0xFFFF))     # a kick (137.13.14 item 10)
         R.mark(g, lane)
         return ("kick", j)
     if r == 1:
@@ -1094,7 +1094,7 @@ def low_leg(g, ref):
                    len(due), SWEEP_HOLD[0], SWEEP_HOLD[-1], len(cand), SWEEP_MIN, " ".join(sw)))
     if len(cand) < SWEEP_MIN:
         fails.append("(3) the BEAM sweep: the post a wheel candidate on %d of its %d due frames, at least %d "
-                     "asserted (SPEC.md 130.13.7 item 2): the beam was never put in front of the wheel" % (
+                     "asserted (SPEC.md 137.13.7 item 2): the beam was never put in front of the wheel" % (
                          len(cand), len(due), SWEEP_MIN))
     cost_checks(cost, tag, fails, rep, " the LOW leg's")
     post_checks(frames, rects, recs, lsh, H, Wc, fails, rep, " the LOW leg:", cuts=True)
@@ -1104,7 +1104,7 @@ def low_leg(g, ref):
 
 
 # ---- the CORNER leg: a LIGHT down-and-left step across a lane at the bottom-left ---
-# bz_camscr's cycle (SPEC.md 130.17.6.7, BZ_SCR_CYCLE): bz_scnt = 8 x the entry picks a frame's (row, column)
+# bz_camscr's cycle (SPEC.md 137.17.6.7, BZ_SCR_CYCLE): bz_scnt = 8 x the entry picks a frame's (row, column)
 CORNER_CYC = ((0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1))
 CORNER_SCR = {-1: 24, 1: 8}     # the step's entry: DL (+1, -1), DR (+1, +1)
 CORNER_D = 16                   # D (+1, 0): the step's predecessor, a row before its wait and no column
@@ -1142,7 +1142,7 @@ def corner_plan(crs, H, Wc, rmax, cmax, lsh, rl, L=200):
     recs = {r["i"]: r for r in crs.part["props"]}
     rects = R.lane_rects(crs)
     grid = BB.Grid(crs.cga, crs.wcga)
-    # a LIFT moves by itself every step and is no lane (its plate is drawn as a box, SPEC.md 130.12.5):
+    # a LIFT moves by itself every step and is no lane (its plate is drawn as a box, SPEC.md 137.12.5):
     # its picture's reach, generous - the cell's centre at z 0 (the lowest it can be drawn), up to the
     # plate at its top dock (hT) and a margin - in lines and px, so a window showing it counts it busy
     kx, ky = grid.x0 - 8, grid.y0 - 13
@@ -1187,8 +1187,8 @@ def corner_plan(crs, H, Wc, rmax, cmax, lsh, rl, L=200):
 
 
 def corner_leg(g, ref):
-    """the corner leg on a LIGHT diagonal step (SPEC.md 130.13.7 item 5, 130.13.14
-    item 9), since 8R.13 under the SCRIPTED camera ([bz_camscr] 1, 130.17.6.7:
+    """the corner leg on a LIGHT diagonal step (SPEC.md 137.13.7 item 5, 137.13.14
+    item 9), since 8R.13 under the SCRIPTED camera ([bz_camscr] 1, 137.17.6.7:
     a harness byte like bz_hvoff; [bz_scnt] poked at each bz_t0 picks the
     frame's scripted step): the centred full write, the ball HELD at the
     window's centre (poked there every frame); a frame stepping UP a row, a
@@ -1223,7 +1223,7 @@ def corner_leg(g, ref):
         why = ("(6) the corner leg found no rotor or post it can put across the window's bottom-left or "
                "bottom-right corner (H %d, W %d, rmax %d, cmax %d)" % (H, Wc, rmax, cmax))
         if tag == "herc":                         # the Hercules's 45-word window: cmax 19 against MILL's lanes in
-            return [], [why + ": REPORTED - no window on this card can (SPEC.md 130.12.13.2)"]   # columns 21 - 35
+            return [], [why + ": REPORTED - no window on this card can (SPEC.md 137.12.13.2)"]   # columns 21 - 35
         return [why], rep
     lane, R0w, c0w, cen, side = plan
     g.putb("bz_camscr", 1)                        # the SCRIPTED camera (cleared at the leg's end: a cut)
@@ -1231,7 +1231,7 @@ def corner_leg(g, ref):
     wc = g.a("bz_wcore")
     code = m.read(wc, 10)
     assert (code[0], code[1], code[2], code[5], code[8], code[9]) == (0x9C, 0xFA, 0xE8, 0xE8, 0x9D, 0xC3), \
-        "bz_wcore is not PUSHF CLI CALL(bz_wpass) CALL(bz_clk_sample) POPF RET (SPEC.md 130.13.12): %s" % code.hex()
+        "bz_wcore is not PUSHF CLI CALL(bz_wpass) CALL(bz_clk_sample) POPF RET (SPEC.md 137.13.12): %s" % code.hex()
     A = {n: g.a(n) for n in ("bz_t0", "bz_wcommit", "bz_tw", "bz_vr.rose", "bz_ts", "bz_tr")}
     vb, vn = VRAM[tag]
     # the cut (1, its full write 2), the steering frames (3 ..), D (STEP - 1), the step (STEP)
@@ -1302,7 +1302,7 @@ def corner_leg(g, ref):
                 rise = [c for c in ros if c <= tw[0]]
                 if rise:
                     tw_after = tw[0] - rise[-1]
-                    # the step frame's parts (SPEC.md 130.13.14 item 9: REPORTED): bz_t0 after the rise,
+                    # the step frame's parts (SPEC.md 137.13.14 item 9: REPORTED): bz_t0 after the rise,
                     # then sim+camera (to bz_ts), box compose (to bz_tr) and the rows (to bz_tw)
                     ts = [h["cycles"] for h in hits if h["addr"] == A["bz_ts"] and c0_ < h["cycles"] < tw[0]]
                     tr = [h["cycles"] for h in hits if h["addr"] == A["bz_tr"] and c0_ < h["cycles"] < tw[0]]
@@ -1311,7 +1311,7 @@ def corner_leg(g, ref):
         tws_seen.append(tw_after)
         step_cm = [d for d in got if d["lane"] == lane and d["step"] == STEP]
         rep.append("(6) corner try %d: the step frame's bz_tw %s clk after the sync's rise (MEASURED 44 - 54k on "
-                   "the CGA under the script, a commit landing at about 51k or less, SPEC.md 130.13.14 item 9; its parts: "
+                   "the CGA under the script, a commit landing at about 51k or less, SPEC.md 137.13.14 item 9; its parts: "
                    "bz_t0 %s after the rise, sim+camera %s, box compose %s, rows %s); lane %d's commit on it: %s" % (
                        tries, "%d" % tw_after if tw_after is not None else "?",
                        *(("%d" % x for x in parts) if parts else ("?",) * 4), lane,
@@ -1332,7 +1332,7 @@ def corner_leg(g, ref):
     if not judged:
         msg = ("(6) the corner leg's LIGHT step made no wheel commit of lane %d on a down-and-%s step in %d tries "
                "- the step frame's bz_tw %s clk after the sync's rise (MEASURED 44 - 54k): the scene is to be made "
-               "lighter, never the check weakened, SPEC.md 130.13.14 item 9" % (
+               "lighter, never the check weakened, SPEC.md 137.13.14 item 9" % (
                    lane, "left" if side < 0 else "right", tries, ", ".join("?" if x is None else "%d" % x
                                                                            for x in tws_seen)))
         if tag == "herc":
@@ -1414,7 +1414,7 @@ def stale_plan(g, ref):
             # one row, and the ball is back inside the band), in the dead zone (no column).  Wave 6's final
             # pass: the cut's point stays airborne (the cut centres the window on the BALL), but from the
             # frame after it the ball is HELD RESTING in the band (R.rest_in_window), and the row's point
-            # rests too: a ball held airborne puts the camera on the GROUND line under it (SPEC.md 130.16.7),
+            # rests too: a ball held airborne puts the camera on the GROUND line under it (SPEC.md 137.16.7),
             # and TRICKLE panned the window 36 rows down after it before the row, so no rotor entered
             up = R.rest_in_window(crs, grid, top, left, Wc, range(L // 3 - 8 - rl, L // 3 - 8),
                                   flags=BB.FL_OCC | BB.FL_OCCG, slopes=True)
@@ -1426,7 +1426,7 @@ def stale_plan(g, ref):
 
 
 def stale_leg(g, ref):
-    """THE STALE SCENE (SPEC.md 130.13.7 item 4): the window HELD (R.cam_hold,
+    """THE STALE SCENE (SPEC.md 137.13.7 item 4): the window HELD (R.cam_hold,
     which replaced TRICKLE's [bz_cmode] 1 when TRICKLE was deleted); a
     centred full write puts a ROTOR wholly above the window's top (its last
     card row R0 - 1, in the walk's range) with the ball HELD at the centre;
@@ -1539,7 +1539,7 @@ def stale_leg(g, ref):
     return fails, rep
 
 
-# ---- the SIDE leg: wave 7's column band (SPEC.md 130.18.2) -----------------------
+# ---- the SIDE leg: wave 7's column band (SPEC.md 137.18.2) -----------------------
 SIDE_STEPS = 16                 # steps held with the rotor OUT before the camera trickles toward it
 SIDE_AFTER = 12                 # frames held at the trickle's point (the window settles)
 SIDE_MAX = 160                  # frames at most waiting for a pose the full write did not draw
@@ -1587,7 +1587,7 @@ def side_plan(g, ref):
                 rows = R0c <= q[0] and q[1] <= R0c + H
                 if not (out and rows):
                     continue
-                # (8R.13) the pan: the SCRIPTED camera (bz_camscr, 130.17.6.7; bz_scnt poked R or L each
+                # (8R.13) the pan: the SCRIPTED camera (bz_camscr, 137.17.6.7; bz_scnt poked R or L each
                 # frame) a column a frame toward the lane until a window shows it whole - its c0 the plan's
                 # last.  Wave 7's scene panned by TRICKLE from a second resting point outside the dead zone,
                 # which only TRIAL's finish clock at (9, 17) could give; the script needs only the cut, so
@@ -1607,7 +1607,7 @@ def side_plan(g, ref):
 
 
 def side_leg(g, ref):
-    """THE SIDE SCENE (SPEC.md 130.18.2, story 7.1): the window HELD (R.cam_hold,
+    """THE SIDE SCENE (SPEC.md 137.18.2, story 7.1): the window HELD (R.cam_hold,
     TRICKLE's [bz_cmode] 1 until TRICKLE was deleted); a
     centred full write puts a ROTOR or a clock's digit in the window's rows
     but wholly OUTSIDE the column band, the ball HELD resting in the dead
@@ -1615,7 +1615,7 @@ def side_leg(g, ref):
     ([bz_lout] 1: the walk never computed its true pose); after SIDE_STEPS
     steps, on a frame whose true pose differs from the full write's, the
     SCRIPTED camera ([bz_camscr] 1, [bz_scnt] poked R or L each frame,
-    SPEC.md 130.17.6.7; 8R.13 - it was a second resting point TRICKLE panned
+    SPEC.md 137.17.6.7; 8R.13 - it was a second resting point TRICKLE panned
     to, which only TRIAL's finish clock at (9, 17) offered) pans a column a
     frame to a window that shows the lane whole, and the entering columns
     bring it in from the map: (9) judges them (the TRUE pose on the card).
@@ -1625,9 +1625,9 @@ def side_leg(g, ref):
     m, tag = g.m, g.tag
     lsh = LSH[tag]
     fails, rep = [], []
-    # wave 7 (SPEC.md 130.18.5): MILL's lanes sit in columns every CGA window holds, so the scene is
+    # wave 7 (SPEC.md 137.18.5): MILL's lanes sit in columns every CGA window holds, so the scene is
     # searched on each course with a lane that can lie outside the band - a clock's digit beside its route
-    # (since wave 8R TRIAL's FINISH clock, the first that can: SPEC.md 130.22.10) - planned on the host
+    # (since wave 8R TRIAL's FINISH clock, the first that can: SPEC.md 137.22.10) - planned on the host
     # before the play is launched
     plan = None
     R.crs_fill()                                # (phase 3: the TEST courses, TMIL first - by name)
@@ -1751,7 +1751,7 @@ def side_leg(g, ref):
     return fails, rep
 
 
-# ---- the CLOCK leg: wave 7's course clocks (SPEC.md 130.18.5) --------------------------
+# ---- the CLOCK leg: wave 7's course clocks (SPEC.md 137.18.5) --------------------------
 CLOCK_FRAMES = 420              # frames of TMIL's play, held at its start: about 7 seconds of the clock
 CLOCK_NEAR = 6                  # tiles: the clock digits judged are the ones this near the start (TMIL's (6, 13),
                                 # MILL's place, in the start's window; the FINISH clock (11, 21) is G's, far off)
@@ -1759,7 +1759,7 @@ CLOCK_LAG = 3                   # frames a digit may trail its second (the wheel
 
 
 def clock_leg(g, ref):
-    """THE CLOCK (SPEC.md 130.18.5, story 7.2): FIRST played from its start with
+    """THE CLOCK (SPEC.md 137.18.5, story 7.2): FIRST played from its start with
     the ball HELD there, CLOCK_FRAMES frames; at every bz_presented each clock
     digit lane's drawn pose ([bz_ldrw]) is its true pose of [bz_tsec]
     (bbcourse.clock_pose) or was so within CLOCK_LAG frames of the second's
@@ -1951,9 +1951,9 @@ def run(tag, legs=LEGS, apps=None, src=None):
         g = R.Bz(ui, tag, sym)
         ui.settle()
         if "bzs_mode" in sym:
-            # THE WHEEL AT EQUAL CONTENT: the sound OFF (S's own choice, SPEC.md 130.20.4). Its idle time is
+            # THE WHEEL AT EQUAL CONTENT: the sound OFF (S's own choice, SPEC.md 137.20.4). Its idle time is
             # what the wheel spends, and with the music on the rotors show ~2 poses in 36 fewer (SPEC.md
-            # 130.20.7): a trade the owner weighs, priced by bonanzasound, not this row's verdict
+            # 137.20.7): a trade the owner weighs, priced by bonanzasound, not this row's verdict
             g.m.pause()
             g.putb("bzs_mode", 3)
             g.m.run()
@@ -1983,11 +1983,11 @@ def run(tag, legs=LEGS, apps=None, src=None):
             f, r = stale_leg(g, ref)
             fails += f
             rep += r
-        if "side" in legs:                      # wave 7 (SPEC.md 130.18.2)
+        if "side" in legs:                      # wave 7 (SPEC.md 137.18.2)
             f, r = side_leg(g, ref)
             fails += f
             rep += r
-        if "clock" in legs:                     # wave 7 (SPEC.md 130.18.5)
+        if "clock" in legs:                     # wave 7 (SPEC.md 137.18.5)
             f, r = clock_leg(g, ref)
             fails += f
             rep += r
@@ -2035,10 +2035,10 @@ REDS = {
     "corner": [("bzwheel.inc", "    mov ax, [bz_dc]\n    or ax, ax\n    jz .cols\n    js .left\n    dec cx\n",
                 "    jmp short .cols             ; RED corner: the entering column's cells too\n    js .left\n"
                 "    dec cx\n")],
-    # wave 7 (SPEC.md 130.18.2): the column band with no margin - a lane is walked only from the frame its
+    # wave 7 (SPEC.md 137.18.2): the column band with no margin - a lane is walked only from the frame its
     # column is already inside the old window, so the column the camera brings in is drawn from a stale map
     "nocol": [("bzwheel.inc", "BZ_LCM      equ 2               ;", "BZ_LCM      equ 0               ; RED nocol:")],
-    # wave 7 (SPEC.md 130.18.5): the clocks' digits never brought up to date after the first second
+    # wave 7 (SPEC.md 137.18.5): the clocks' digits never brought up to date after the first second
     "clkfreeze": [("bzphys.inc", "    call bz_tdset               ; (the clocks' digits, once a second)\n",
                    "                                ; RED clkfreeze: the digits frozen\n")],
     "lanestale": [("bzwheel.inc", "    call bz_lsync               ; 2. wholly outside: the map now, in RAM\n",
@@ -2048,7 +2048,7 @@ REDS = {
                   "    jmp .next                   ; RED gatelate: skipped while its gate changes\n")],
     "litsteps": [("bzwheel.inc", "    dec byte [bz_lhold + bx]\n",
                   "    mov byte [bz_lhold + bx], 0 ; RED litsteps: lit for one frame\n")],
-    # wave 3b (SPEC.md 130.13.12).  bz_lcf left unfilled (0): a WHOLE lane priced at nothing: (5)
+    # wave 3b (SPEC.md 137.13.12).  bz_lcf left unfilled (0): a WHOLE lane priced at nothing: (5)
     "costtab": [("bzwheel.inc", "    mov [bz_lcf + si], ax\n    inc bx\n",
                  "    mov word [bz_lcf + si], 0   ; RED costtab: bz_lcf unfilled\n    inc bx\n")],
     # bz_lnext one STEP late (a pose change drawn a frame late, none skipped): (13)
@@ -2060,14 +2060,14 @@ REDS = {
                "    jnz .w0                     ; none, every kick seen\n    cmp [bz_lhold + bx], al\n",
                "    xor al, al                  ; RED pskip: no drawn-dark clause\n    cmp [bz_lhold + bx], al\n")],
 }
-# each arm's leg is the one that puts its case in front of its check (SPEC.md 130.13.7): `nobeam` the LOW
+# each arm's leg is the one that puts its case in front of its check (SPEC.md 137.13.7): `nobeam` the LOW
 # leg's BEAM sweep, `alias` and `corner` the LIGHT corner step, `lanestale` the STALE scene, `pskip` the
 # sweep's poked lit frames, `costtab` the LOW leg's whole posts
 RED_LEGS = {"repeat": ("bench",), "ahead": ("bench",), "nobeam": ("low",), "kmod": ("bench",),
             "halfcal": ("bench",), "alias": ("corner",), "corner": ("corner",), "lanestale": ("stale",),
             "gatelate": ("gate",), "litsteps": ("bench",), "costtab": ("low",), "lnext": ("bench",),
             "pskip": ("low",), "nocol": ("side",), "clkfreeze": ("clock",)}
-# the Hercules' beam checks are reported (130.12.15 item 5); the corner's (6) and (5) are asserted on the CGA
+# the Hercules' beam checks are reported (137.12.15 item 5); the corner's (6) and (5) are asserted on the CGA
 # ...and `halfcal` the CGA's: on the Hercules every MILL commit leaves more than the halved price's ~600
 # counts before its deadline, so nothing overruns there (the final pass of wave 3b: bz_wover 0, (5)'s
 # ratio 1.31 reported)
@@ -2089,7 +2089,7 @@ def main():
     ap.add_argument("--check", action="store_true",
                     help="the host half only: the gate logs proved on the model, every red arm assembled")
     a = ap.parse_args()
-    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
+    R.dev()                             # the BZDEV=1 build (SPEC.md 137.26.6.1)
     if a.check:
         S = gate_scen()
         bad = P.prove(S)
@@ -2100,7 +2100,7 @@ def main():
         wr = writers()
         print("bonanza_wheel: bz_ldrw's writers at image offsets %s" % ", ".join("%04Xh" % o for o in wr))
         # (three since fe66c7742: bz_lsync's, bz_wcommit's and bz_wclk's - the finish clock's group commit,
-        # SPEC.md 130.22.6, a lane-writer of its own; (1) holds it to the same rule)
+        # SPEC.md 137.22.6, a lane-writer of its own; (1) holds it to the same rule)
         assert len(wr) == 3, "bz_ldrw has %d writers, not bz_lsync's, bz_wcommit's and bz_wclk's" % len(wr)
         for line in R.check_reds(REDS, "bonanza_wheel"):
             print(line)

@@ -1,4 +1,4 @@
-# Magnet Test - BONANZA's MAGNETS test course (SPEC.md 130.33), built only by the BZMAGNET=1 knob
+# Magnet Test - BONANZA's MAGNETS test course (SPEC.md 137.33), built only by the BZMAGNET=1 knob
 # (make BUILD=<tree> BZMAGNET=1 bonanzadisk).  Not shipped; not on the TOUR; the knob's pathway makes it pad 0,
 # so Play Game, Enter plays it.  Magnets pull STEEL only: try each section as steel, then as rubber.
 #
@@ -12,7 +12,7 @@
 #    back - steel rolls off the edge and HOVERS across to the goal's plate; rubber falls;
 #  - the plain way round: a corridor from the start plate to the goal's plate, so every section is a choice.
 course MAGS "Magnet Test"
-music fairway    # a test course: SPEC.md 130.50.3, every course names its song
+music fairway    # a test course: SPEC.md 137.50.3, every course names its song
 width  128
 origin 480
 ball   steel

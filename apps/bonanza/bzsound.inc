@@ -1,13 +1,13 @@
-; bzsound.inc - BONANZA's sound: the music and the effects (SPEC.md 130.20).
+; bzsound.inc - BONANZA's sound: the music and the effects (SPEC.md 137.20).
 ;
 ; ONE SCORE, TWO RENDERERS, ONE CLOCK.  The songs and the effects are
-; tools/bbmusic.py's parts (BZSND.BIN, BZM<S>.BIN, 130.20.3); its Seq and Chip
+; tools/bbmusic.py's parts (BZSND.BIN, BZM<S>.BIN, 137.20.3); its Seq and Chip
 ; classes are this file's sequencer and AdLib arm in Python, step for step,
 ; and the rows hold the two to each other.  The clock is the physics
 ; SUB-TICK, 54.6 Hz (BZ_SUB): the bracket steps once per elapsed sub-tick
-; (the window plays nothing since SPEC.md 130.26.5).
+; (the window plays nothing since SPEC.md 137.26.5).
 ;
-; THE ARMS (130.20.4): the AdLib - SOUND.DRV's whole chip claimed
+; THE ARMS (137.20.4): the AdLib - SOUND.DRV's whole chip claimed
 ; (SND_FM_CLAIM) and at most ONE SNDV_OPLW batch a frame of only the
 ; registers the voices that changed need, capped at BZS_FMCAP, drums on two
 ; channels so a hit never re-patches, the vibrato the chip's own - or the
@@ -15,11 +15,11 @@
 ; the lead and the bass, sent only when its pitch or its note changes.
 ; Channel 2 and the OPL ports are never touched here (SPEC.md 53.7).
 ;
-; A NOTE IS TWO STAMPS (130.20.1): the sub-tick it was keyed and the one its
+; A NOTE IS TWO STAMPS (137.20.1): the sub-tick it was keyed and the one its
 ; key goes up.  A sub-tick does nothing for a held note unless its pitch
 ; moves (bzs_dynm), and one deadline (bzs_next) says when a key goes up.
 ;
-; THE EVENTS (130.20.5): physics is never touched for sound.  bzs_frame
+; THE EVENTS (137.20.5): physics is never touched for sound.  bzs_frame
 ; compares the counters it keeps (bz_nland, bz_nbnc, ...) with the last
 ; frame's and plays the material's effect for each.
 ;
@@ -27,10 +27,10 @@
 ; flags unless it says otherwise:
 ;   bzs_gfetch / bzs_gdrop               bz_launch's: the course's song
 ;   bzs_open / bzs_frame / bzs_close     the BRACKET's
-;   bzs_toggle                           the Game menu's Sound (130.26.3)
+;   bzs_toggle                           the Game menu's Sound (137.26.3)
 ; =============================================================================
 
-BZS_FMCAP   equ 8               ; OPL registers a frame, at most (130.20.4)
+BZS_FMCAP   equ 8               ; OPL registers a frame, at most (137.20.4)
 BZS_FMBUF   equ BZS_FMCAP       ; ...the batch: a patch is written a cap's
                                 ; worth a frame (H_PPOS), so nothing passes it
 %if BZS_FMCAP < 4
@@ -51,7 +51,7 @@ BZS_A_NONE  equ 0               ; [bzs_arm]
 BZS_A_SPK   equ 1
 BZS_A_FM    equ 2
 
-; the sound part's header (130.20.3)
+; the sound part's header (137.20.3)
 BZSH_HZT    equ 4
 BZSH_OPT    equ 6
 BZSH_INS    equ 8
@@ -132,21 +132,21 @@ F_SVOL      equ 21              ; the segment's own volume: the AdLib's level
 F_SIZE      equ 22
 
 ; no part rows: the sound part, VICTORY and TIME'S UP are the RESIDENT
-; BUNDLE's (SPEC.md 130.50.2), each course's song its own part's section S
-; (130.50.3)
+; BUNDLE's (SPEC.md 137.50.2), each course's song its own part's section S
+; (137.50.3)
 
 %macro BZ_SND_VARS 0
 VAR bzs_mode,1                  ; the player's choice (S): BZS_M_*
 VAR bzs_arm,1                   ; the arm open now: BZS_A_*
 VAR bzs_live,1                  ; 1: a song is playing
-VAR bzs_song,1                  ; 1: the song is the course part's (section S, 130.50.3), 0 none
-VAR bzs_pseg,2                  ; the sound part's segment, 0 none: the BUNDLE's (130.50.2, bz_bsload)
+VAR bzs_song,1                  ; 1: the song is the course part's (section S, 137.50.3), 0 none
+VAR bzs_pseg,2                  ; the sound part's segment, 0 none: the BUNDLE's (137.50.2, bz_bsload)
 VAR bzs_mseg,2                  ; the song's segment (inside the course part, or a finish tune's), 0 none
 VAR bzs_vic,1                   ; 1: the fanfare played this play (the desktop's goal effect is then not)
-VAR bzs_fin,1                   ; 1: this play's finish has its tune (130.50.2: a PLAY of a COURSE with
+VAR bzs_fin,1                   ; 1: this play's finish has its tune (137.50.2: a PLAY of a COURSE with
                                 ; music, bzs_gfetch's) - the gate the held fanfare's segment was
-VAR bzs_vseg,2                  ; the VICTORY fanfare's, in the BUNDLE (130.50.2, bz_bsload), 0 none
-VAR bzs_tseg,2                  ; ...and the TIME'S UP tune's beside it (130.22.9.1), 0 none
+VAR bzs_vseg,2                  ; the VICTORY fanfare's, in the BUNDLE (137.50.2, bz_bsload), 0 none
+VAR bzs_tseg,2                  ; ...and the TIME'S UP tune's beside it (137.22.9.1), 0 none
 VAR bzs_hzt,2                   ; the sound part's tables (its header, copied)
 VAR bzs_opt,2
 VAR bzs_ins,2
@@ -188,10 +188,10 @@ VAR bzs_last,2 * BZS_NCTR       ; the counters, the last frame's (bzs_ctr0..)
 VAR bzs_lgoal,1                 ; bz_goal, the last frame's
 VAR bzs_lsum,2                  ; ...and the counters' sum
 VAR bzs_lfev,2                  ; ...and bz_nfev (wave 9: a family's events, the
-                                ; PICKUP sound, SPEC.md 130.25.19)
+                                ; PICKUP sound, SPEC.md 137.25.19)
 VAR bzs_ltsec,2                 ; wave 7: bz_tsec, the last frame's (the clock's events)
 VAR bz_nwall,2                  ; SOUND STATE the physics writes and never
-VAR bz_lwv,2                    ; reads (bzphys.inc bz_refl, 130.20.5): wall
+VAR bz_lwv,2                    ; reads (bzphys.inc bz_refl, 137.20.5): wall
 VAR bz_lwb,1                    ; reflections, the last one's speed, 1 a bumper's
 %if bzs_dirty != bzs_dynm + 1
  %error "bzs_kv moves bzs_dynm and bzs_dirty as one word"
@@ -202,7 +202,7 @@ VAR bz_lwb,1                    ; reflections, the last one's speed, 1 a bumper'
 %endmacro
 
 ; -----------------------------------------------------------------------------
-; THE WINDOW IS SILENT (SPEC.md 130.26.5): the desktop's title song, its
+; THE WINDOW IS SILENT (SPEC.md 137.26.5): the desktop's title song, its
 ; player and its timer are gone.  The player's choice is ON (AUTO) or OFF.
 ; -----------------------------------------------------------------------------
 
@@ -218,10 +218,10 @@ bzs_toggle:
 ; -----------------------------------------------------------------------------
 
 ; bzs_gfetch - course [bz_crs]'s song: section S of its own part, fetched with
-; it (SPEC.md 130.50.3: the tool puts each course's song - its `music`, or
-; 130.20.6's rule - in the part), so there is NOTHING to fetch: bzs_csong
+; it (SPEC.md 137.50.3: the tool puts each course's song - its `music`, or
+; 137.20.6's rule - in the part), so there is NOTHING to fetch: bzs_csong
 ; points the sequencer at it.  The sound part, VICTORY and TIME'S UP are the
-; RESIDENT BUNDLE's (130.50.2).  With no bundle (kern_small plays nothing) or no
+; RESIDENT BUNDLE's (137.50.2).  With no bundle (kern_small plays nothing) or no
 ; section S the play is SILENT, never refused.  bzs_fin set for a play whose
 ; finish has its tune.  Preserves nothing.
 bzs_gfetch:
@@ -233,7 +233,7 @@ bzs_gfetch:
     call bzs_csong
     jc .r
     cmp byte [bz_mode], 0       ; ...and the FINISH'S TUNES held (8R.6, D2;
-    jne .r                      ; 130.50.2: in the bundle, no read at all) -
+    jne .r                      ; 137.50.2: in the bundle, no read at all) -
     cmp byte [bz_crs], BZ_CRS_MAX ; for a PLAY of a COURSE only, the one thing
     jae .r                      ; with a finish sequence (not a replay, a
     cmp byte [bzs_mode], BZS_M_FX ; benchmark, a demo, the pathway or the
@@ -243,9 +243,9 @@ bzs_gfetch:
     ret
 
 ; bzs_gdrop, bzs_gdrop0 - the course's song given back (after the bracket, and
-; between the game's rounds, wave 8b, SPEC.md 130.19.5); the sound part and
-; the finish's tunes are the bundle's and stay (130.50.2).  The window plays
-; nothing after it (130.26.5).  Preserves AX.
+; between the game's rounds, wave 8b, SPEC.md 137.19.5); the sound part and
+; the finish's tunes are the bundle's and stay (137.50.2).  The window plays
+; nothing after it (137.26.5).  Preserves AX.
 bzs_gdrop:
 bzs_gdrop0:
     push ax
@@ -258,7 +258,7 @@ bzs_gdrop0:
     ret
 
 ; bzs_csong - the song in course part [bz_cseg]: its directory's section S
-; (SPEC.md 130.50.3: zeros to a paragraph, then the song), the song's
+; (SPEC.md 137.50.3: zeros to a paragraph, then the song), the song's
 ; paragraph made a segment with OSAPI_SEG (no arithmetic: kern_mega's LDT
 ; selector, the part's own) into bzs_mseg, bzs_song 1.  CF = 1 none (a part
 ; built with no song).  Clobbers AX, BX, CX, DX.
@@ -324,7 +324,7 @@ bzs_ptab:
     ret
 
 ; -----------------------------------------------------------------------------
-; WAVE 8R (SPEC.md 130.22.9): the shell's four events and the finish's tune
+; WAVE 8R (SPEC.md 137.22.9): the shell's four events and the finish's tune
 ; -----------------------------------------------------------------------------
 BZS_EV_PAD  equ BZS_E_ARRIVE    ; the marble arrives on a pad: a bright chime
 BZS_EV_GATE equ BZS_E_GATE      ; a gate opens: a rising crystal slide, 0.5 s
@@ -367,7 +367,7 @@ bzs_ev:
 ; course's song then plays on).  Call it once at the finish start.  Preserves
 ; all.
 bzs_victory:
-    cmp byte [bzs_fin], 0       ; (130.50.2: a play whose finish has its tune)
+    cmp byte [bzs_fin], 0       ; (137.50.2: a play whose finish has its tune)
     je .r
     cmp byte [bz_goal], 0
     je .tu
@@ -385,7 +385,7 @@ bzs_victory:
     pop ax
 .r:
     ret
-.tu:                            ; A TIMEOUT (SPEC.md 130.22.9.1): the time's-up
+.tu:                            ; A TIMEOUT (SPEC.md 137.22.9.1): the time's-up
     cmp byte [bz_tout], 0       ; tune the same way, when it was had
     je .r
     cmp byte [bzs_arm], BZS_A_NONE
@@ -406,7 +406,7 @@ bzs_victory:
 ; THE BRACKET: open, a frame, close
 ; -----------------------------------------------------------------------------
 
-; bzs_open - an arm, from OSAPI_SND_CAPS and the player's choice (130.20.4):
+; bzs_open - an arm, from OSAPI_SND_CAPS and the player's choice (137.20.4):
 ; the AdLib where SND_CAP_FM is published AND the tone route is not the
 ; Control Panel's speaker (BL = 0), and the claim succeeds; else the speaker.
 ; The song from its top.  Also the desktop's.  Preserves all.
@@ -550,7 +550,7 @@ bzs_frame:
     ret
 
 ; -----------------------------------------------------------------------------
-; bzs_events - THE EVENTS (130.20.5): every counter the physics keeps against
+; bzs_events - THE EVENTS (137.20.5): every counter the physics keeps against
 ; the last frame's copy; a difference plays the material's effect.  While
 ; [bzs_snap] is 0 the copies are only taken.  Preserves CX; clobbers AX, BX,
 ; DX, SI, DI, ES.
@@ -562,11 +562,11 @@ bzs_frame:
 %define bzs_ctr4    bz_nshat
 %define bzs_ctr5    bz_nhop
 %define bzs_ctr6    bz_nfall
-%define bzs_ctr7    bz_nkick    ; (wave 3's, SPEC.md 130.12.6.6)
+%define bzs_ctr7    bz_nkick    ; (wave 3's, SPEC.md 137.12.6.6)
 %define bzs_ctr8    bz_nknock
 %define bzs_ctr9    bz_ntube
-%define bzs_ctr10   bz_nboost   ; (wave 6's, SPEC.md 130.16.4.4)
-%define bzs_ctr11   bz_nckpt    ; (wave 4's, mapped by wave 7, SPEC.md 130.18.6)
+%define bzs_ctr10   bz_nboost   ; (wave 6's, SPEC.md 137.16.4.4)
+%define bzs_ctr11   bz_nckpt    ; (wave 4's, mapped by wave 7, SPEC.md 137.18.6)
 %define bzs_ctr12   bz_npad
 %define bzs_ctr13   bz_nlip
 %define bzs_ctr14   bz_nspr
@@ -588,14 +588,14 @@ BZS_C_KICK  equ 128
 BZS_C_KNOCK equ 256
 BZS_C_TUBE  equ 512
 BZS_C_BOOST equ 1024
-BZS_C_FLAG  equ 2048            ; wave 7 (SPEC.md 130.18.6)
+BZS_C_FLAG  equ 2048            ; wave 7 (SPEC.md 137.18.6)
 BZS_C_PAD   equ 4096
 BZS_C_LIP   equ 8192
 BZS_C_SPR   equ 16384
 BZS_C_RET   equ 32768
 
 bzs_events:
-    mov ax, [bz_tsec]           ; wave 7 (SPEC.md 130.18.6): THE CLOCK's second
+    mov ax, [bz_tsec]           ; wave 7 (SPEC.md 137.18.6): THE CLOCK's second
     cmp ax, [bzs_ltsec]         ; moved - the TIMEOUT at 0 (a timed-out play's),
     je .nt                      ; LOW at 30 s and 10 s, a TICK under 10 s
     mov [bzs_ltsec], ax
@@ -605,7 +605,7 @@ bzs_events:
     jnz .t1
     cmp byte [bz_tout], 0
     je .nt
-    cmp byte [bzs_fin], 0       ; (130.22.9.1: the time's-up tune plays in
+    cmp byte [bzs_fin], 0       ; (137.22.9.1: the time's-up tune plays in
     jne .nt                     ; the effect's place, as the fanfare in GOAL's)
     mov al, BZS_E_TIMEOUT
     jmp short .tf
@@ -667,7 +667,7 @@ bzs_events:
     jnc .c
     mov cl, 16 - BZS_NCTR
     shr dx, cl
-    mov ax, [bz_nfev]           ; wave 9 (SPEC.md 130.25.19): a family's EVENT,
+    mov ax, [bz_nfev]           ; wave 9 (SPEC.md 137.25.19): a family's EVENT,
     cmp ax, [bzs_lfev]          ; PICKUP (DX has no bit left for it: played here,
     je .goal                    ; the rest of the frame's events after it)
     mov [bzs_lfev], ax
@@ -726,7 +726,7 @@ bzs_events:
     call bzs_trig0
 .boost:
     test dx, BZS_C_BOOST        ; wave 6: rubber's boost (only rubber's column
-    jz .wall                    ; names an effect, 130.16.4.4)
+    jz .wall                    ; names an effect, 137.16.4.4)
     mov al, BZS_E_BOOST
     call bzs_trig0
 .wall:
@@ -763,7 +763,7 @@ bzs_events:
     jz .flag
     mov al, BZS_E_TUBE
     call bzs_trig0
-.flag:                          ; wave 7 (SPEC.md 130.18.6): wave 4's props -
+.flag:                          ; wave 7 (SPEC.md 137.18.6): wave 4's props -
     test dx, BZS_C_FLAG         ; a flag touched, a pad's swap, the cup's
     jz .pad                     ; lip-out, a spring's launch, a RETURN
     mov al, BZS_E_FLAG
@@ -1290,7 +1290,7 @@ bzs_kv:
     mov es, [bzs_pseg]
     mov al, [di + V_BIT]        ; the chip has to catch up; its pitch moves
     mov cx, [bzs_dynm]          ; only under a macro (no vibrato is written:
-    or ch, al                   ; 130.20.4).  CL = bzs_dynm, CH = bzs_dirty
+    or ch, al                   ; 137.20.4).  CL = bzs_dynm, CH = bzs_dirty
     cmp byte [es:si + BZI_MAC], 0FFh
     je .still
     or cl, al
@@ -1507,7 +1507,7 @@ bzs_rand:
     ret
 
 ; -----------------------------------------------------------------------------
-; THE ARMS (130.20.4)
+; THE ARMS (137.20.4)
 ; -----------------------------------------------------------------------------
 
 ; bzs_output - what the arm open makes of this frame's state.  Clobbers AX,

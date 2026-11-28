@@ -1,12 +1,12 @@
-; bzphys.inc - BONANZA's physics (SPEC.md 130.10.7 as wave 2 changes it,
-; 130.11.8; 130.10.8; wave 3's props, 130.12.6): the ball in GROUND units on
+; bzphys.inc - BONANZA's physics (SPEC.md 137.10.7 as wave 2 changes it,
+; 137.11.8; 137.10.8; wave 3's props, 137.12.6): the ball in GROUND units on
 ; the course part's BZG1 grid, one step a FASTTICK sub-tick.
 ; tools/bbcourse.py's Physics class is the
-; reference and this is integer-exact to it, step for step; SPEC.md 130.11.8.2
+; reference and this is integer-exact to it, step for step; SPEC.md 137.11.8.2
 ; is the binding order both follow.
 ;
 ; =============================================================================
-; GUEST STATE A HARNESS READS (130.10.7.1, 130.11.5.2, 130.11.8.1; offsets the
+; GUEST STATE A HARNESS READS (137.10.7.1, 137.11.5.2, 137.11.8.1; offsets the
 ; package segment's)
 ; =============================================================================
 ;   bz_gx,bz_gy DWORD  the contact point, gu in 24.8: +0 the fraction, +1 the
@@ -18,20 +18,20 @@
 ;   bz_ztop     word   the highest z (px, floor) of this flight
 ;   bz_lfall    word   the last landing's drop, ztop - h (px, >= 0)
 ;   bz_lvz      word   the last landing's impact RELATIVE TO THE FLOOR,
-;                      max(0, fr - gvz) (130.11.8.5)
+;                      max(0, fr - gvz) (137.11.8.5)
 ;   bz_safe     2 bytes the last SAFE cell stood on: wx, then wy
 ;   bz_nstep    DWORD  steps since the play began
 ;   bz_nfall    word   respawns;  bz_nland word landings (every contact)
 ;   bz_nbnc, bz_nstun, bz_nshat, bz_nhop  words: bounces, stuns, shatters,
-;                      Hops this play (130.11.5.2)
+;                      Hops this play (137.11.5.2)
 ;   bz_gh       word   the floor's h4 under an airborne ball over a FLOOR or
-;                      GOAL cell; bz_ghv byte 1 when it is valid (130.11.8.1)
+;                      GOAL cell; bz_ghv byte 1 when it is valid (137.11.8.1)
 ;   bz_lvl      4 bytes the arrows' ramp levels 0 .. 8, BZ_K_* order (L R U D)
 ;   bz_hopw     byte   the Hop's window, steps left
-;   bz_bgr      byte   wave 6b (130.17.4.5): the boost's LATE GRACE, steps
+;   bz_bgr      byte   wave 6b (137.17.4.5): the boost's LATE GRACE, steps
 ;                      left (0 none); it and bz_hopw count down as one word
 ;   bz_mst      byte   0 none, 1 STUNNED, 2 SHATTERING;  bz_mct its steps left
-;   bz_sqf      byte   the squash's steps left (130.11.9.3)
+;   bz_sqf      byte   the squash's steps left (137.11.9.3)
 ;   bz_kprev    byte   the last step's key byte
 ;   bz_goal     byte   1 once a step ends with the centre on a GOAL cell, in
 ;                      play or a replay (not the benchmark), grounded or not
@@ -44,16 +44,16 @@
 ;   bz_nbr      36 bytes the 3 x 3 cells round it, row-major by wy then wx,
 ;                      each the grid's 4 bytes (OPEN outside the grid)
 ;   bz_sb       word   the ball's cell row s_b = (gx >> 4) + (gy >> 4), whole gu
-;                      (the occluder rule's and the idle test's, 130.10.8):
+;                      (the occluder rule's and the idle test's, 137.10.8):
 ;                      written ONCE A FRAME, by bz_camera, not by the step
 ;   bz_resp     byte   1 when this FRAME's steps included a respawn (the cut)
 ;   bz_mat      byte   (bonanza.asm) the material; bz_pinit copies its BZ_MATTAB
 ;                      record into bz_mrec, and the step reads it there
 ;
-; Wave 3's (SPEC.md 130.12.6.6; bbcourse.Physics's state3, compared at every
+; Wave 3's (SPEC.md 137.12.6.6; bbcourse.Physics's state3, compared at every
 ; frame by bonanzaphys):
 ;   bz_ps       byte   bit 0 bz_wol not empty, bit 1 in a tube, bit 2 carried,
-;                      bit 3 a SPLIT cell in the window (SPEC.md 130.24.7.6, D3)
+;                      bit 3 a SPLIT cell in the window (SPEC.md 137.24.7.6, D3)
 ;   bz_wol      19 bytes the window's OBS cells: a count, then (cell 0 - 8,
 ;                      prop index) pairs in bz_wrt's order (bytes past the
 ;                      count's pairs are stale)
@@ -63,7 +63,7 @@
 ;   bz_onp      byte   carried by the platform: its index + 1, 0 none
 ;   bz_pkick    16 words each prop's last kick step (0FFFAh: never)
 ;   bz_nkick, bz_nknock, bz_ntube words: kicks, knock-backs, captures
-; Wave 6's and 6b's (130.16.4.3, 130.17.4.3; state6, compared at every frame):
+; Wave 6's and 6b's (137.16.4.3, 137.17.4.3; state6, compared at every frame):
 ;   bz_btok     byte   the boost's TOKEN: 0, 1 a ground Hop or (round 3) a
 ;                      fall in flight, 2 that flight ARMED by a second Space
 ;                      edge (6b)
@@ -71,17 +71,17 @@
 ;   bz_drx, bz_dry bytes the fractional drag's remainders
 ;   bz_bgd      word   6b: BOOST less the rebound's gvz where the late grace
 ;                      opened (bz_bgr above holds its steps left)
-;   bz_bsp      byte   round 3b (130.17.17): the boost SPENT, 1 from a boost
+;   bz_bsp      byte   round 3b (137.17.17): the boost SPENT, 1 from a boost
 ;                      until the ball is next on the ground; a launch out of
 ;                      the air takes the token only while it is 0
-;   bz_zoff     word   round 3 (130.17.16): the take-off's z (px), the held
+;   bz_zoff     word   round 3 (137.17.16): the take-off's z (px), the held
 ;                      arming's gate; not compared (read under the token 1
 ;                      only, which is set only where bz_toff writes it)
 ; and, the step's own (not the model's): bz_wcen, bz_wckd, bz_wbmp, bz_wkd
 ; (bz_wolf's centre prop, kinds and bumper count), bz_pcn/pcs/pcv (bz_ppos's
 ; cache), bz_cdd, bz_pdoor, bz_pdi, bz_fslab, bz_fair, bz_fnl.
 ;
-; The SCREEN state 130.10.8 derives at the end of every step: bz_bx, bz_by
+; The SCREEN state 137.10.8 derives at the end of every step: bz_bx, bz_by
 ; (24.8, the ball's picture top-left) and bz_vx, bz_vy (how far they moved
 ; this step, a respawn's 0) - which the camera, the frame and the boxes read
 ; as they did in wave 0b.
@@ -92,7 +92,7 @@
 ; =============================================================================
 
 BZ_KVOID    equ 0               ; a cell's kind (the low nibble of byte +2;
-BZ_KFLOOR   equ 1               ; the high nibble is its SURFACE, 130.11.6.2)
+BZ_KFLOOR   equ 1               ; the high nibble is its SURFACE, 137.11.6.2)
 BZ_KWALL    equ 2
 BZ_KGOAL    equ 3
 BZ_FSAFE    equ 1               ; flags (byte +3): a respawn cell
@@ -134,26 +134,26 @@ VAR bz_lvz,2
 VAR bz_nstep,4
 VAR bz_nfall,2
 VAR bz_nland,2
-VAR bz_nbnc,2                   ; wave 2's counters (130.11.5.2): bz_nshat
+VAR bz_nbnc,2                   ; wave 2's counters (137.11.5.2): bz_nshat
 VAR bz_nstun,2                  ; MUST follow bz_nstun (bz_step's .hard)
 VAR bz_nshat,2
 VAR bz_nhop,2
-VAR bz_pkick,2 * BZ_PROPMAX     ; wave 3 (SPEC.md 130.12.6.6): each prop's last
+VAR bz_pkick,2 * BZ_PROPMAX     ; wave 3 (SPEC.md 137.12.6.6): each prop's last
                                 ; kick step (a bumper's), 0FFFAh at the start;
                                 ; the post's LIT time is the display's (frames
                                 ; on the glass, bzwheel.inc's bz_lhold,
-                                ; 130.12.6.3) and physics never reads it
+                                ; 137.12.6.3) and physics never reads it
 VAR bz_gh,2
 VAR bz_sb,2
 VAR bz_air,1
 VAR bz_goal,1
-VAR bz_tout,1                   ; wave 7 (130.18.4): 1 when the limit's last step
+VAR bz_tout,1                   ; wave 7 (137.18.4): 1 when the limit's last step
                                 ; timed the play out (the frame loop reads it and
                                 ; bz_goal as one word: keep the order)
 VAR bz_resp,1
 VAR bz_pokd,1                   ; a harness sets it after POKING the ball (the
                                 ; next step refills the window, then clears it)
-VAR bz_fref,1                   ; wave 9 (130.25.6.3): a family hook's REFILL REQUEST -
+VAR bz_fref,1                   ; wave 9 (137.25.6.3): a family hook's REFILL REQUEST -
                                 ; the step's head tests it with bz_pokd as one word
 VAR bz_lvl,4                    ; a RESPAWN zeroes bz_lvl .. bz_ghv, 10 bytes
 VAR bz_bgr,1                    ; (bz_step's .respawn writes them as five words,
@@ -164,7 +164,7 @@ VAR bz_mct,1
 VAR bz_sqf,1
 VAR bz_ghv,1
 VAR bz_kprev,1
-VAR bz_tcnt,2                   ; wave 3's state (SPEC.md 130.12.6.6): the steps
+VAR bz_tcnt,2                   ; wave 3's state (SPEC.md 137.12.6.6): the steps
 VAR bz_tsin,2                   ; left in the tube's segment, the entry speed,
 VAR bz_nkick,2                  ; and the kicks, knock-backs and captures this
 VAR bz_nknock,2                 ; play
@@ -173,7 +173,7 @@ VAR bz_pcv,2                    ; bz_ppos's cache: the last (record, n) it
 VAR bz_pcs,2                    ; answered and its pos (a pure function of the
 VAR bz_pcn,2                    ; two; 0: none)
 VAR bz_wol,19                   ; the window's OBS cells, a count and nine
-                                ; (cell 0 - 8, prop index) pairs (130.12.3.2)
+                                ; (cell 0 - 8, prop index) pairs (137.12.3.2)
 VAR bz_ps,1                     ; ...bit 0 bz_wol not empty, 1 in a tube, 2 carried
 VAR bz_tube,1                   ; ...the tube in transit: index + 1, 0 none
 VAR bz_tseg,1                   ; ...its segment
@@ -182,13 +182,13 @@ VAR bz_wcen,1                   ; bz_wolf's own: the centre cell's prop (index +
 VAR bz_wckd,1                   ; 1, 0 none) and its kind, the bumpers on bz_wol,
 VAR bz_wbmp,1                   ; and each pair's prop's kind - read by the step
 VAR bz_wkd,9                    ; instead of the records (not the model's state)
-VAR bz_nckpt,2                  ; wave 4 (SPEC.md 130.14.4.7): flags first
+VAR bz_nckpt,2                  ; wave 4 (SPEC.md 137.14.4.7): flags first
 VAR bz_npad,2                   ; touched, pad swaps, lip-outs, spring launches
 VAR bz_nlip,2                   ; and RETURNs this play - physics' own, compared
-VAR bz_nspr,2                   ; with the model and read by the sound (130.14.10)
+VAR bz_nspr,2                   ; with the model and read by the sound (137.14.10)
 VAR bz_nret,2
-VAR bz_nboost,2                 ; wave 6 (SPEC.md 130.16.4.3): boosts this play
-VAR bz_bgd,2                    ; wave 6b (130.17.4.5): BOOST less the rebound's
+VAR bz_nboost,2                 ; wave 6 (SPEC.md 137.16.4.3): boosts this play
+VAR bz_bgd,2                    ; wave 6b (137.17.4.5): BOOST less the rebound's
                                 ; gvz, written where the grace opens (never cleared)
 VAR bz_ckpt,1                   ; ...the last flag touched + 1 (0: none, the start)
 VAR bz_ckmat,1                  ; ...the ball a respawn gets (the start's, then
@@ -199,32 +199,32 @@ VAR bz_cksn,1                   ; ...the flags touched, a bit each (their lanes'
 VAR bz_inmo,1                   ; ...1 while the centre is in the cup's mouth
 VAR bz_hid,1                    ; ...1 once the ball has HOLED OUT (not drawn)
 VAR bz_gfl,1                    ; ...the course's BZG1 FLAGS (bz_pinit's copy)
-VAR bz_btok,1                   ; wave 6 (130.16.4.3): the boost's TOKEN, 1 set
+VAR bz_btok,1                   ; wave 6 (137.16.4.3): the boost's TOKEN, 1 set
 VAR bz_stf,1                    ; by a Hop from the ground, 2 that flight ARMED
-VAR bz_drx,1                    ; (6b, 130.17.4.2); the STRETCH's steps left;
+VAR bz_drx,1                    ; (6b, 137.17.4.2); the STRETCH's steps left;
 VAR bz_dry,1                    ; the fractional drag's REMAINDERS, gvx's and
-                                ; gvy's (130.16.3.1).  A RESPAWN zeroes the four
+                                ; gvy's (137.16.3.1).  A RESPAWN zeroes the four
                                 ; as two words: keep the order
-VAR bz_bsp,1                    ; round 3b (130.17.17): 1 from a boost until the
+VAR bz_bsp,1                    ; round 3b (137.17.17): 1 from a boost until the
                                 ; ball is next on the ground, 0 else
-VAR bz_exit,1                   ; wave 8b (130.19.4): the finish's EXIT, 0 - 15 -
+VAR bz_exit,1                   ; wave 8b (137.19.4): the finish's EXIT, 0 - 15 -
                                 ; a GOAL cell's flags bits 4 - 7, a cup's +27 -
                                 ; written with bz_goal (the pair keeps BZ_PHSN even)
-VAR bz_tsec,2                   ; wave 7 (130.18.4): the whole seconds LEFT, as the
+VAR bz_tsec,2                   ; wave 7 (137.18.4): the whole seconds LEFT, as the
 VAR bz_t55,1                    ; clock shows them (0: no limit), and the steps to
                                 ; the next one (BZ_SECSTEPS a second)
-VAR bz_rspo,2                   ; SPEC.md 130.23.3: 1 a title demo's RESPAWN cell
+VAR bz_rspo,2                   ; SPEC.md 137.23.3: 1 a title demo's RESPAWN cell
                                 ; holds bz_safe (no SAFE cell moves it); +1 zero
-VAR bz_fcnt,1                   ; wave 8R (130.22.6): a PLAY's FINISH SEQUENCE - the
+VAR bz_fcnt,1                   ; wave 8R (137.22.6): a PLAY's FINISH SEQUENCE - the
 VAR bz_ffl,1                    ; steps left + 1 (0: none ran; 1: run out), and the flash's
                                 ; steps left in its phase (bits 0 - 6) with the
                                 ; clock BLANK as bit 7 (bz_fstart, bz_fstep)
-VAR bz_psp,1                    ; D3 (SPEC.md 130.24.7.6): 8 while a SPLIT cell is in
+VAR bz_psp,1                    ; D3 (SPEC.md 137.24.7.6): 8 while a SPLIT cell is in
                                 ; the window (bz_ps bit 3, which bz_psync and the
                                 ; step's .pps rebuild from it), else 0
 VAR bz_wfl,1                    ; ...bz_wtail's gate: 1 the course has props, 2 a
                                 ; split cell (GF_SPLIT), 3 both (bz_pinit's)
-VAR bz_vup,2                    ; wave 9 (SPEC.md 130.25.19): what a family adds to
+VAR bz_vup,2                    ; wave 9 (SPEC.md 137.25.19): what a family adds to
                                 ; the cap BZ_VMAXG (bz_gax.clamp; PICKUPS' speed)
 VAR bz_nfev,2                   ; ...a family's EVENTS, the PICKUP sound's counter
                                 ; (bzs_events: added to its sum, never compared)
@@ -232,21 +232,21 @@ VAR bz_wacc,1                   ; ...what it adds to every force table's force
                                 ; (bz_ramp: the air's ACC and the surface's A)
 VAR bz_cue,1                    ; ...the timed effect's CUE, display only: bit 0
                                 ; SPARKLES, bit 1 the last PU_WARN steps' FLASH
-VAR bz_fst,BZ_FSTB              ; wave 9 (SPEC.md 130.25.7.2): the per-play STATE bits
+VAR bz_fst,BZ_FSTB              ; wave 9 (SPEC.md 137.25.7.2): the per-play STATE bits
 VAR bz_fsl,BZ_FAMMAX * BZF_SLOT ; ...and each family's SLOT (both cleared by class:
 VAR bz_fpad,((BZ_FSTB + 1) & 1)  ; a play's start here, a respawn bz_frst's)
 VAR bz_phe,0
 ; the rest: written before they are read
-VAR bz_fdb,2 * BZ_FDMSK + BZ_BAL_SHDROWS * BZ_BAL_RB ; 8R.11 (130.22.6): THE DISSOLVE's
+VAR bz_fdb,2 * BZ_FDMSK + BZ_BAL_SHDROWS * BZ_BAL_RB ; 8R.11 (137.22.6): THE DISSOLVE's
                                 ; copies - the frame's sprite mask, its frame, its
                                 ; shadow - dithered (bz_fdis: the blits' source)
-VAR bz_okey,2 * BZ_PROPALL      ; 130.19.10: the records' anchors, sorted (bz_obuild)
+VAR bz_okey,2 * BZ_PROPALL      ; 137.19.10: the records' anchors, sorted (bz_obuild)
 VAR bz_oidx,BZ_PROPALL          ; ...and each one's record (bz_owner's search)
-VAR bz_tdig,3                   ; wave 7 (130.18.5): the clocks' digit poses of
+VAR bz_tdig,3                   ; wave 7 (137.18.5): the clocks' digit poses of
                                 ; bz_tsec - units, tens, hundreds (0 blank, 1 + d
                                 ; the digit d): bz_tdset's, at bz_pinit and once
                                 ; a second
-VAR bz_zoff,2                   ; round 3 (130.17.16): the take-off's z, px
+VAR bz_zoff,2                   ; round 3 (137.17.16): the take-off's z, px
                                 ; (bz_toff's), read under the token 1 only,
                                 ; which only a take-off through bz_toff sets
 VAR bz_mrec,BZ_MATREC           ; the material's BZ_MATTAB record (bz_pinit)
@@ -254,10 +254,10 @@ VAR bz_se,BZ_SURFREC            ; BZ_SURFTAB's entry for it on the centre's
                                 ; surface: force, drag shift, brake, floor e
 VAR bz_surf,1                   ; ...that surface (0FFh: none yet, bz_pinit)
 VAR bz_dmask,1                  ; ...its drag shift's mask 2^k - 1 (0 on ice):
-                                ; bz_surfset's, derived (130.16.3.1)
+                                ; bz_surfset's, derived (137.16.3.1)
 VAR bz_kstep,1                  ; this step's key byte
 VAR bz_ftg,BZ_LVLMAX + 1        ; the arrows' force a level, ground and air
-VAR bz_fta,BZ_LVLMAX + 1        ; (130.11.7.1)
+VAR bz_fta,BZ_LVLMAX + 1        ; (137.11.7.1)
 VAR bz_safe,2                   ; wx, wy
 VAR bz_nwin,2                   ; wx, wy
 VAR bz_wgx,2                    ; 16 wx, 16 wy of the window's centre (the cell test)
@@ -276,7 +276,7 @@ VAR bz_fdp,2
 VAR bz_kx,4                     ; (X0 - 8) << 8 and (Y0 - 13) << 8, 24.8: the
 VAR bz_ky,4                     ; projection's constants (bz_crshdr)
 VAR bz_nbr,36
-VAR bz_nbh,144                  ; D3 (SPEC.md 130.24.7.6): each SPLIT cell of bz_nbr's
+VAR bz_nbh,144                  ; D3 (SPEC.md 137.24.7.6): each SPLIT cell of bz_nbr's
                                 ; records, copied from section D at 16 x its window
                                 ; index (a halved cell's two, a quartered one's four)
 VAR bz_sor,2                    ; bz_dray: the other ray's beyond record when it
@@ -290,13 +290,13 @@ VAR bz_srf,1                    ; bz_swalls: 1 when its inner push refilled the 
 VAR bz_srp,2                    ; step 6's record of a split centre (step 8 reads it)
 VAR bz_nbp,18                   ; bz_wsplit: each split window cell's record(s) in
                                 ; bz_nbh for bz_blocks (FFh: none; the centre FFh FFh)
-; the idle test's last frame (bz_mkboxes, 130.10.8 item 2)
+; the idle test's last frame (bz_mkboxes, 137.10.8 item 2)
 VAR bz_osb,2
 VAR bz_ozb,2
 VAR bz_oair,1
 VAR bz_fin,1                    ; 1: the last play reached the goal (the face)
 VAR bz_disc,1                   ; 1: this frame is a centred full write (its
-                                ; elapsed sub-ticks are discarded, 130.10.8 item 3)
+                                ; elapsed sub-ticks are discarded, 137.10.8 item 3)
 VAR bz_wch,1                    ; step 4: bit 0 the cell's wx changed, bit 1 wy
 VAR bz_nprop,1                  ; wave 3: NPROP (bz_pinit; 16 at most) ...
 VAR bz_pdoor,1                  ; ...the step's path, 0 wave 2's, and on the prop
@@ -316,13 +316,13 @@ VAR bz_cdd,2                    ; the carry's displacement this step, 1/256 gu
  %error "bz_prule tells wave 4's kinds from wave 3's by one compare against BZ_PK_CKPT"
 %endif
 %if BZ_FK_WINDMILL < BZ_FK0 || BZ_FK_SPRING < BZ_FK0 || BZ_FK_TUBE < BZ_FK0
- %error "story 9.8 (SPEC.md 130.25.20): the families' KEYS (bz_fone's DL) are family kinds"
+ %error "story 9.8 (SPEC.md 137.25.20): the families' KEYS (bz_fone's DL) are family kinds"
 %endif
 %if bz_tout != bz_goal + 1
  %error "bz_t0 and the step loop test bz_goal and bz_tout as one word"
 %endif
 %if bz_fref != bz_pokd + 1
- %error "bz_step's head tests bz_pokd and bz_fref as one word (SPEC.md 130.25.6.3)"
+ %error "bz_step's head tests bz_pokd and bz_fref as one word (SPEC.md 137.25.6.3)"
 %endif
 %if bz_stf != bz_btok + 1 || bz_drx != bz_btok + 2 || bz_dry != bz_btok + 3
  %error "bz_step's .resp zeroes bz_btok .. bz_dry as two words, bz_land writes bz_btok and bz_stf as one, bz_surfset cuts bz_drx and bz_dry as one"
@@ -337,7 +337,7 @@ VAR bz_cdd,2                    ; the carry's displacement this step, 1/256 gu
 BZ_PHSN     equ bz_phe - bz_phs
 
 ; -----------------------------------------------------------------------------
-; bz_pinit - the ball at the course's start (SPEC.md 130.10.7.1, 130.11.5.2):
+; bz_pinit - the ball at the course's start (SPEC.md 137.10.7.1, 137.11.5.2):
 ; the start tile's centre on its floor, at rest, grounded, the window filled,
 ; every counter and wave 2's state zero, the material's record copied from
 ; BZ_MATTAB ([bz_mat]) with its air force table, the ground's built for the
@@ -353,10 +353,10 @@ bz_pinit:
     mov cx, BZ_PHSN / 2
     rep stosw
 %ifdef BZDEV
-    cmp byte [bz_mode], 1       ; wave 7 (130.18.4): a play's or a replay's time
+    cmp byte [bz_mode], 1       ; wave 7 (137.18.4): a play's or a replay's time
     je .nolim                   ; limit, the course's (bz_clims; 0 none: BENCH);
 %endif
-    cmp byte [bz_xmode], 0      ; (wave 8c, 130.19.8.3: EXPLORE has none)
+    cmp byte [bz_xmode], 0      ; (wave 8c, 137.19.8.3: EXPLORE has none)
     jne .nolim
     mov bl, [bz_crs]            ; the benchmark has none
     xor bh, bh
@@ -388,23 +388,23 @@ bz_pinit:
     mov [bz_poff], ax           ; scans for its OBS cells' owners (bz_wolf;
     mov al, [es:BZC_NPROP]      ; bz_pread reads it again for the lanes)
     mov [bz_nprop], al
-    call bz_obuild              ; (130.19.10: the owners' index, before the
+    call bz_obuild              ; (137.19.10: the owners' index, before the
                                 ; first refill)
-    call bz_flist               ; (130.25.6.10: each family's own records,
+    call bz_flist               ; (137.25.6.10: each family's own records,
     mov es, [bz_cseg]           ; before its RESET walks them)
-    mov byte [bz_fwall], 1      ; (every STEP runs at the first step: 130.25.6.11)
-    xor ax, ax                  ; ...and every slot's WAKE 0, every step (130.25.6.11):
+    mov byte [bz_fwall], 1      ; (every STEP runs at the first step: 137.25.6.11)
+    xor ax, ax                  ; ...and every slot's WAKE 0, every step (137.25.6.11):
     mov bx, 2 * BZ_FAMMAX - 2   ; a wake a family set on the LAST course would
 .fwz:                           ; otherwise sleep this course's family in its
     mov [bz_fwk + bx], ax       ; slot - MILL's see-saw slept until step 16384
     dec bx                      ; behind a turntable's 4000h
     dec bx
     jns .fwz
-    mov ax, BZ_HK_RESET         ; wave 9 (130.25.6.3): the families' RESET, class
+    mov ax, BZ_HK_RESET         ; wave 9 (137.25.6.3): the families' RESET, class
     call bz_fall                ; 0 (bz_fst and the slots are zero), before the
                                 ; start's refill reads the state (none: no call)
     mov di, [bz_goff]
-    mov al, [es:di + BZG_FLAGS] ; wave 4 (130.14.4.2): respawns go to the
+    mov al, [es:di + BZG_FLAGS] ; wave 4 (137.14.4.2): respawns go to the
     mov [bz_gfl], al            ; last flag on a CKPT course; and the ball a
     mov ah, al                  ; (D3: bz_wtail's gate, bz_wfl: bit 0 props,
     xor al, al                  ; bit 1 a SPLIT cell, GF_SPLIT)
@@ -417,7 +417,7 @@ bz_pinit:
     or al, 2
 .wf2:
     mov [bz_wfl], al
-    mov al, [bz_fhk]            ; SPEC.md 130.35.1: bz_fhk bit 7 (no family's)
+    mov al, [bz_fhk]            ; SPEC.md 137.35.1: bz_fhk bit 7 (no family's)
     and al, 7fh                 ; the course's GUARD RAILS, GF_EDGE: every
     test ah, BZ_GF_EDGE         ; refill walls the railed edges (bz_wedge)
     jz .wf3                     ; and is a whole one (bz_win9i)
@@ -425,13 +425,13 @@ bz_pinit:
 .wf3:
     mov [bz_fhk], al
     mov al, [bz_mat]            ; respawn gets is the one the play STARTED
-    mov [bz_ckmat], al          ; with (130.14.18 item 3), until a flag
+    mov [bz_ckmat], al          ; with (137.14.18 item 3), until a flag
     mov al, [es:di + BZG_WX]
     mov ah, [es:di + BZG_WY]
-    mov [bz_safe], ax           ; bz_safe starts on the start (130.10.4.5)
+    mov [bz_safe], ax           ; bz_safe starts on the start (137.10.4.5)
     call bz_place
 %if BZ_TITLE
-    cmp byte [bz_tmode], 1      ; SPEC.md 130.23.3: a TITLE DEMO starts from its
+    cmp byte [bz_tmode], 1      ; SPEC.md 137.23.3: a TITLE DEMO starts from its
     jne .nts                    ; own START BLOCK (bz_tblk), over the start
     call bz_tapply
 .nts:
@@ -443,7 +443,7 @@ bz_pinit:
     ret
 
 %if BZ_TITLE
-; bz_tapply - a title demo's START BLOCK (bz_tblk, SPEC.md 130.23.3) over the
+; bz_tapply - a title demo's START BLOCK (bz_tblk, SPEC.md 137.23.3) over the
 ; course's start: its cell placed as a respawn places one (bz_placeat), then
 ; its position (24.8, three bytes each), velocity and air flag over that, the
 ; flight's top its height, and its respawn cell held in bz_safe (bz_rspo).
@@ -490,9 +490,9 @@ bz_tapply:
     ret
 %endif
 
-; bz_ramp - a force table (130.11.7.1): [DI + l] = ((AL + bz_wacc) l + 4) >> CL
+; bz_ramp - a force table (137.11.7.1): [DI + l] = ((AL + bz_wacc) l + 4) >> CL
 ; for the levels l = 0 .. BZ_LVLMAX (CL = 3 the ground's, 4 the air's): bz_wacc
-; is a family's raise (wave 9, SPEC.md 130.25.19: PICKUPS' speed; 0 otherwise),
+; is a family's raise (wave 9, SPEC.md 137.25.19: PICKUPS' speed; 0 otherwise),
 ; so a pad's swap or a change of surface under it keeps it.  DS = ours.
 ; Clobbers AX, BX, CH, DX, DI.
 bz_ramp:
@@ -526,7 +526,7 @@ bz_ramp:
 
 ; -----------------------------------------------------------------------------
 ; bz_step's steps 4 - 6 are written ONCE and run by both paths (SPEC.md
-; 130.13.8): wave 2's (no prop in the window) and the PROP path (130.12.6.5),
+; 137.13.8): wave 2's (no prop in the window) and the PROP path (137.12.6.5),
 ; told apart by bz_pdoor - 0 on wave 2's path, written at step 4 every step
 ; that reaches it, and 1 - 3 on the prop path (no doorway, the doorway along
 ; -x, along -y).  The prop path's own parts sit where they hook in - its
@@ -534,7 +534,7 @@ bz_ramp:
 ; window after the walls, the floor's prop cells, bz_onp - each behind a test
 ; of bz_pdoor that wave 2's path jumps on and the prop path falls through;
 ; the doorway's own branch is out of line (bz_step.wdoor, .ndoor).  A ball
-; with no prop near pays those four tests (about 133 clk raw a step, 130.13.8)
+; with no prop near pays those four tests (about 133 clk raw a step, 137.13.8)
 ; and nothing else, and the two paths cannot drift apart.
 ; -----------------------------------------------------------------------------
 ; BZ_START: the step's START ground position, for the fallback's undo, from
@@ -560,7 +560,7 @@ bz_ramp:
     mov [bz_sgy + 2], dx
 %endmacro
 
-; BZ_LVL1: the keyboard's ramp for one arrow (130.11.7.1), its level in the
+; BZ_LVL1: the keyboard's ramp for one arrow (137.11.7.1), its level in the
 ; byte register %1 and its key BH's bit 0, shifted out: held, up one to
 ; BZ_LVLMAX; released, down two to 0.
 %macro BZ_LVL1 1
@@ -578,7 +578,7 @@ bz_ramp:
 %endmacro
 
 ; -----------------------------------------------------------------------------
-; bz_step - ONE STEP, in SPEC.md 130.11.8.2's binding order (the numbers below
+; bz_step - ONE STEP, in SPEC.md 137.11.8.2's binding order (the numbers below
 ; are its steps).  DS = ours.  Preserves CX and ES (the frame loop's count and
 ; segment) and nothing else.
 ; -----------------------------------------------------------------------------
@@ -602,13 +602,13 @@ bz_step:
     mov bh, [bz_tilt]           ; (bz_input),
 %ifdef BZDEV
     cmp byte [bz_apilot], 0     ; ...or, under a HARNESS's bz_apilot, the
-    jne .apil                   ; autopilot's (SPEC.md 130.14.14 bonanzagame)
+    jne .apil                   ; autopilot's (SPEC.md 137.14.14 bonanzagame)
 .apild:
 %endif
     mov [bz_tby], bh
     cmp bl, [bz_rk]             ; RECORDED - the current run extended while
     jne .rec                    ; both are the same and it is under 255 steps
-    cmp bh, [bz_rt]             ; (SPEC.md 130.11.12.1, 130.14.8.3), else
+    cmp bh, [bz_rt]             ; (SPEC.md 137.11.12.1, 137.14.8.3), else
     jne .rec                    ; bz_rrec
     cmp byte [bz_rn], 255
     jae .rec
@@ -629,18 +629,18 @@ bz_step:
     call bz_auto                ; the benchmark: BL = the arrows it would hold -
     mov [bz_kstep], bl          ; never RETURN and never a tilt, so straight to
     mov bh, bl                  ; the keyboard's ramp: no bit-6 test, no tilt
-    jmp short .lv               ; byte stored or compared (130.14.12's BENCH
+    jmp short .lv               ; byte stored or compared (137.14.12's BENCH
                                 ; row; bz_play sets bz_tby to the keyboard's
                                 ; once, and only a play or a replay moves it)
 %endif
 .key:
     test bl, BZ_K_RET           ; wave 4: RETURN (Backspace) first, and the
-    jnz .kret                   ; step runs nothing else (130.14.4.5)
+    jnz .kret                   ; step runs nothing else (137.14.4.5)
 .key2:
     mov [bz_kstep], bl
-    mov bh, bl                  ; the ramp (130.11.7.1): a held arrow's level
+    mov bh, bl                  ; the ramp (137.11.7.1): a held arrow's level
                                 ; up one to 8, a released one's down two to 0
-    cmp byte [bz_tby], BZ_TILT_KEYS ; a TILT step's caps (130.14.8.2): out of
+    cmp byte [bz_tby], BZ_TILT_KEYS ; a TILT step's caps (137.14.8.2): out of
     jne .tilt                   ; the keyboard's path, which is this compare
 .lv:
     mov ax, [bz_lvl]            ; the four levels in AL, AH, DL, DH (L R U D),
@@ -653,16 +653,16 @@ bz_step:
     mov [bz_lvl + 2], dx
 .hopw:
     mov al, bl                  ; the Hop's window: Space's key-down EDGE opens
-    xchg al, [bz_kprev]         ; it, else it counts down (130.11.7.2)
+    xchg al, [bz_kprev]         ; it, else it counts down (137.11.7.2)
     not al
     and al, bl
     test al, BZ_K_HOP
     jz .hw
-    mov al, [bz_bgr]            ; wave 6b (130.17.4.5): the same edge CONVERTS
+    mov al, [bz_bgr]            ; wave 6b (137.17.4.5): the same edge CONVERTS
     or al, al                   ; an open grace's rebound into the boost ...
     jnz .conv
     mov byte [bz_hopw], BZ_HOPWIN
-    cmp byte [bz_btok], 1       ; ...else (130.17.4.2) it ARMS a ground Hop's
+    cmp byte [bz_btok], 1       ; ...else (137.17.4.2) it ARMS a ground Hop's
     jne .st                     ; flight, the token 1 -> 2 (a Hop's own edge
     inc byte [bz_btok]          ; comes here with the token still 0)
     jmp short .st
@@ -677,12 +677,12 @@ bz_step:
     mov [bz_bgr], ax
 .st:                            ; ...then the ball's state - none once it has
     cmp byte [bz_hid], 0        ; HOLED OUT: the keys ran, nothing else does
-    jne .ptr2                   ; (130.14.18 item 3)
+    jne .ptr2                   ; (137.14.18 item 3)
     cmp byte [bz_sqf], 0
     je .sq
     dec byte [bz_sqf]
 .sq:
-    cmp byte [bz_stf], 0        ; wave 6: the stretch's steps (130.16.4.4)
+    cmp byte [bz_stf], 0        ; wave 6: the stretch's steps (137.16.4.4)
     je .sf
     dec byte [bz_stf]
 .sf:
@@ -695,7 +695,7 @@ bz_step:
     cmp al, BZ_ST_SHAT
     jne .forces
     cmp word [bz_goal], 0       ; ...or the shattered ball's RESPAWN - not in
-    jne .mkeep                  ; a FINISH SEQUENCE (130.22.6), where it
+    jne .mkeep                  ; a FINISH SEQUENCE (137.22.6), where it
     jmp .respawn                ; stays in pieces, on its last frame
 .mkeep:
     mov [bz_mst], al
@@ -708,7 +708,7 @@ bz_step:
     jmp .pst
 .ptr2:
     jmp .end
-.conv:                          ; wave 6b: the LATE GRACE CONVERTS (130.17.4.5)
+.conv:                          ; wave 6b: the LATE GRACE CONVERTS (137.17.4.5)
     mov cx, BZ_BGRACE           ; on the k-th step after its contact (AL =
     sub cl, al                  ; bz_bgr, CX = k - 1 = BZ_BGRACE - AL): gvz +=
     mov ax, [bz_bgd]            ; bgd, and z += bgd for each of the k - 1
@@ -727,12 +727,12 @@ bz_step:
     jmp .st
     ; ---- 2. forces ----
 .forces:
-    test byte [bz_ps], 6        ; wave 3 (SPEC.md 130.12.6.5 step 1): in a tube,
+    test byte [bz_ps], 6        ; wave 3 (SPEC.md 137.12.6.5 step 1): in a tube,
     jnz .ptr1                   ; or carried by the platform
 .forces2:
     xor di, di                  ; DI, BP = the arrows on (gvx, gvy), each at its
     xor bp, bp                  ; level, pushed along the screen through the
-    cmp byte [bz_mst], 0        ; ground (130.10.7.2); none while stunned
+    cmp byte [bz_mst], 0        ; ground (137.10.7.2); none while stunned
     jne .pushed
     mov dl, bl
     mov bx, bz_ftg              ; the ground's force a level, or the air's
@@ -805,7 +805,7 @@ bz_step:
     jmp short .move
 .air:
                                 ; airborne: the arrows at half force, clamped
-    mov ax, [bz_gvx]            ; (130.11.7.3); no slope, no drag - bz_gax's
+    mov ax, [bz_gvx]            ; (137.11.7.3); no slope, no drag - bz_gax's
     add ax, di                  ; clamp alone
     call bz_gax.clamp
     mov [bz_gvx], ax
@@ -828,7 +828,7 @@ bz_step:
 .move:
     mov ax, [bz_gz + 1]         ; zq = floor(start z / 64) quarter px, plus the
     shl ax, 1                   ; climb in either air state: a neighbour BLOCKS
-    shl ax, 1                   ; when its h4 > zq (130.11.8.2 step 5) - BZ_Q64
+    shl ax, 1                   ; when its h4 > zq (137.11.8.2 step 5) - BZ_Q64
     mov dl, [bz_gz]             ; from the cells: the whole px << 2, and the
     rol dl, 1                   ; fraction's top two bits
     rol dl, 1
@@ -891,11 +891,11 @@ bz_step:
     test byte [bz_nbr + BZN_C + 2], 0fh
     jz .wopen
 .w4:
-    mov al, [bz_ps]             ; wave 3 (130.12.6.5 step 4): an OBS cell in the
+    mov al, [bz_ps]             ; wave 3 (137.12.6.5 step 4): an OBS cell in the
     and al, 0dh                 ; window, or carried - the PROP path, which sets
     mov [bz_pdoor], al          ; bz_pdoor 1 - 3 here; else 0: wave 2's steps
     jz .walls                   ; 4 - 6, bz_pdoor 0 throughout.  D3: or a SPLIT
-    test al, 8                  ; cell (bit 3, SPEC.md 130.24.7.6): the split
+    test al, 8                  ; cell (bit 3, SPEC.md 137.24.7.6): the split
     jnz .split                  ; path, the prop path's with its own step 5
     cmp byte [bz_wch], 0        ; the START for the fallback's undo, which
     jne .pst0                   ; wave 2 keeps only on a cell change (a post's
@@ -910,13 +910,13 @@ bz_step:
     jne .walls
     mov bl, al
     xor bh, bh
-    call bz_tdrain              ; (the TUBE family's DRAIN, 130.25.20.2)
+    call bz_tdrain              ; (the TUBE family's DRAIN, 137.25.20.2)
     jnc .walls
     jmp .end
 .walls:
-    ; ---- 5. walls: the circle, the edge test SYMMETRIC (130.11.8.3), every
-    ; zeroing a REFLECTION (130.11.8.4); the prop path adds the windmill's
-    ; doorway on the -x and -y edges (130.12.6.2) ----
+    ; ---- 5. walls: the circle, the edge test SYMMETRIC (137.11.8.3), every
+    ; zeroing a REFLECTION (137.11.8.4); the prop path adds the windmill's
+    ; doorway on the -x and -y edges (137.12.6.2) ----
     mov dh, [bz_gy + 1]         ; DL = u, DH = v: integer gu inside C, BP their
     and dh, 15                  ; copy for the y edges (u is the one before
     mov ax, [bz_gx]             ; the x push, as the model)
@@ -929,7 +929,7 @@ bz_step:
     mov dl, 16
     call bz_blocks
     jnc .y
-    cmp byte [bz_pdoor], 2      ; a windmill's DOORWAY along -x (130.12.6.2)
+    cmp byte [bz_pdoor], 2      ; a windmill's DOORWAY along -x (137.12.6.2)
     je .trwd
 .wwall:
     mov ax, [bz_gx + 1]
@@ -1021,7 +1021,7 @@ bz_step:
 .nocorner:
     cmp byte [bz_pdoor], 0      ; the prop path: the posts, the window and
     je .fb                      ; the cell change again, then the fallback
-    call bz_posts               ; each post on bz_wol: the circle (130.12.6.3)
+    call bz_posts               ; each post on bz_wol: the circle (137.12.6.3)
     mov ax, [bz_gx + 1]         ; a push into another cell: the window
     and al, 0f0h                ; refilled before the fallback judges it
     cmp ax, [bz_wgx]
@@ -1096,7 +1096,7 @@ bz_step:
     cwd
     sub [bz_gz], ax
     sbb [bz_gz + 2], dx
-    ; ---- 6. the floor (130.11.8.2, 130.11.8.5, 130.11.8.6): the prop path
+    ; ---- 6. the floor (137.11.8.2, 137.11.8.5, 137.11.8.6): the prop path
     ; first finds a post cell's top or the slab's (after .floor, then .psolid with
     ; BX = that h4), and sets bz_onp after it (.ponp) ----
 .floor:
@@ -1119,7 +1119,7 @@ bz_step:
     jne .floorh
     push bx                     ; the lift's SHAFT: the SLAB's top at n + 1
     call bz_slabon              ; when the ball began at or over it less
-    pop ax                      ; BZ_CLIMB (130.12.6.4); else the shaft's
+    pop ax                      ; BZ_CLIMB (137.12.6.4); else the shaft's
     jnc .floorh                ; NEAR VOID
     inc ax
     mov [bz_fslab], al
@@ -1127,7 +1127,7 @@ bz_step:
     jmp .psolid
 .pfpost:
     call bz_ptop                ; a post cell: the post's top within 6 gu of
-    mov si, bz_nbr + BZN_C      ; it (130.12.6.3); C for bz_land's bz_bok
+    mov si, bz_nbr + BZN_C      ; it (137.12.6.3); C for bz_land's bz_bok
     jmp .psolid
 .nfloor:                        ; (.floorh's, out of its line: not a FLOOR)
     cmp al, BZ_KGOAL
@@ -1139,7 +1139,7 @@ bz_step:
     or al, al
     jnz .fnext                  ; (no other kind is under an airborne ball)
     mov al, [si]                ; VOID: below its kill height, 2 z0 px?
-    cbw                         ; (z0 QUARTER units, SPEC.md 130.48.1 -
+    cbw                         ; (z0 QUARTER units, SPEC.md 137.48.1 -
     shl ax, 1                   ; but OPEN's -128 still kills at -512 px,
     cmp ax, -256                ; 4 z0: the fall it always was)
     jne .kq
@@ -1157,7 +1157,7 @@ bz_step:
 .solid:
     cmp byte [si + 1], 0        ; a FLAT floor (most steps): 8 z0 wherever
     jne .sslope                 ; the centre is, without bz_h4 (z0 quarter
-    mov al, [si]                ; units, SPEC.md 130.48)
+    mov al, [si]                ; units, SPEC.md 137.48)
     cbw
     shl ax, 1
     shl ax, 1
@@ -1166,9 +1166,9 @@ bz_step:
 .psolid:
     cmp byte [bz_air], 0
     jne .airsolid
-    mov byte [bz_bsp], 0        ; round 3b (130.17.17): on the ground, the
+    mov byte [bz_bsp], 0        ; round 3b (137.17.17): on the ground, the
                                 ; boost is spent no more
-    cmp byte [bz_hopw], 0       ; the Hop from the ground (130.11.8.6): the
+    cmp byte [bz_hopw], 0       ; the Hop from the ground (137.11.8.6): the
     je .follow                  ; window open, not stunned, on a FLOOR or GOAL
     cmp byte [bz_mst], 0
     jne .follow
@@ -1181,7 +1181,7 @@ bz_step:
     mov [bz_gvz], ax
     mov byte [bz_hopw], 0
     inc word [bz_nhop]
-    jmp short .launch           ; (wave 6's TOKEN: bz_toff sets it, 130.16.4.1)
+    jmp short .launch           ; (wave 6's TOKEN: bz_toff sets it, 137.16.4.1)
 .follow:
     ; grounded: off when h < z + gvz - BZ_G - BZ_STICK, i.e. when
     ; h4 <= floor((z + gvz - BZ_G - 256 BZ_STICK - 1) / 64)
@@ -1222,7 +1222,7 @@ bz_step:
 .fnext:
     cmp byte [bz_pdoor], 0      ; the prop path: wave 4's four prop rules
     je .safe                    ; (BX = the floor's h4 when it is solid),
-    cmp byte [bz_wcen + 1], BZ_PK_CKPT ; then bz_onp, then bz_ps (130.14.18
+    cmp byte [bz_wcen + 1], BZ_PK_CKPT ; then bz_onp, then bz_ps (137.14.18
     jb .pw3                     ; item 3) - wave 3's kinds and none pay this
     call bz_prule               ; compare and no call (bz_prule's .clr, here)
     jmp short .ponp
@@ -1230,7 +1230,7 @@ bz_step:
     test byte [bz_ps], 1
     jz .ponp
     mov byte [bz_inmo], 0
-.ponp:                          ; bz_onp (130.12.6.4): SET grounded on, or
+.ponp:                          ; bz_onp (137.12.6.4): SET grounded on, or
     mov al, [bz_fslab]          ; landed on (a bounce too), the slab ...
     or al, al
     jz .pkeep
@@ -1266,14 +1266,14 @@ bz_step:
     test byte [bz_nbr + BZN_C + 3], BZ_FSAFE
     jz .goal
 %if BZ_TITLE
-    cmp byte [bz_rspo], 0       ; (a title demo's respawn cell holds it, 130.23.3)
+    cmp byte [bz_rspo], 0       ; (a title demo's respawn cell holds it, 137.23.3)
     jne .goal
 %endif
     mov ax, [bz_nwin]
     mov [bz_safe], ax
 .goal:
     mov al, [bz_nbr + BZN_C + 2] ; the goal: grounded OR AIRBORNE, a finish
-    and al, 0fh                 ; line (130.11.8.2 step 8)
+    and al, 0fh                 ; line (137.11.8.2 step 8)
     cmp al, BZ_KGOAL
     jb .end
     ja .sgoal                   ; (D3: a SPLIT centre, its picked record's)
@@ -1284,19 +1284,19 @@ bz_step:
     je .end
 %endif
     cmp word [bz_goal], 0       ; (a finish sequence rolling on over a second
-    jne .end                    ; goal cell: the first one stands, 130.22.6)
-    mov al, [si + 3]            ; wave 8b (130.19.4): the cell's EXIT, its
+    jne .end                    ; goal cell: the first one stands, 137.22.6)
+    mov al, [si + 3]            ; wave 8b (137.19.4): the cell's EXIT, its
     rol al, 1                   ; flags' bits 6 - 7 (4 - 5 its rails,
-    rol al, 1                   ; SPEC.md 130.35.1)
+    rol al, 1                   ; SPEC.md 137.35.1)
     and al, 3
     mov [bz_exit], al
     mov byte [bz_goal], 1
-    call bz_fstart              ; (a play's: the FINISH SEQUENCE, 130.22.6)
+    call bz_fstart              ; (a play's: the FINISH SEQUENCE, 137.22.6)
     ; ---- 9. the step counted, the screen state derived ----
 .end:
     call bz_derive
 .count:
-    test byte [bz_fhk], BZ_FH_STEP ; wave 9 (130.25.6.3): the families' STEP
+    test byte [bz_fhk], BZ_FH_STEP ; wave 9 (137.25.6.3): the families' STEP
     jnz .fstep
 .count2:
 %ifdef BZSSLOG
@@ -1306,7 +1306,7 @@ bz_step:
     jnz .counted
     inc word [bz_nstep + 2]
 .counted:
-    cmp word [bz_tsec], 0       ; wave 7 (130.18.4): after the goal's test, the
+    cmp word [bz_tsec], 0       ; wave 7 (137.18.4): after the goal's test, the
     je .tdone                   ; limit's countdown - BZ_SECSTEPS steps a second;
     dec byte [bz_t55]           ; the last second's last step TIMES OUT unless
     jnz .tdone                  ; the goal was set (a tie: the goal wins)
@@ -1324,13 +1324,13 @@ bz_step:
     pop cx
     ret
 .fstep:                         ; (out of line) every family's STEP hook
-    call bz_fstp                ; (each at its wake, 130.25.6.11)
+    call bz_fstp                ; (each at its wake, 137.25.6.11)
     jmp .count2
 .poked:                         ; (out of the hot path) a harness's POKE: the
     mov al, [bz_pokd]           ; window round the ball's cell, whatever it was,
     mov word [bz_pokd], 0       ; and the drag's remainders zeroed after it
-    push ax                     ; (bbcourse.Physics.poke, 130.16.3.1) - or a
-    call bz_win9f               ; family's REFILL REQUEST (bz_fref, 130.25.6.3):
+    push ax                     ; (bbcourse.Physics.poke, 137.16.3.1) - or a
+    call bz_win9f               ; family's REFILL REQUEST (bz_fref, 137.25.6.3):
     pop ax                      ; the refill alone
     or al, al
     jz .fref
@@ -1338,9 +1338,9 @@ bz_step:
 .fref:
     jmp .unpoked
     ; ---- 7. RESPAWN, on the last SAFE cell; on a CKPT course on the last
-    ; flag touched (the start before any) with the flag's ball (130.14.4.5) ----
+    ; flag touched (the start before any) with the flag's ball (137.14.4.5) ----
 .respawn:
-    cmp word [bz_goal], 0       ; a FINISH SEQUENCE (130.22.6): a fall, a kill
+    cmp word [bz_goal], 0       ; a FINISH SEQUENCE (137.22.6): a fall, a kill
     je .rsp                     ; plane or an open cell neither kills nor
     mov byte [bz_air], 1        ; respawns - the ball goes on falling (its
     mov ax, [bz_gvz]            ; gravity, clamped), clipped to the window
@@ -1357,16 +1357,16 @@ bz_step:
 .rsp:
     mov di, bz_nfall            ; a fall's (a RETURN counts bz_nret instead)
 .resp:
-    xor ax, ax                  ; wave 2's state zeroed (130.11.8.1): the
+    xor ax, ax                  ; wave 2's state zeroed (137.11.8.1): the
     mov [bz_lvl], ax            ; levels, (6b) the grace, the window, the
     mov [bz_lvl + 2], ax        ; ball's state, the squash and bz_ghv; wave
     mov [bz_bgr], ax            ; 4's bz_inmo
     mov [bz_mst], ax
     mov [bz_sqf], ax
     mov [bz_inmo], al
-    mov [bz_btok], ax           ; wave 6 (130.16.4.3): the token, the stretch
+    mov [bz_btok], ax           ; wave 6 (137.16.4.3): the token, the stretch
     mov [bz_drx], ax            ; and both remainders; not bz_nboost
-    test byte [bz_fhk], 7fh     ; wave 9 (130.25.6.3): the RESPAWN class cleared,
+    test byte [bz_fhk], 7fh     ; wave 9 (137.25.6.3): the RESPAWN class cleared,
     je .rnf                     ; the families' lanes marked, RESET 1 - before
     call bz_frst                ; the place, whose refill runs the CELL hook
 .rnf:
@@ -1381,19 +1381,19 @@ bz_step:
     mov [bz_vx], ax
     mov [bz_vy], ax
     jmp .count
-    ; ---- wave 3 (SPEC.md 130.12.6.5): the steps a prop changes, out of the
+    ; ---- wave 3 (SPEC.md 137.12.6.5): the steps a prop changes, out of the
     ; hot path ----
 .pst:                           ; step 1 (bz_ps bits 1 - 2): in a TUBE, the
-    cmp byte [bz_tube], 0       ; transit instead of the step (130.12.6.1) ...
+    cmp byte [bz_tube], 0       ; transit instead of the step (137.12.6.1) ...
     jne .transit
     push bx                     ; ...else CARRIED: the slab's displacement,
     call bz_carry               ; step 3's first move, made here - the forces
-    pop bx                      ; read nothing of the position (130.12.6.4)
+    pop bx                      ; read nothing of the position (137.12.6.4)
     jmp .forces2
 .transit:
     call bz_transit
     jmp .end
-    ; ---- wave 4 (SPEC.md 130.14.8.2): a TILT step's ramp, each held arrow's
+    ; ---- wave 4 (SPEC.md 137.14.8.2): a TILT step's ramp, each held arrow's
     ; level capped by its axis's cap - the x cap (the tilt byte's high
     ; nibble) for Left and Right, the y cap for Up and Down: a level above
     ; the cap falls by two a step to it, else it rises by one to it ----
@@ -1435,7 +1435,7 @@ bz_step:
     mov [si - 1], al
     loop .tl
     jmp .hopw
-    ; ---- wave 4 (SPEC.md 130.14.4.5), out of the hot path ----
+    ; ---- wave 4 (SPEC.md 137.14.4.5), out of the hot path ----
 .kret:                          ; RETURN: one press is one step's bit (a
     and byte [bz_keys], ~BZ_K_RET & 0ffh ; play's bz_input set it for the frame)
     cmp byte [bz_mst], BZ_ST_SHAT ; the ball neither shattering, in a
@@ -1471,7 +1471,7 @@ bz_step:
     call bz_door                ; point, u before the push) - and the gate at
     mov si, bz_nbr + BZN_W      ; the step's n: OPEN swallows it, CLOSED
     cmp al, 1                   ; knocks it back with eG (the ROTOR family's
-    jae .wd1                    ; DOOR, 130.25.20.2)
+    jae .wd1                    ; DOOR, 137.25.20.2)
     jmp .wwall
 .wd1:
     ja .pdcap
@@ -1512,7 +1512,7 @@ bz_step:
     inc word [bz_nknock]
 .ny:
     jmp .nocorner               ; (pushed to BZ_RAD from the edge: no corner)
-    ; ---- D3 (SPEC.md 130.24.7): THE SPLIT PATH, out of the hot path.  A
+    ; ---- D3 (SPEC.md 137.24.7): THE SPLIT PATH, out of the hot path.  A
     ; window with a split cell runs the prop path's steps 4 and 6 and its
     ; own step 5 (bz_swalls); a course with none never comes here ----
 .split:
@@ -1531,7 +1531,7 @@ bz_step:
     jne .sw
     mov bl, al
     xor bh, bh
-    call bz_tdrain              ; (the TUBE family's DRAIN, 130.25.20.2)
+    call bz_tdrain              ; (the TUBE family's DRAIN, 137.25.20.2)
     jc .spend
 .sw:
     call bz_swalls              ; step 5: the lines inside C, the edges, the
@@ -1551,8 +1551,8 @@ bz_step:
 .spend:
     jmp .end
 .ngs:                           ; step 6: a GOAL, or a SPLIT centre - its
-    je .ngg                     ; picked RECORD is C from here (130.24.7.1)
-    cmp al, BZ_KFIELD           ; (SPEC.md 130.28.5.1: a FIELD centre's table
+    je .ngg                     ; picked RECORD is C from here (137.24.7.1)
+    cmp al, BZ_KFIELD           ; (SPEC.md 137.28.5.1: a FIELD centre's table
     je .nfld                    ; at the point, and the slopes there)
     call bz_srec
     mov [bz_srp], si            ; (and step 8's: the centre does not move)
@@ -1568,7 +1568,7 @@ bz_step:
     call bz_fh4                 ; BX = h4, SI = C
     jmp .psolid
 .sgoal:                         ; step 8: the split centre's record a GOAL?
-    cmp al, BZ_KFIELD           ; (a FIELD centre never is, 130.28.5.2)
+    cmp al, BZ_KFIELD           ; (a FIELD centre never is, 137.28.5.2)
     je .sgx
     mov si, [bz_srp]            ; (step 6's pick)
     mov al, [si + 2]
@@ -1580,18 +1580,18 @@ bz_step:
     jmp .end
 
 ; -----------------------------------------------------------------------------
-; bz_land - step 6's LAND (SPEC.md 130.11.8.5): an airborne ball meets C's
+; bz_land - step 6's LAND (SPEC.md 137.11.8.5): an airborne ball meets C's
 ; floor (BX = its h4 under the centre, SI = C).  The impact is judged RELATIVE
 ; TO THE FLOOR: fr = (sx gvx + sy gvy) >> 2, lvz = max(0, fr - gvz), and the
 ; rebound r = (e min(lvz, -gvz)) >> 8, e the surface's floor restitution for
 ; the material (bz_se).  Then, in order: a STUN or a SHATTER (not on a mat);
-; the BOOST (130.16.4.1 as wave 6b's 130.17.4.2 has it: the flight ARMED,
+; the BOOST (137.16.4.1 as wave 6b's 137.17.4.2 has it: the flight ARMED,
 ; bz_btok 2, not stunned, and bz_bok's rules 3 - 5) leaving at BOOST with the
 ; stretch and no squash; a Hop at the contact (the window open, not stunned)
 ; leaving at max(HOP, r if r >= BMIN else 0) + min(fr, 0); a BOUNCE (r >=
 ; BMIN, Grip not held) at r + min(fr, 0), which OPENS the late grace when the
 ; token was 1 (unarmed), the ball not stunned and rules 3 - 5 hold
-; (130.17.4.5); else it lands.  A landing at lvz >= BZ_SQTHR squashes, but a
+; (137.17.4.5); else it lands.  A landing at lvz >= BZ_SQTHR squashes, but a
 ; shatter's and a boost's.  Every contact clears bz_btok and closes the grace.
 ; DS = ours.  Preserves BX and SI.
 ; Clobbers AX, CX, DX, DI, BP.
@@ -1637,11 +1637,11 @@ bz_land:
     inc word [bz_nland]
     mov cx, [bz_mrec + BZM_BMIN] ; CL = BMIN, CH = GRIP (unused); CL = the
     mov al, [bz_mrec + BZM_HARD] ; mat's BZ_BMINMAT and no hard landing on a
-    cmp byte [bz_surf], BZ_SURF_BOUNCE ; `bounce` floor (130.11.6.2)
+    cmp byte [bz_surf], BZ_SURF_BOUNCE ; `bounce` floor (137.11.6.2)
     jne .hspr
     mov cl, BZ_BMINMAT
     xor al, al
-.hspr:                          ; SPEC.md 130.14.4.6.1: a landing on a SPRING
+.hspr:                          ; SPEC.md 137.14.4.6.1: a landing on a SPRING
     cmp al, BZ_HARD_STUN        ; never stuns - the spring takes the impact
     jne .hard                   ; (the centre's owner, bz_wolf's kind)
     cmp byte [bz_wckd], BZ_PK_SPRING
@@ -1676,7 +1676,7 @@ bz_land:
 .base:
     cmp byte [bz_mst], 0        ; stunned: a bounce or a landing, nothing else
     jne .bnc
-    cmp byte [bz_btok], 1       ; round 3 (130.17.16): Space HELD at the
+    cmp byte [bz_btok], 1       ; round 3 (137.17.16): Space HELD at the
     jne .armd                   ; contact ARMS the token 1, onto a floor no
     mov al, [bz_kstep]          ; higher than the take-off: z is the
     test al, BZ_K_HOP           ; floor's now (bz_setz above), its px
@@ -1686,7 +1686,7 @@ bz_land:
     jg .armd
     inc byte [bz_btok]
 .armd:
-    cmp byte [bz_btok], 2       ; 2a. the BOOST (wave 6b, 130.17.4.2): the
+    cmp byte [bz_btok], 2       ; 2a. the BOOST (wave 6b, 137.17.4.2): the
     jne .hopc                   ; flight ARMED, and rules 3 - 5 (bz_bok, AX =
     call bz_bok                 ; BOOST); a failing test is the contact Hop
     jc .boost                   ; when the window is open, with no cue
@@ -1708,7 +1708,7 @@ bz_land:
     test byte [bz_kstep], BZ_K_GRIP
     jnz .ground
     inc word [bz_nbnc]
-    mov al, [bz_btok]           ; wave 6b (130.17.4.5): an UNARMED first
+    mov al, [bz_btok]           ; wave 6b (137.17.4.5): an UNARMED first
     dec ax                      ; contact (the token 1), not stunned, may
     or al, [bz_mst]             ; open the late grace (.grace, out of line)
     jz .grace
@@ -1733,13 +1733,13 @@ bz_land:
     mov byte [bz_sqf], BZ_SQSTEPS
 .out:
     ret
-.boost:                         ; 2a. the BOOST (130.16.4.1, 130.17.4.2;
+.boost:                         ; 2a. the BOOST (137.16.4.1, 137.17.4.2;
                                 ; AX = BOOST, bz_bok's)
     mov [bz_gvz], ax            ; still airborne at BOOST (a level floor adds
     mov ax, [bz_gz + 1]         ; no rate), ztop = z, the window closed; the
     mov [bz_ztop], ax           ; token spent and the STRETCH's steps set in
     mov byte [bz_hopw], 0       ; one word; and NO squash on this contact
-    inc word [bz_nboost]        ; (130.16.4.4: sqf keeps what it held)
+    inc word [bz_nboost]        ; (137.16.4.4: sqf keeps what it held)
     mov word [bz_btok], BZ_STRS << 8
     mov byte [bz_bsp], 1        ; round 3b: spent until the ball is grounded
     ret
@@ -1752,25 +1752,25 @@ bz_land:
     mov byte [bz_bgr], BZ_BGRACE
     jmp short .bn
 
-; bz_bok - the boost's rules 3 and 4 at a contact (130.16.4.1; bbcourse.Physics's
+; bz_bok - the boost's rules 3 and 4 at a contact (137.16.4.1; bbcourse.Physics's
 ; _boost_ok and _boost_v), read by the boost and by the late grace's opening
-; (130.17.4.5): rule 3, BOOST not 0; rule 4 on the centre's GRID cell, never
+; (137.17.4.5): rule 3, BOOST not 0; rule 4 on the centre's GRID cell, never
 ; the lift's slab (whose shaft carries OBS): OBS clear (+3), FLOOR or GOAL
 ; with a `normal` or `ice` surface (+2 AND 0EDh is 01h: kind 1 or 3, surface
-; 0 or 1), level (+1, both slopes 0).  Round 3b (130.17.17) took rule 5 out:
+; 0 or 1), level (+1, both slopes 0).  Round 3b (137.17.17) took rule 5 out:
 ; the boost ADDS to the bounce, AX = min(VZMAX, max(BOOST, rr + BADD)), rr
 ; the rebound (BP, r if r >= BMIN else 0).  -> CF = 1 when both hold, AX the
 ; boost's gvz.  Clobbers DX.
 bz_bok:
     mov ax, [bz_mrec + BZM_BOOST]
     or ax, ax
-    jz .no                      ; rule 3 (round 3b: rule 5 went, 130.17.17)
+    jz .no                      ; rule 3 (round 3b: rule 5 went, 137.17.17)
     mov dx, [si + 2]            ; (SI: C, the window's centre - D3: or its
-    and dx, (BZ_FL_OBS << 8) | 0edh ; picked record, 130.24.7.1)
+    and dx, (BZ_FL_OBS << 8) | 0edh ; picked record, 137.24.7.1)
     cmp dx, 1
     je .firm
     cmp dx, (BZ_FL_OBS << 8) | 1 ; OBS for a FLAT prop, the centre's owner
-    jne .no                     ; (130.16.4.1.1: BZ_BOKT, a bit a kind)
+    jne .no                     ; (137.16.4.1.1: BZ_BOKT, a bit a kind)
     push bx
     push cx
     mov bl, [bz_wckd]           ; (bz_wcen + 1: its kind, 0 none)
@@ -1809,7 +1809,7 @@ bz_bok:
     ret
 
 ;-----------------------------------------------------------------------------
-; THE FINISH SEQUENCE (wave 8R, SPEC.md 130.22.6), a PLAY's only (bz_mode 0: a
+; THE FINISH SEQUENCE (wave 8R, SPEC.md 137.22.6), a PLAY's only (bz_mode 0: a
 ; replay, a benchmark and a demo end at the finish as the log does).
 ; bz_fstart - at the step that sets bz_goal or bz_tout: BZ_FIN_STEPS steps to
 ; run (bz_fcnt is one more: 1 is a sequence run out, which the camera still
@@ -1820,7 +1820,7 @@ bz_fstart:
     jne .r
     mov word [bz_fcnt], (BZ_FIN_STEPS + 1) | (7 << 8)
     push ax                     ; the first phase shows the RUN's time at once
-    push bx                     ; (SPEC.md 130.22.6.1), not the seconds left
+    push bx                     ; (SPEC.md 137.22.6.1), not the seconds left
     call bz_fflash
     pop bx
     pop ax
@@ -1839,7 +1839,7 @@ bz_fstep:
     jbe .r
     cmp byte [bz_fcnt], BZ_FIN_STEPS + 1 ; the finish's first step: the
     jne .nv                     ; VICTORY fanfare over the course's song
-    call bzs_victory            ; (130.22.9; its own tests: a goal, an arm,
+    call bzs_victory            ; (137.22.9; its own tests: a goal, an arm,
 .nv:                            ; music, the fanfare had)
     call .in
     dec byte [bz_fcnt]
@@ -1897,10 +1897,10 @@ bz_fend:
     ret
 
 ; bz_fflash - the clock digits' new state - blank (bit 7 of bz_ffl) or the
-; RUN's time, frozen (SPEC.md 130.22.6.1: the whole seconds the play took,
+; RUN's time, frozen (SPEC.md 137.22.6.1: the whole seconds the play took,
 ; the limit less the seconds left, where the clocks counted those down; a
 ; timeout's 0 and EXPLORE's clock as they stand) - and
-; EVERY clock lane MARKED (130.19.10 item 6 marks them only on a new second);
+; EVERY clock lane MARKED (137.19.10 item 6 marks them only on a new second);
 ; bz_lcsec is made unequal so the walk's clock skip does not hold either.  The
 ; wheel commits the marked digits as ONE group in a finish (bz_wclk).
 ; Preserves CX.
@@ -1913,7 +1913,7 @@ bz_fflash:
     jmp short .mk
 .show:
     mov ax, [bz_tsec]           ; the seconds left: as they stand with no limit
-    cmp byte [bz_tout], 0       ; (EXPLORE's 0, 130.19.8.3) or on a TIMEOUT
+    cmp byte [bz_tout], 0       ; (EXPLORE's 0, 137.19.8.3) or on a TIMEOUT
     jne .sh                     ; (0: time's up) ...
     cmp byte [bz_xmode], 0
     jne .sh
@@ -1944,7 +1944,7 @@ bz_fflash:
 .r:
     ret
 
-; bz_fdis - THE DISSOLVE (8R.11, SPEC.md 130.22.6), once a frame after bz_foot
+; bz_fdis - THE DISSOLVE (8R.11, SPEC.md 137.22.6), once a frame after bz_foot
 ; (the frame's sprite, shadow and footprints chosen): in a finish sequence the
 ; ball is drawn WHOLE for the step that finished and the sequence's first
 ; BZ_FDSTEPS - 1 steps, then through 7 ORDERED-DITHER densities (k / 8 of its
@@ -1956,7 +1956,7 @@ bz_fflash:
 ; The dither is 2 x 4 game pixels, anchored to the WORLD's lines and bytes,
 ; so one byte a line parity a density (bz_fdtab): a mask byte ORed with it
 ; (a set bit keeps the box), a frame byte ANDed with its complement (frames
-; are pre-ANDed, 130.3), the shadow's mask ORed (AND only, 130.11.10.2) -
+; are pre-ANDed, 137.3), the shadow's mask ORed (AND only, 137.11.10.2) -
 ; copied into bz_fdb, which the blits then read: bz_smsk, bz_sfd and bz_shm
 ; point there and bz_bseg is OUR segment until bz_fend puts the material's
 ; back.  A new density sets bz_spr's bit 7 on every other one, so bz_mkboxes
@@ -1991,7 +1991,7 @@ bz_fdis:
 .gone:                          ; bz_bseg may still be our copies' segment
     mov byte [bz_hidn], 1       ; GONE: the ball and its shadow
     mov byte [bz_shc], 0
-.r:                             ; wave 9 (SPEC.md 130.25.19): every way out
+.r:                             ; wave 9 (SPEC.md 137.25.19): every way out
     mov al, [bz_cue]            ; takes the pickup CUE's look (bzvideo.inc
     or al, [bz_clook]           ; bz_cuef) while a cue shows or the last
     jnz bz_cuef                 ; frame's did - with neither, three tests
@@ -2052,7 +2052,7 @@ bz_fdis:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_cuef - wave 9 (SPEC.md 130.25.9, 130.25.19): the pickup CUE's LOOK for the
+; bz_cuef - wave 9 (SPEC.md 137.25.9, 137.25.19): the pickup CUE's LOOK for the
 ; frame, once a frame from bz_fdis's tail while [bz_cue] (a family's STEP
 ; writes it; display only) or the last frame's look is set.  The look
 ; (bz_clook): while bit 0 of bz_cue is set, BZ_CL_SP + the sparkles' HOP
@@ -2075,7 +2075,7 @@ bz_fdis:
 ; start, not at a flash turning on or off.  (The first build flipped
 ; a toggle XORed into bz_spr - the dissolve's trick - and a cue that began
 ; with the toggle left set by the last one changed nothing the idle test
-; saw.)  SPEC.md 130.55: under bit 2 (the LIFE's RISE, about 1 s, no flash
+; saw.)  SPEC.md 137.55: under bit 2 (the LIFE's RISE, about 1 s, no flash
 ; of its own) the look is BZ_CL_SP + BZ_CL_RI + the rise's steps mod 16, one
 ; every 4 frames, and each sparkle CLIMBS (bz_spsr: a side or the face, foot to
 ; top), the three a step apart.  Clobbers AX, CX, DX.
@@ -2089,7 +2089,7 @@ bz_cuef:
     jnz .sp
     mov dl, BZ_CL_BL
 .sp:
-    test ah, 4                  ; SPEC.md 130.55: the LIFE's RISE, over the
+    test ah, 4                  ; SPEC.md 137.55: the LIFE's RISE, over the
     jz .sp1                     ; sparkles while it lasts - its count the
     mov ax, [bz_frames]         ; steps, one every 4 frames, all three at once
     mov cl, 2
@@ -2164,7 +2164,7 @@ bz_cuef:
 ; ES:DI, each ORed (ANDed) with DX, BX the next row's: the two swapped a row.
 ; -> SI, DI past them, DX and BX swapped CX times.  Clobbers AX, CX.
 %if BZ_BAL_RB != 5
- %error "bz_fdor's rows are two words and a byte (SPEC.md 130.3's 5-byte rows)"
+ %error "bz_fdor's rows are two words and a byte (SPEC.md 137.3's 5-byte rows)"
 %endif
 bz_fdor:
     push ds
@@ -2210,7 +2210,7 @@ bz_fdtab:
     db 0fch, 033h, 0fch, 0f3h, 0ffh, 0f3h
 
 
-; bz_tdset - wave 7 (SPEC.md 130.18.5): bz_tdig from bz_tsec, the clocks'
+; bz_tdset - wave 7 (SPEC.md 137.18.5): bz_tdig from bz_tsec, the clocks'
 ; digit poses - units, tens, hundreds; 0 a blank (a leading zero), 1 + d the
 ; digit d; the units never blank (bbcourse.clock_pose).  Two DIVs, once a
 ; second.  Preserves all but the flags.
@@ -2218,7 +2218,7 @@ bz_tdset:
     push ax
     mov ax, [bz_tsec]
 %if BZ_PATH_NPAD
-    cmp byte [bz_crs], BZ_CRS_PATH ; wave 8b (130.19.5): the pathway's clock
+    cmp byte [bz_crs], BZ_CRS_PATH ; wave 8b (137.19.5): the pathway's clock
     jne .t                      ; shows the LIVES (no countdown runs there)
     mov al, [bz_lives]
     xor ah, ah
@@ -2254,9 +2254,9 @@ bz_tdsax:
     pop ax
     ret
 
-; bz_toff - TAKE OFF from the ground (130.10.7.3, and the Hop's, 130.11.8.6):
+; bz_toff - TAKE OFF from the ground (137.10.7.3, and the Hop's, 137.11.8.6):
 ; airborne, ztop = z, z += gvz, keeping gvz; the boost's TOKEN 1 and the
-; take-off's z (rounds 3 and 3b, 130.17.16 - 17: a Hop, a fall, the cup's
+; take-off's z (rounds 3 and 3b, 137.17.16 - 17: a Hop, a fall, the cup's
 ; lip-out and a spring under a grounded ball all come here), the boost spent
 ; no more.  Clobbers AX, DX.
 bz_toff:
@@ -2265,7 +2265,7 @@ bz_toff:
     mov byte [bz_bsp], 0
     mov ax, [bz_gz + 1]
     mov [bz_ztop], ax
-    mov [bz_zoff], ax           ; round 3 (130.17.16): the take-off's z
+    mov [bz_zoff], ax           ; round 3 (137.17.16): the take-off's z
     mov ax, [bz_gvz]
     cwd
     add [bz_gz], ax
@@ -2273,7 +2273,7 @@ bz_toff:
     ret
 
 ; =============================================================================
-; WAVE 4's PROPS (SPEC.md 130.14.4, 130.14.18 item 3): bbcourse.Physics's
+; WAVE 4's PROPS (SPEC.md 137.14.4, 137.14.18 item 3): bbcourse.Physics's
 ; _cup, _spring, the pad's and the flag's rules, _respawn and _setmat,
 ; integer-exact.  ES = the course throughout.
 ; =============================================================================
@@ -2298,7 +2298,7 @@ bz_prule:
     cmp ah, BZ_PK_CUP
     je .cup
     mov byte [bz_inmo], 0
-    cmp ah, BZ_PK_SPRING        ; story 9.8 (SPEC.md 130.25.20): a SPRING is the
+    cmp ah, BZ_PK_SPRING        ; story 9.8 (SPEC.md 137.25.20): a SPRING is the
     jne .nspr                   ; SPRING family's, its CONTACT by its key
     mov ah, BZ_FK_SPRING
     jmp short .fam
@@ -2307,7 +2307,7 @@ bz_prule:
     je .pad
     cmp ah, BZ_PK_CKPT
     je .flag
-    cmp ah, BZ_FK0              ; wave 9 (130.25.6.3): a FAMILY kind's CONTACT
+    cmp ah, BZ_FK0              ; wave 9 (137.25.6.3): a FAMILY kind's CONTACT
     jae .fam
 .out:
     ret
@@ -2323,7 +2323,7 @@ bz_prule:
     call bz_fone
     pop bx
     ret
-.flag:                          ; A FLAG (130.14.4.5), grounded or airborne,
+.flag:                          ; A FLAG (137.14.4.5), grounded or airborne,
     cmp byte [bz_mst], BZ_ST_SHAT ; not shattering: the respawn point and its
     je .out                     ; ball; first touched, its bit and bz_nckpt
     call .rec
@@ -2343,7 +2343,7 @@ bz_prule:
     jnz .out
     or [bz_cksn], al
     inc word [bz_nckpt]
-    mov ax, si                  ; (130.19.10: a first touch MARKS its flag's
+    mov ax, si                  ; (137.19.10: a first touch MARKS its flag's
     sub ax, [bz_poff]           ; lane for the walk: the record's index)
     mov cl, 5
     shr ax, cl
@@ -2358,7 +2358,7 @@ bz_prule:
     call bz_lrecsi
     pop bx
     ret
-.pad:                           ; A PAD (130.14.4.4): grounded, not
+.pad:                           ; A PAD (137.14.4.4): grounded, not
     cmp byte [bz_air], 0        ; shattering, a material other than the
     jne .out                    ; ball's - the swap, its record and tables
     cmp byte [bz_mst], BZ_ST_SHAT
@@ -2370,7 +2370,7 @@ bz_prule:
     call bz_setmat
     inc word [bz_npad]
     ret
-.cup:                           ; THE CUP (130.14.4.3): in its MOUTH, |u - 8|
+.cup:                           ; THE CUP (137.14.4.3): in its MOUTH, |u - 8|
     call .rec                   ; and |v - 8| at most the half-width
     mov cl, [es:si + BZP_UHW]
     mov al, [bz_gx + 1]
@@ -2392,7 +2392,7 @@ bz_prule:
 %endif
     cmp word [bz_goal], 0       ; (in a FINISH SEQUENCE, a goal line's or a
     jne .hole                   ; timeout's: holed, the finish unchanged)
-    mov al, [es:si + BZP_UEXIT] ; wave 8b (130.19.4): the cup's EXIT (bit 7
+    mov al, [es:si + BZP_UEXIT] ; wave 8b (137.19.4): the cup's EXIT (bit 7
     and al, 0fh                 ; hidden is the pathway's)
     mov [bz_exit], al
     mov byte [bz_goal], 1
@@ -2468,7 +2468,7 @@ bz_setmat:
     mov [bz_bseg], si
     mov ah, [bz_spr]            ; a new material is a new picture: never an
     not ah                      ; idle frame (bz_mkboxes compares no material;
-    mov [bz_ospr], ah           ; a swap on a still ball drew nothing, 130.14.4.4)
+    mov [bz_ospr], ah           ; a swap on a still ball drew nothing, 137.14.4.4)
     mov ah, BZ_MATREC
     mul ah
     add ax, bz_mattab
@@ -2486,7 +2486,7 @@ bz_setmat:
     pop bx
     ret
 
-; bz_rflag - step 7 on a CKPT course (SPEC.md 130.14.4.5): the ball placed on
+; bz_rflag - step 7 on a CKPT course (SPEC.md 137.14.4.5): the ball placed on
 ; flag bz_ckpt - 1's cell (the start's when bz_ckpt is 0), and given bz_ckmat
 ; when it has another.  bz_safe is not read.  ES = the course.  Clobbers
 ; AX, BX, CX, DX, SI, DI.
@@ -2499,7 +2499,7 @@ bz_rflag:
     jc .at
     mov si, [bz_poff]           ; the flag numbered DL: the record of kind
     mov cl, [bz_nprop]          ; CHECKPOINT with that number (the tool wrote
-.r:                             ; one, 130.14.4.2)
+.r:                             ; one, 137.14.4.2)
     cmp byte [es:si + BZP_KIND], BZ_PK_CKPT
     jne .n
     cmp [es:si + BZP_CNUM], dl
@@ -2521,14 +2521,14 @@ bz_rflag:
     ret
 
 ; =============================================================================
-; WAVE 3's PROPS (SPEC.md 130.12.6), bbcourse.Physics's _capture, _transit,
+; WAVE 3's PROPS (SPEC.md 137.12.6), bbcourse.Physics's _capture, _transit,
 ; _circle, _floor and the carry, integer-exact.  ES = the course throughout;
 ; a record is reached by its index through bz_lrecsi (bzwheel.inc).
 ; =============================================================================
 
 ; bz_psync - bz_ps from its facts: bit 0 bz_wol not empty, bit 1 a tube in
-; transit, bit 2 carried by the platform (130.12.3.2); D3: bit 3 a split cell
-; in the window (bz_psp, 130.24.7.6).  Preserves all.
+; transit, bit 2 carried by the platform (137.12.3.2); D3: bit 3 a split cell
+; in the window (bz_psp, 137.24.7.6).  Preserves all.
 bz_psync:
     push ax
     mov al, [bz_psp]
@@ -2578,7 +2578,7 @@ bz_wolf:
     add dh, [si + 2]
     call bz_owner               ; AL = the index, AH = its kind
     jc .n
-    cmp ah, BZ_PK_CLOCK         ; wave 7 (SPEC.md 130.18.5.3): a CLOCK's cell is
+    cmp ah, BZ_PK_CLOCK         ; wave 7 (SPEC.md 137.18.5.3): a CLOCK's cell is
     jne .nk                     ; a POST's - its record carries a post's fields
     mov ah, BZ_PK_BUMPER        ; (no kick, no light), and every post rule reads
 .nk:                            ; the kind recorded here
@@ -2619,13 +2619,13 @@ bz_wotab:
     db 0, -1, -1, 3,  3, -1, 0, 15,  1, 0, -1, 7,  6, -1, 1, 27,  4, 0, 0, 19
     db 2, 1, -1, 11,  7, 0, 1, 31,  5, 1, 0, 23,  8, 1, 1, 35
 
-; bz_owner - the record owning cell DL = wx, DH = wy (130.12.3.2): the first,
+; bz_owner - the record owning cell DL = wx, DH = wy (137.12.3.2): the first,
 ; in the records' order, whose anchor is the cell - a tube's or windmill's IN,
 ; a bumper's post, a lift's shaft.  -> AL = its index, AH = its kind, CF = 0;
 ; CF = 1 none.
 ; Preserves all but AX and the flags.
 bz_owner:
-    push bx                     ; SPEC.md 130.19.10: a BINARY search of
+    push bx                     ; SPEC.md 137.19.10: a BINARY search of
     push cx                     ; bz_okey (the anchors, sorted, the first of
     push si                     ; equal ones first) for its LOWER BOUND - about
     xor bx, bx                  ; 7 compares for 100 props, not 100
@@ -2671,7 +2671,7 @@ bz_owner:
     pop bx
     ret
 
-; bz_obuild - the owners' index (SPEC.md 130.19.10), at bz_pinit: every
+; bz_obuild - the owners' index (SPEC.md 137.19.10), at bz_pinit: every
 ; record's anchor (wx | wy << 8) in bz_okey and its index in bz_oidx, sorted by
 ; INSERTION, stable - an anchor equal to an earlier one goes after it, so the
 ; lower bound names the FIRST record of a cell (a clock's units digit), as the
@@ -2725,11 +2725,11 @@ bz_obuild:
  %error "bz_owner compares a record's (wx, wy) as one word and scales by 32"
 %endif
 
-%include "fam/bzthunk.inc"      ; story 9.8 (SPEC.md 130.25.20): the TUBE family's thunks
+%include "fam/bzthunk.inc"      ; story 9.8 (SPEC.md 137.25.20): the TUBE family's thunks
 %include "fam/bzdoor.inc"       ; the windmill's doorway: the ROTOR family's
 
 ; bz_ppos - the LIFT's (ES:SI, its record) rise above its low top at step AX
-; = n, in 1/256 px (130.12.6.4; bbcourse.plat_pos): m = (n + seed) AND
+; = n, in 1/256 px (137.12.6.4; bbcourse.plat_pos): m = (n + seed) AND
 ; (P - 1), q = m in the first half and P - 1 - m in the second, pos =
 ; min(PMAX, max(0, q - W) v).  The last answer is kept (bz_pcn, bz_pcs,
 ; bz_pcv: a record offset is never 0, so the zeroed state holds none).  -> AX.
@@ -2767,7 +2767,7 @@ bz_ppos:
     mov [bz_pcv], ax
     ret
 
-; bz_carry - step 3's CARRY (130.12.6.4), a step that starts with bz_onp: the
+; bz_carry - step 3's CARRY (137.12.6.4), a step that starts with bz_onp: the
 ; LIFT's rise pos(n + 1) - pos(n) added to z (and kept in bz_cdd for the
 ; undo).  Clobbers AX, BX, DX, SI.
 bz_carry:
@@ -2813,7 +2813,7 @@ bz_slabon:
     ret
 
 ; bz_octe - the bumpers' OCTANT table's entry for AX = |du|, DX = |dv|
-; (130.12.6.3): (a, b) = the larger and the smaller, at a (a + 1) / 2 + b.
+; (137.12.6.3): (a, b) = the larger and the smaller, at a (a + 1) / 2 + b.
 ; -> CF = 1 when a > BZ_OCTN (no contact); else BX = the entry (|n| along the
 ; larger, along the smaller, the depth) and CH = 1 when |dv| is the larger.
 ; Clobbers AX, DX.
@@ -2859,7 +2859,7 @@ bz_pdist:
 .y:
     ret
 
-; bz_ptop - step 6 on a POST cell (130.12.6.3; ES:SI the bumper): its floor at
+; bz_ptop - step 6 on a POST cell (137.12.6.3; ES:SI the bumper): its floor at
 ; the centre's point, plus the post's height where the octant table's depth
 ; there is over 96 (within 6 gu of the post's centre).  -> BX = that h4.
 ; Clobbers AX, CX, DX, BP.
@@ -2888,7 +2888,7 @@ bz_ptop:
     xchg ax, bx
     ret
 
-; bz_posts - step 5's CIRCLES (130.12.6.3): each post on bz_wol in its order,
+; bz_posts - step 5's CIRCLES (137.12.6.3): each post on bz_wol in its order,
 ; bz_circle.  Clobbers AX, BX, CX, DX, SI, DI, BP.
 bz_posts:
     cmp byte [bz_wbmp], 0
@@ -3049,7 +3049,7 @@ bz_circle:
     mov ax, [bz_nstep]
     mov [bz_pkick + bx], ax
     inc word [bz_nkick]
-    shr bx, 1                   ; (130.19.10: a kick MARKS its post's lane for
+    shr bx, 1                   ; (137.19.10: a kick MARKS its post's lane for
     mov byte [bz_latt + bx], 1  ; the walk, until it is dark again - and makes
     mov byte [bz_lqt], 0        ; the next walk, item 10: the quiet walk reads
                                 ; no kick)
@@ -3085,9 +3085,9 @@ bz_frate:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_gax - one ground axis after its forces (130.11.8.2 step 2): AX through
+; bz_gax - one ground axis after its forces (137.11.8.2 step 2): AX through
 ; the FRACTIONAL DRAG (CL = its shift k, 0: none, ice; SI = the axis's
-; remainder byte, bz_drx or bz_dry; SPEC.md 130.16.3.1), then the BRAKE CH
+; remainder byte, bz_drx or bz_dry; SPEC.md 137.16.3.1), then the BRAKE CH
 ; toward 0 and never past it (0: none), then clamped to +-BZ_VMAXG.  The
 ; drag, for v not 0 (a ball at rest is not dragged, its remainder kept):
 ;     t = |v| + rem;  d = t >> k;  rem = t AND bz_dmask;  d = 0: d = 1, rem = 0
@@ -3145,7 +3145,7 @@ bz_gax:
     call .hi
     neg ax
     ret
-.hi:                            ; wave 9 (SPEC.md 130.25.19): the cap is
+.hi:                            ; wave 9 (SPEC.md 137.25.19): the cap is
     mov dx, BZ_VMAXG            ; BZ_VMAXG + bz_vup, a family's raise (0 but
     add dx, [bz_vup]            ; under PICKUPS' speed)
     cmp ax, dx
@@ -3156,7 +3156,7 @@ bz_gax:
 
 ; -----------------------------------------------------------------------------
 ; bz_wrefl - a velocity component AX that met the blocking window cell at SI,
-; REFLECTED (SPEC.md 130.11.8.4): t = (e |v|) >> 8, 0 under BZ_WMIN, and
+; REFLECTED (SPEC.md 137.11.8.4): t = (e |v|) >> 8, 0 under BZ_WMIN, and
 ; v = -sign(v) t; e is 230 off a BUMPER (a WALL with a `bounce` surface),
 ; else the material's stone EW (a floor too high to step onto included).
 ; bz_refl: the same with BL = e.  -> AX.  Preserve SI, DI, BP; clobber BX,
@@ -3181,7 +3181,7 @@ bz_refl:
     mov ah, dl                  ; >> 8
     cmp ax, BZ_WMIN
     jb .z
-    inc word [bz_nwall]         ; SOUND STATE (SPEC.md 130.20.5), never read
+    inc word [bz_nwall]         ; SOUND STATE (SPEC.md 137.20.5), never read
     mov [bz_lwv], ax            ; by physics: a reflection that left a speed,
     mov byte [bz_lwb], 0        ; the speed, and whether off a bumper's face
     cmp bl, BZ_EBUMPER
@@ -3202,8 +3202,8 @@ bz_refl:
 ; corner (so neither edge neighbour blocked - one that did put the centre
 ; exactly BZ_RAD from its edge), the corner neighbour blocks, and the corner
 ; point is nearer than BZ_RAD: the centre pushed out along the normal and the
-; velocity's component into the corner REFLECTED (130.10.7.3's table,
-; 130.11.8.3's |du|, 130.11.8.4's rule): d = (gvx nx + gvy ny) >> 6; only if
+; velocity's component into the corner REFLECTED (137.10.7.3's table,
+; 137.11.8.3's |du|, 137.11.8.4's rule): d = (gvx nx + gvy ny) >> 6; only if
 ; d < 0, t = (e (-d)) >> 8 (0 under BZ_WMIN), and v -= ((d - t) n) >> 6.
 ; ES = the course.  Clobbers AX, BX, CX, DX, SI, DI, BP.
 ; -----------------------------------------------------------------------------
@@ -3331,8 +3331,8 @@ bz_corner:
 ; bz_blocks - does the window cell at SI block the ball at its point (DL = u,
 ; DH = v, 0 .. 16)?  A WALL always; a plane floor (FLOOR, GOAL) when its h4
 ; there is above [bz_zq] - the step's START z plus the climb, grounded or
-; airborne (130.11.8.2 step 5); VOID and the reserved kinds never; a
-; bumper's post cell never (wave 3, 130.12.6.5: its post is the circle's).
+; airborne (137.11.8.2 step 5); VOID and the reserved kinds never; a
+; bumper's post cell never (wave 3, 137.12.6.5: its post is the circle's).
 ; CF = 1 blocks.  ES = the course.  Clobbers AX, BX, CX.
 ; -----------------------------------------------------------------------------
 bz_blocks:
@@ -3366,9 +3366,9 @@ bz_blocks:
 .other2:
     cmp al, BZ_KGOAL
     je .plane
-    cmp al, BZ_KFIELD           ; SPEC.md 130.28.5.3: a FIELD cell
+    cmp al, BZ_KFIELD           ; SPEC.md 137.28.5.3: a FIELD cell
     je .field
-    ; D3 (SPEC.md 130.24.7.3 - 130.24.7.4): a SPLIT window cell is tested by
+    ; D3 (SPEC.md 137.24.7.3 - 137.24.7.4): a SPLIT window cell is tested by
     ; its RECORD - an edge neighbour's that owns the shared edge, a corner
     ; neighbour's at K (either of two, the first that blocks), the centre's
     ; picked one - and SI is left on the record that decided (its e for the
@@ -3417,7 +3417,7 @@ bz_blocks:
     call bz_fhp
     pop di
     jmp short .cmp
-.lift:                          ; a FIELD centre's LIFT (130.28.5.3): AX = the
+.lift:                          ; a FIELD centre's LIFT (137.28.5.3): AX = the
     push dx                     ; neighbour's h4; it blocks only above C's own
     push si                     ; at the same point (in C's units) + the climb
     push di
@@ -3450,7 +3450,7 @@ bz_blocks:
     je .lift
 .h2:
     test byte [si + 3], BZ_FL_OBS ; wave 3: a BUMPER's post cell never blocks
-    jnz .obs                    ; (130.12.6.5 step 5; never set with no prop
+    jnz .obs                    ; (137.12.6.5 step 5; never set with no prop
 .yes:                           ; in the window)
     stc
     ret
@@ -3488,14 +3488,14 @@ bz_blocks:
     ret
 
 ; =============================================================================
-; D3: SPLIT CELLS (SPEC.md 130.24.7) - bbcourse.Physics's prec, _inner and
+; D3: SPLIT CELLS (SPEC.md 137.24.7) - bbcourse.Physics's prec, _inner and
 ; _dline and step 5's rays and corner, integer-exact.  Only a window with a
 ; split cell comes here (bz_ps bit 3: the step's split path, bz_blocks'
 ; dispatch), or a refill on a GF_SPLIT course (bz_wsplit).  A split cell's
 ; records are bz_nbh's, 16 x its window index, four bytes each.
 ; =============================================================================
 
-; bz_dpick - 130.24.7.1's PICK at the centre's in-cell (pu, pv): AL = the split
+; bz_dpick - 137.24.7.1's PICK at the centre's in-cell (pu, pv): AL = the split
 ; kind (4 TB, 5 LR, 6 QUARTERED) -> AL = the record's index - TB 0 when pu <
 ; pv, else 1; LR 0 when pu + pv < 4,096, else 1; QUARTERED by both, (pu >= pv,
 ; pu + pv >= 4,096) N (1, 0) 0, E (1, 1) 1, S (0, 1) 2, W (0, 0) 3.
@@ -3534,7 +3534,7 @@ bz_dpick:
     sub al, cl
     ret
 
-; bz_srec - the split centre's RECORD (130.24.7.1): SI = the one the pick
+; bz_srec - the split centre's RECORD (137.24.7.1): SI = the one the pick
 ; names, and step 2's slopes from it (bz_tslope) - the next step's, which
 ; starts where the ball is now.  bz_tslope: SI = a record (or a whole cell):
 ; bz_tsx, bz_tsy its slopes, 0 unless it is a FLOOR or a GOAL (bz_wtail's).
@@ -3575,14 +3575,14 @@ bz_tslope:
     mov [bz_tsy], ax
     ret
 
-; bz_wsplit - bz_wtail's for a GF_SPLIT course (130.24.7.6): every split
+; bz_wsplit - bz_wtail's for a GF_SPLIT course (137.24.7.6): every split
 ; cell of bz_nbr has its two or four records copied from section D - its +0 -
 ; +1, an offset in the course, read through ES (kern_mega: the course's
 ; selector, no segment arithmetic) - to bz_nbh at 16 x its window index;
 ; bz_psp is 8 when the window holds one, else 0, and bz_ps's bit 3 with it;
 ; a split CENTRE's slopes for step 2 (bz_srec).  The part was checked when it
 ; was built (bbcourse read_part: every offset names its records inside D,
-; 130.24.5.2), as every other read of it (bz_crshdr).  ES = the course.
+; 137.24.5.2), as every other read of it (bz_crshdr).  ES = the course.
 ; Clobbers AX, BX, CX, DX, SI, DI.
 bz_wsplit:
     xor dl, dl
@@ -3593,7 +3593,7 @@ bz_wsplit:
     and al, 0fh
     cmp al, BZ_KTB
     jb .n
-    cmp al, BZ_KFIELD           ; (SPEC.md 130.28: a FIELD cell is none)
+    cmp al, BZ_KFIELD           ; (SPEC.md 137.28: a FIELD cell is none)
     je .n
     mov dl, 8
     push ax                     ; bz_nbp: this cell's record(s) for bz_blocks,
@@ -3669,7 +3669,7 @@ bz_wsplit:
 .r:
     ret
 
-; bz_sdoor - the prop path's bz_pdoor for the window's centre (130.12.6.2): 1,
+; bz_sdoor - the prop path's bz_pdoor for the window's centre (137.12.6.2): 1,
 ; or 2 / 3 when it is a windmill's IN (its doorway along -x / -y; bz_pdi the
 ; record).  ES = the course.  Clobbers AX, BX, SI.
 bz_sdoor:
@@ -3689,7 +3689,7 @@ bz_sdoor:
 .r:
     ret
 
-; bz_swalls - step 5 on the split path (SPEC.md 130.24.7.2 - 130.24.7.5,
+; bz_swalls - step 5 on the split path (SPEC.md 137.24.7.2 - 137.24.7.5,
 ; the model's order): the lines inside a split centre (bz_dinner), and the
 ; window refilled round a cell a push carried the centre into (and its
 ; doorway, bz_sdoor); the four edges as the step's, a split neighbour by its
@@ -3836,7 +3836,7 @@ bz_swalls:
 .edoor:                         ; the doorway: low enough to touch it ...
     mov dx, bp                  ; ... OPEN swallows it (CF = 1 out), CLOSED
     call bz_door                ; knocks it back with eG (the ROTOR family's
-    cmp al, 1                   ; DOOR, 130.25.20.2)
+    cmp al, 1                   ; DOOR, 137.25.20.2)
     jb .elo
     je .knock
     stc
@@ -3873,7 +3873,7 @@ bz_sedt:
     dw bz_gy, bz_gvy
     db 3
 
-; bz_dinner - 130.24.7.2's lines INSIDE the centre's split cell
+; bz_dinner - 137.24.7.2's lines INSIDE the centre's split cell
 ; (bbcourse.Physics._inner): the pick's record (bz_dhc); a halved cell's
 ; diagonal, a quartered one's TB half-line, then its LR one, each pushed off
 ; (bz_dline, sigma + on the record's side) when the record across it BLOCKS
@@ -4042,7 +4042,7 @@ bz_dset:
     pop bp
     pop di
     ret
-; bz_dline - 130.24.7.2's push and reflection off a DIAGONAL line, the
+; bz_dline - 137.24.7.2's push and reflection off a DIAGONAL line, the
 ; cell's own or a corner's ray (bbcourse.Physics._dline, integer-exact): sx,
 ; sy the signs whose masks DI, BP hold (the line's normal toward the centre),
 ; DX = sigma x the line's offset.  w = sx pu + sy pv - DX (its distance x
@@ -4051,10 +4051,10 @@ bz_dset:
 ; sqrt 2) and when wv < 0, t = (e |wv|) >> 8, 0 under BZ_DWMIN (e by the
 ; record at SI: bz_wrefl's, 230 a bumper half, else the material's EW), k =
 ; (t + |wv|) >> 1, gvx += sx k, gvy += sy k; bz_bgr = 0; CF = 1.  No clamp:
-; every e <= 256 keeps each new component between the old two (130.24.7.2).
+; every e <= 256 keeps each new component between the old two (137.24.7.2).
 ; Preserves SI, DI, BP; clobbers AX, BX, CX, DX.
 %if BZ_DWMIN != BZ_WMIN
- %error "bz_dline reflects through bz_wrefl, whose dead band is BZ_WMIN: give bz_refl a second entry taking BZ_DWMIN (SPEC.md 130.24.7.2)"
+ %error "bz_dline reflects through bz_wrefl, whose dead band is BZ_WMIN: give bz_refl a second entry taking BZ_DWMIN (SPEC.md 137.24.7.2)"
 %endif
 bz_dline:
     mov ax, [bz_gx]
@@ -4118,7 +4118,7 @@ bz_dline:
     stc
     ret
 
-; bz_dray - 130.24.7.4's RAYS, after the edges: q the centre's quadrant
+; bz_dray - 137.24.7.4's RAYS, after the edges: q the centre's quadrant
 ; (bz_sq), RAYS[q] (BZ_SPLIT_RAYS) its corner K's line; the ray its foot of
 ; perpendicular falls on FACES the centre.  When that ray's neighbour is split
 ; along the line (or quartered) and its beyond piece blocks at K, bz_sfb = 1
@@ -4204,7 +4204,7 @@ bz_dray:
     lea si, [bz_nbh + bx]
     jmp bz_blocks
 
-; bz_dcorn - the corner with a split cell in the window (130.24.7.4's
+; bz_dcorn - the corner with a split cell in the window (137.24.7.4's
 ; "otherwise"): today's (bz_corner), K BLOCKED when the corner neighbour's
 ; record at K blocks - either of two where K ends its diagonal, bz_blocks'
 ; dispatch - or else when the other ray's beyond piece does (bz_sor).  The
@@ -4257,8 +4257,8 @@ bz_dcorn:
 
 ; -----------------------------------------------------------------------------
 ; bz_h4 - the floor of the plane cell at SI (in bz_nbr) at its point (DL = u,
-; DH = v, each 0 .. 16) in QUARTER px: h4 = 8 z0 + sx u + sy v (130.10.4.3;
-; z0 in QUARTER units since SPEC.md 130.48).
+; DH = v, each 0 .. 16) in QUARTER px: h4 = 8 z0 + sx u + sy v (137.10.4.3;
+; z0 in QUARTER units since SPEC.md 137.48).
 ; The products are bz_prod's, T[n << 4 | u] = n u for n 0 - 7; a negative n
 ; is -((~n) u + u), T at (~n) << 4 | u (the slope nibble XOR F0h): every
 ; product -120 .. 105, a byte; the far edge (16) is 16 n, the slope nibble
@@ -4385,10 +4385,10 @@ bz_smul:
 ; three refills keep no register over it).
 ; -----------------------------------------------------------------------------
 %if BZ_FH_EDGE != 80h
- %error "bz_win9i and bz_wtail test bz_fhk bit 7 as BZ_FH_EDGE (SPEC.md 130.35.1)"
+ %error "bz_win9i and bz_wtail test bz_fhk bit 7 as BZ_FH_EDGE (SPEC.md 137.35.1)"
 %endif
 bz_win9i:
-    test byte [bz_fhk], 80h     ; (BZ_FH_EDGE) SPEC.md 130.35.1: a course with
+    test byte [bz_fhk], 80h     ; (BZ_FH_EDGE) SPEC.md 137.35.1: a course with
     jz .i0                      ; GUARD RAILS refills WHOLE - a cell a refill
     jmp bz_win9f                ; walled is never moved into the next window
 .i0:
@@ -4580,7 +4580,7 @@ bz_fill:
     mov dx, bx
     shl dx, cl
     mov [bz_wgy], dx
-    ; The nine cells are FIVE grid rows (130.10.4.3): s - 2 .. s + 2, each a
+    ; The nine cells are FIVE grid rows (137.10.4.3): s - 2 .. s + 2, each a
     ; run of 1, 2, 3, 2, 1 cells consecutive in k - so one ROWTAB read a row
     ; (bz_wrt is the rows: the first cell's k against the centre's, the run,
     ; the window cells).  A row or a k outside the grid is OPEN.
@@ -4664,8 +4664,8 @@ bz_fill:
 ; bz_tsx and bz_tsy, the centre's surface, bz_wol and bz_ps.  -> AX = bz_nwin.
 ; Clobbers BX, CX, DX, SI, DI.
 bz_wtail:
-    test byte [bz_fhk], BZ_FH_CELL | BZ_FH_ENTER | BZ_FH_EDGE ; wave 9 (130.25.6.3):
-    jnz .fam                    ; CELL first, the rails (130.35.1), ENTER last
+    test byte [bz_fhk], BZ_FH_CELL | BZ_FH_ENTER | BZ_FH_EDGE ; wave 9 (137.25.6.3):
+    jnz .fam                    ; CELL first, the rails (137.35.1), ENTER last
 .go:
     xor ax, ax                  ; the centre's slopes, for step 2
     mov dx, ax
@@ -4695,7 +4695,7 @@ bz_wtail:
 .slset:
     mov al, [bz_nbr + BZN_C + 2] ; the centre's SURFACE (whatever its kind): a
     mov cl, 4                   ; new one rebuilds the step's force, drag,
-    shr al, cl                  ; brake and floor e (130.11.7.1)
+    shr al, cl                  ; brake and floor e (137.11.7.1)
     cmp al, [bz_surf]
     je .same
     call bz_surfset
@@ -4715,8 +4715,8 @@ bz_wtail:
     jmp short .wolf
 .fam:                           ; a course with families: CELL (each family
     mov ax, BZ_HK_CELL          ; with an entry rewrites its elements' cells in
-    call bz_fall                ; bz_nbr, never the grid, SPEC.md 130.25.7.2),
-    test byte [bz_fhk], 80h     ; (BZ_FH_EDGE) the GUARD RAILS (130.35.1) after
+    call bz_fall                ; bz_nbr, never the grid, SPEC.md 137.25.7.2),
+    test byte [bz_fhk], 80h     ; (BZ_FH_EDGE) the GUARD RAILS (137.35.1) after
     jz .fe                      ; them: a railed edge's cell a WALL,
     call bz_wedge               ; whatever a family wrote there
 .fe:
@@ -4741,7 +4741,7 @@ bz_wtail:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_wedge - SPEC.md 130.35.1: every window cell across a RAILED edge made a
+; bz_wedge - SPEC.md 137.35.1: every window cell across a RAILED edge made a
 ; WALL of stone in bz_nbr (kind 2, surface 0; its other bytes as they were),
 ; so step 5's edge tests, its corner and its fallback meet the rail exactly
 ; as a wall's edge.  A cell's grid flags (+3) say which of ITS two edges carry
@@ -4775,7 +4775,7 @@ bz_wedge:
     ret
 
 ; (bz_wtail's, out of its line: a centre neither FLOOR nor GOAL - a FIELD
-; one's slopes at the ball's point, SPEC.md 130.28.5.1)
+; one's slopes at the ball's point, SPEC.md 137.28.5.1)
 bz_wtail.nfs:
     cmp cl, BZ_KFIELD
     jne bz_wtail.nosl
@@ -4783,7 +4783,7 @@ bz_wtail.nfs:
     jmp bz_wtail.slset
 
 ; =============================================================================
-; SPEC.md 130.28: FIELD CELLS - a cell's floor a 17 x 17 table of section F
+; SPEC.md 137.28: FIELD CELLS - a cell's floor a 17 x 17 table of section F
 ; through one of the square's eight symmetries.  bz_fsb (bz_cexp's) holds each
 ; table's offset in the course; BZ_FSYM's entry, 16 x the symmetry, the
 ; origin (the index of (0, 0)), the strides DU, DV and the two walks.
@@ -4799,7 +4799,7 @@ bz_fhp:
     mov bl, al
     cbw                         ; AH = FFh when bit 7, the shape's fifth bit
     and ax, 100fh
-    or al, ah                   ; AL = the shape, 0 - 31 (SPEC.md 130.28.2)
+    or al, ah                   ; AL = the shape, 0 - 31 (SPEC.md 137.28.2)
     cbw
     shl ax, 1
     mov di, ax
@@ -4831,7 +4831,7 @@ bz_fhp:
 
 ; bz_fh4 - the window centre, a FIELD cell, at the ball's integer point:
 ; BX = its h4 (step 6's floor), and bz_tsx, bz_tsy its slopes there - the
-; forward differences F[i + DU] - F[i], F[i + DV] - F[i] (130.28.2).  SI =
+; forward differences F[i + DU] - F[i], F[i + DV] - F[i] (137.28.2).  SI =
 ; the centre.  ES = the course.  Clobbers AX, CX, DX, DI.
 bz_fh4:
     mov si, bz_nbr + BZN_C
@@ -4925,9 +4925,9 @@ bz_fmap:
 
 ; bz_surfset - AL = the window centre's surface: [bz_surf] = it, bz_se =
 ; BZ_SURFTAB's entry for [bz_mat] on it (force, drag shift, brake, floor e),
-; and bz_ftg rebuilt from its force, ftg[l] = (A l + 4) >> 3 (130.11.7.1);
+; and bz_ftg rebuilt from its force, ftg[l] = (A l + 4) >> 3 (137.11.7.1);
 ; bz_dmask = 2^k - 1 for its drag shift k and bz_drx, bz_dry cut to it
-; (130.16.3.1: its callers are bz_fill, on a change of the centre's surface,
+; (137.16.3.1: its callers are bz_fill, on a change of the centre's surface,
 ; and bz_setmat, whose new material can change k on the same surface).
 ; A surface 4 - 15 is RESERVED and the tool refuses it: nothing is checked.
 ; DS = ours.  Clobbers AX, BX, CX, DX, DI.
@@ -4942,7 +4942,7 @@ bz_surfset:
     shl bx, 1                   ; 4 (4 mat + surface)
     mov ax, [bz_surftab + bx]
     mov [bz_se], ax
-    mov cl, ah                  ; wave 6 (130.16.3.1): the drag's mask, 2^k - 1
+    mov cl, ah                  ; wave 6 (137.16.3.1): the drag's mask, 2^k - 1
     mov al, 1                   ; (k 8: 0FFh; ice's 0: 0), and BOTH remainders
     shl al, cl                  ; CUT to it, the one place the mask changes
     dec ax
@@ -4969,7 +4969,7 @@ bz_wrt:
 
 ; -----------------------------------------------------------------------------
 ; bz_place - the ball on bz_safe's centre (16 wx + 8, 16 wy + 8) on its floor,
-; at rest and grounded, the window filled round it (130.10.7.1, step 7).
+; at rest and grounded, the window filled round it (137.10.7.1, step 7).
 ; bz_placeat: on the cell AL = wx, AH = wy (wave 4's flag respawn).  ES =
 ; the course.  Clobbers AX, BX, CX, DX, SI.
 ; -----------------------------------------------------------------------------
@@ -4997,7 +4997,7 @@ bz_placeat:
     mov [bz_gvz], ax
     mov [bz_air], al
     mov [bz_tube], al           ; out of any tube, off the platform (SPEC.md
-    mov [bz_tseg], al           ; 130.12.6.5: a respawn changes no prop)
+    mov [bz_tseg], al           ; 137.12.6.5: a respawn changes no prop)
     mov [bz_onp], al
     mov [bz_tcnt], ax
     pop ax
@@ -5008,7 +5008,7 @@ bz_placeat:
     jmp bz_setz
 
 ; -----------------------------------------------------------------------------
-; bz_derive - the SCREEN state from (gx, gy, z) (SPEC.md 130.10.8):
+; bz_derive - the SCREEN state from (gx, gy, z) (SPEC.md 137.10.8):
 ;   bz_bx = gx - gy + (X0 - 8),  bz_by = (gx + gy) / 2 - z + (Y0 - 13)
 ; in 24.8 (fractions kept), and bz_vx, bz_vy = how far their low words moved.
 ; Clobbers AX, BX, CX, DX, SI, DI.
@@ -5052,25 +5052,25 @@ bz_prod:                        ; n u, n 0 - 7 (bz_h4: a negative n through ~n)
  %assign bz_i bz_i + 1
 %endrep
 
-; the corner table, the model's own (bzcourse.inc, 130.10.7.3)
+; the corner table, the model's own (bzcourse.inc, 137.10.7.3)
 bz_ctab:
     BZ_CORNER_TABLE
-; D3 (SPEC.md 130.24.7.3 - 130.24.7.4): the split cells' tables, the model's own
+; D3 (SPEC.md 137.24.7.3 - 137.24.7.4): the split cells' tables, the model's own
 ; (bzcourse.inc's, from bbcourse.OWNER, K_RECS and RAYS)
 bz_swin:
     BZ_SPLIT_WIN
 bz_srays:
     BZ_SPLIT_RAYS
-bz_rwin:                        ; SPEC.md 130.35.1: bz_wedge's (bbcourse.RAIL_WALL)
+bz_rwin:                        ; SPEC.md 137.35.1: bz_wedge's (bbcourse.RAIL_WALL)
     BZ_RAIL_WIN
-; the bumpers' octant table, the model's own (bzcourse.inc, 130.12.6.3)
+; the bumpers' octant table, the model's own (bzcourse.inc, 137.12.6.3)
 bz_otab:
     BZ_OCTANT_TABLE
 ; the materials' records and every material's force, drag, brake and floor e on
-; every surface (bzcourse.inc, bbcourse.MATERIALS: SPEC.md 130.11.5.1, 130.11.6.2)
+; every surface (bzcourse.inc, bbcourse.MATERIALS: SPEC.md 137.11.5.1, 137.11.6.2)
 bz_mattab:
     BZ_MATTAB
 bz_surftab:
     BZ_SURFTAB
-bz_bokt:                        ; the boost's FLAT props (SPEC.md 130.16.4.1.1)
+bz_bokt:                        ; the boost's FLAT props (SPEC.md 137.16.4.1.1)
     BZ_BOKT

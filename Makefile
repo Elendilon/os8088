@@ -15506,7 +15506,7 @@ $(BUILD)/os8088-encoder.zip: $(BUILD)/video.o88 $(VENCBOOT) tools/os88vbundle.py
 	python3 tools/os88vbundle.py $@ --player $(BUILD)/video.o88 --boot $(BUILD)
 
 # THE BOUNCE BONANZA COURSE BUILDER FOR PEOPLE WITH NO os8088 TREE (SPEC.md
-# 130.58.11): the window, the model and its job at the TOP of one folder, every
+# 137.58.11): the window, the model and its job at the TOP of one folder, every
 # tools/ module they import beside them (tools/bbeditbundle.py computes the list
 # with os88vbundle's closure), and the compiler's working files under data/ -
 # the courses, demos, music, the label font and the course lists - in one
@@ -15522,13 +15522,13 @@ $(BUILD)/os8088-course-builder.zip: tools/bbeditbundle.py tools/os88vbundle.py \
 	fonts/tallx.f8 Makefile $(BBGAME_BIN)/.stamp
 	@mkdir -p $(dir $@)
 	python3 tools/bbeditbundle.py $@ --bin $(BBGAME_BIN)
-# ADD TO THE GAME (SPEC.md 130.58.17, 130.58.36): the shipped build's own pieces, copied here so that
+# ADD TO THE GAME (SPEC.md 137.58.17, 137.58.36): the shipped build's own pieces, copied here so that
 # tools/bbgame.py can compose a BONANZA.O88 with the author's courses where there is no assembler - one build
 # holds up to BZ_CRS_MAX courses, its counts data, so the pieces are the shipped package's for every list -
 # with the shipped bzcourse.inc and the map of where its per-course tables sit (ONE probe assembly, seconds).
 # Shipped in the course builder's zip as bbgame-bin/. On demand.
 .PHONY: bbgamebin
-#> [Applications] bbgamebin :: Bounce Bonanza's prebuilt pieces for "add to the game" (tools/bbgame.py, SPEC.md 130.58.36): the shipped package's own, with their table map
+#> [Applications] bbgamebin :: Bounce Bonanza's prebuilt pieces for "add to the game" (tools/bbgame.py, SPEC.md 137.58.36): the shipped package's own, with their table map
 bbgamebin: $(BBGAME_BIN)/.stamp
 $(BBGAME_BIN)/.stamp: $(BUILD)/bonanza.o88 tools/bbgame.py
 	python3 tools/bbgame.py prebuild $(BBGAME_BIN) --build $(BUILD)
@@ -22500,38 +22500,824 @@ wireballtest: wireballdisk $(IMG)
 apps/wireball/art/wbfront.inc: apps/wireball/art/splash-source.png tools/wbfront.py
 	python3 tools/wbfront.py
 
-# BONANZA (Bounce Bonanza, SPEC.md 130): an isometric rolling-ball game that
+# ---- PageDesk: rend ----
+# PDREND.MOD - the rendering segment (docs/PAGEDESK-SPEC.md 10, 20.3). One C
+# translation unit (apps/pagedesk/pdrend.c #includes pdr*.c) through the same
+# smlrcc + tools/cc8086.py chain as every C module (apps/loom/lmpvmod.c's
+# rule is the model), assembled with pdrend.asm and the primitives in
+# pdrprim.inc. `make pdrend` builds the module AND runs its host checks;
+# `make` itself does not depend on it until the lead flips PD_REND_MOD.
+PDR_DIR   := apps/pagedesk
+PDR_CSRC  := $(PDR_DIR)/pdrend.c $(PDR_DIR)/pdrg.c $(PDR_DIR)/pdrxc.c $(PDR_DIR)/pdrd.c $(PDR_DIR)/pdrf.c \
+             $(PDR_DIR)/pdri.c $(PDR_DIR)/pdrv.c $(PDR_DIR)/pdra.c $(PDR_DIR)/pdrend.h $(PDR_DIR)/pdrenc.h \
+             $(PDR_DIR)/pdabi.h $(PDR_DIR)/pdmath.h $(PDR_DIR)/pdrxg.c \
+             $(PDR_DIR)/pdrx8.c $(PDR_DIR)/pdrxb.c $(PDR_DIR)/pdrx8h.inc $(PDR_DIR)/pdrovl.h
+# transparency (PAGEDESK-SPEC 20.22.10) ships: PDR_X8 is on unless `make PDR_X8=0`. It compiles PDREND's hooks of PDX8
+# (smlrcc and nasm together) and adds pdx8.c to the host builds
+PDR_X8 ?= 1
+PDR_X8DEF := $(if $(filter-out 0,$(PDR_X8)),-DPDR_X8)
+PDR_X8SRC := $(if $(PDR_X8DEF),$(PDR_DIR)/pdx8.c)
+# the host's stand-in slot occupants (20.22.7): the real dash walker, a fake decoder
+PDR_XMOD  := $(PDR_DIR)/hosttest/pdr_xmod.c $(PDR_X8SRC)
+PDR_XDEP  := $(PDR_XMOD) $(PDR_DIR)/pdx8i.c $(PDR_DIR)/pdxdash.c $(PDR_DIR)/pdxedit.c
+PDR_MATH  := $(if $(wildcard $(PDR_DIR)/pdmath.inc),,-DPD_MATH_STUB)
+PDR_RSQ   := $(if $(shell grep -c _os88_file_read_seq apps/cc/os88thunk.asm | grep -v '^0$$'),,-DPDR_NO_READSEQ)
+
+$(BUILD)/pdrend.raw.asm: $(PDR_CSRC) $(CC_RUNTIME) | $(BUILD) cc-toolchain
+	PATH="$(abspath $(CC_SC)):$$PATH" $(CC_SMLRCC) -tiny -S \
+		$(PDR_X8DEF) -SI $(CC_SCINC) -I $(CC_SCINC) -I $(CC_DIR) -I $(PDR_DIR) \
+		$(PDR_DIR)/pdrend.c -o $@
+
+$(BUILD)/pdrend.gen.asm: $(BUILD)/pdrend.raw.asm tools/cc8086.py tools/ccpeep.py $(CC_PEEPSTAMP)
+	python3 tools/cc8086.py $< -o $@ --max-frame $(CC_MAXFRAME) $(CC_PEEPARG) --ovl-resident
+
+# Until the math agent's pdmath.inc is merged, a stub with the same labels lets
+# the size and the syntax be checked. It is derived from what the C calls, so
+# it cannot drift, and it is never shipped (the module built with it is not run).
+$(BUILD)/pdr_mathstub.inc: $(BUILD)/pdrend.gen.asm
+	@{ echo "; generated: stand-ins for pdmath.inc (see pdrend.asm)"; \
+	   grep -o '_pd[m_][a-z0-9_]*' $< | sort -u | while read n; do echo "$$n: ret"; done; } > $@
+
+$(BUILD)/PDREND.MOD: $(PDR_DIR)/pdrend.asm $(PDR_DIR)/pdrprim.inc $(BUILD)/pdrend.gen.asm \
+                     $(PDR_DIR)/pdabi.inc $(wildcard $(PDR_DIR)/pdmath.inc) \
+                     $(CC_RUNTIME) apps/os88api.inc | $(BUILD)
+	@$(if $(PDR_MATH),$(MAKE) --no-print-directory $(BUILD)/pdr_mathstub.inc,:)
+	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ $(PDR_MATH) $(PDR_RSQ) $(PDR_X8DEF) -o $(BUILD)/pdrend.full $(PDR_DIR)/pdrend.asm
+	@# the second code segment (PAGEDESK-SPEC 20.22.7.9): .modc follows the image, cut at the header's image size
+	@python3 -c "import struct; d=open('$(BUILD)/pdrend.full','rb').read(); s=struct.unpack_from('<H',d,4)[0]; \
+	    c=d[s:]; assert len(c) >= 4 and struct.unpack_from('<HH',c,0) == (0x4352, len(c)), ('PDRENDC', s, len(c)); \
+	    open('$@','wb').write(d[:s]); open('$(BUILD)/PDRENDC.MOD','wb').write(c)"
+	@echo "PDREND.MOD: $(call FILESIZE,$@) bytes image, PDRENDC.MOD $(call FILESIZE,$(BUILD)/PDRENDC.MOD) bytes of code$(if $(PDR_MATH), (math stub: size is a floor),)"
+$(BUILD)/PDRENDC.MOD: $(BUILD)/PDREND.MOD ;
+# PDRENDC rides as a part of its own, loaded beside PDREND and bound by
+# PDV_REND_CODE (PAGEDESK-SPEC 20.22.7.9); no bss - its data is PDREND's
+$(BUILD)/pdrendc.part: $(BUILD)/PDRENDC.MOD | $(BUILD)
+	cp $< $@
+
+PDR_HOSTBIN := $(BUILD)/pdr_test
+$(PDR_HOSTBIN): $(PDR_DIR)/hosttest/pdr_test.c $(PDR_DIR)/hosttest/pdr_host.c $(PDR_DIR)/hosttest/pdhost.c \
+                $(PDR_DIR)/pdmath.c $(PDR_CSRC) $(PDR_XDEP) | $(BUILD)
+	cc -O1 -Wall -Wno-unused-function -Wno-unused-variable -Wno-parentheses -Wno-int-to-void-pointer-cast \
+		-DPD_HOST $(PDR_X8DEF) -I$(PDR_DIR) -o $@ $(PDR_DIR)/hosttest/pdr_test.c $(PDR_DIR)/hosttest/pdr_host.c \
+		$(PDR_DIR)/hosttest/pdhost.c $(PDR_DIR)/pdmath.c $(PDR_DIR)/pdrend.c $(PDR_XMOD)
+
+.PHONY: pdrend pdrend-host pdrend-fuzz
+# the asm primitives against their C twins need Unicorn: whichever python has it
+PDR_UPY := $(shell for p in python3 /usr/bin/python3; do $$p -c 'import unicorn' 2>/dev/null && { echo $$p; break; }; done)
+pdrend-host: $(PDR_HOSTBIN) $(BUILD)/PDRES.BIN $(BUILD)/PDFONTX.RES
+	python3 $(PDR_DIR)/hosttest/pdr_check.py $(PDR_HOSTBIN) $(BUILD)/pdrtest $(BUILD)
+	@$(if $(PDR_UPY),$(PDR_UPY) $(PDR_DIR)/hosttest/pdr_primtest.py,echo "pdr_primtest: SKIP - no python with the unicorn package")
+pdrend: $(BUILD)/PDREND.MOD pdrend-host pdrend-ovl
+# the second code segment (PAGEDESK-SPEC 20.22.7.9) run in Unicorn: the bind,
+# its refusals, moved verbs both ways across the cut, and a moved claim
+.PHONY: pdrend-ovl
+pdrend-ovl: $(BUILD)/PDREND.MOD $(BUILD)/PDRENDC.MOD
+	python3 $(PDR_DIR)/hosttest/pdr_ovltest.py $(BUILD)
+# the sanitizer run (SPEC 20.3.6): ASan+UBSan build, hostile streams + random cases
+PDR_FUZZBIN := $(BUILD)/pdr_test_asan
+$(PDR_FUZZBIN): $(PDR_DIR)/hosttest/pdr_test.c $(PDR_DIR)/hosttest/pdr_host.c $(PDR_DIR)/hosttest/pdhost.c \
+                $(PDR_DIR)/pdmath.c $(PDR_CSRC) $(PDR_XDEP) | $(BUILD)
+	cc -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -Wno-int-to-void-pointer-cast \
+		-DPD_HOST $(PDR_X8DEF) -I$(PDR_DIR) -o $@ $(PDR_DIR)/hosttest/pdr_test.c $(PDR_DIR)/hosttest/pdr_host.c \
+		$(PDR_DIR)/hosttest/pdhost.c $(PDR_DIR)/pdmath.c $(PDR_DIR)/pdrend.c $(PDR_XMOD)
+# the same hostile streams through the REAL engine (pdeng.c answers every verb), ASan+UBSan
+PDR_FUZZREAL := $(BUILD)/pdr_test_real_asan
+PDR_ENGSRC   := $(wildcard $(PDR_DIR)/pde*.c $(PDR_DIR)/pde*.h) $(PDR_DIR)/hosttest/pde_host.c
+$(PDR_FUZZREAL): $(PDR_DIR)/hosttest/pdr_test.c $(PDR_DIR)/hosttest/pdr_host.c $(PDR_DIR)/hosttest/pdr_hosteng.c \
+                 $(PDR_DIR)/hosttest/pdhost.c $(PDR_DIR)/pdmath.c $(PDR_CSRC) $(PDR_XDEP) $(PDR_ENGSRC) | $(BUILD)
+	cc -O1 -g -w -fsanitize=address,undefined -fno-sanitize-recover=undefined -DPD_HOST $(PDR_X8DEF) -DPDR_REAL_ENG -I$(PDR_DIR) -o $@ \
+		$(PDR_DIR)/hosttest/pdr_test.c $(PDR_DIR)/hosttest/pdr_host.c $(PDR_DIR)/hosttest/pdhost.c $(PDR_DIR)/pdmath.c \
+		$(PDR_DIR)/pdrend.c $(PDR_XMOD) $(PDR_DIR)/hosttest/pdr_hosteng.c $(PDR_DIR)/pdeng.c
+PDR_MKSTORE := $(BUILD)/pdr-annot/pdr_mkstore        # annotr's store builder (below)
+pdrend-fuzz: $(PDR_FUZZBIN) $(PDR_FUZZREAL) $(BUILD)/PDRES.BIN $(BUILD)/PDFONTX.RES $(PDR_MKSTORE)
+	python3 $(PDR_DIR)/hosttest/pdr_fuzz.py $(PDR_FUZZBIN) $(BUILD)/pdrfuzz $(BUILD) -n 400
+	python3 $(PDR_DIR)/hosttest/pdr_fuzz.py $(PDR_FUZZREAL) $(BUILD)/pdrfuzzr $(BUILD) -n 200 --seed 23
+# wave 2 (annotr): the same hostile streams with PDRF_ANNOTS | PDRF_EDITS and a hostile edit store (bad offsets,
+# 60,000 points, inverted and page-sized rects, no such kind), through the real engine
+	mkdir -p $(BUILD)/pdrfuzze/store && cd $(BUILD)/pdrfuzze/store && $(abspath $(PDR_MKSTORE)) $(abspath $(PDR_DIR)/samples/MARKUP.PDF) hostile .
+	python3 $(PDR_DIR)/hosttest/pdr_fuzz.py $(PDR_FUZZREAL) $(BUILD)/pdrfuzze $(BUILD) -n 200 --seed 31 \
+		--store $(abspath $(BUILD))/pdrfuzze/store/store.bin --ecount `cat $(BUILD)/pdrfuzze/store/store.cnt`
+# `make pdrend-real`: PDREND linked with the REAL PDENG (hosttest/pdr_hosteng.c), every committed
+# sample drawn as VGA, Hercules and CGA see it and compared with mutool (hosttest/pdr_real.py).
+# PDR_SHOTS=<dir> also writes each page beside mutool's for a human to look at.
+PDR_REALBIN := $(BUILD)/pdr_test_real
+PDR_SHOTS   ?=
+$(PDR_REALBIN): $(PDR_DIR)/hosttest/pdr_test.c $(PDR_DIR)/hosttest/pdr_host.c $(PDR_DIR)/hosttest/pdr_hosteng.c \
+                $(PDR_DIR)/hosttest/pdhost.c $(PDR_DIR)/pdmath.c $(PDR_CSRC) $(PDR_XDEP) $(PDR_ENGSRC) | $(BUILD)
+	cc -O1 -w -DPD_HOST $(PDR_X8DEF) -DPDR_REAL_ENG -I$(PDR_DIR) -o $@ $(PDR_DIR)/hosttest/pdr_test.c $(PDR_DIR)/hosttest/pdr_host.c \
+		$(PDR_DIR)/hosttest/pdhost.c $(PDR_DIR)/pdmath.c $(PDR_DIR)/pdrend.c $(PDR_XMOD) $(PDR_DIR)/hosttest/pdr_hosteng.c $(PDR_DIR)/pdeng.c
+.PHONY: pdrend-real
+pdrend-real: $(PDR_REALBIN) $(BUILD)/PDRES.BIN $(BUILD)/PDFONTX.RES
+	python3 $(PDR_DIR)/hosttest/pdr_real.py $(PDR_REALBIN) $(BUILD)/pdrreal $(BUILD) $(PDR_DIR)/samples $(PDR_SHOTS)
+	python3 $(PDR_DIR)/hosttest/pdr_cache.py $(PDR_REALBIN) $(BUILD)/pdrcache $(BUILD) $(PDR_DIR)/samples
+# ---- annotr (wave 2, PAGEDESK-SPEC 20.12): annotations on screen ------------------------------
+# `make pdrend-annot`: hosttest/pdr_mkstore.c builds an edit store through the real writer (PDWRT over
+# the real PDENG) and saves the same marks as a PDF; hosttest/pdr_annot.py draws the ORIGINAL with the
+# store through PDREND (real engine) and compares it with mutool's render of the saved file, then
+# checks every kind, the source /AP annotations (against mutool), dash patterns and inline images.
+$(PDR_MKSTORE): $(PDR_DIR)/hosttest/pdr_mkstore.c $(wildcard $(PDR_DIR)/pdw*.c $(PDR_DIR)/pdw*.h) $(PDR_ENGSRC) \
+                $(PDR_DIR)/pdmath.c $(PDR_DIR)/hosttest/pdhost.c | $(BUILD)
+	mkdir -p $(BUILD)/pdr-annot
+	cc -std=gnu99 -O1 -w -DPD_HOST -I $(PDR_DIR) -c $(PDR_DIR)/pdeng.c -o $(BUILD)/pdr-annot/pdeng.o
+	cc -std=gnu99 -O1 -w -DPD_HOST -I $(PDR_DIR) -c $(PDR_DIR)/hosttest/pde_host.c -o $(BUILD)/pdr-annot/pde_host.o
+	cc -std=gnu99 -O1 -w -DPD_HOST -I $(PDR_DIR) -o $@ $(PDR_DIR)/hosttest/pdr_mkstore.c $(PDR_DIR)/pdmath.c \
+		$(PDR_DIR)/hosttest/pdhost.c $(BUILD)/pdr-annot/pdeng.o $(BUILD)/pdr-annot/pde_host.o
+.PHONY: pdrend-annot
+pdrend-annot: $(PDR_REALBIN) $(PDR_MKSTORE) $(BUILD)/PDRES.BIN $(BUILD)/PDFONTX.RES
+	python3 $(PDR_DIR)/hosttest/pdr_annot.py $(PDR_REALBIN) $(PDR_MKSTORE) $(BUILD)/pdrannot $(BUILD) $(PDR_DIR)/samples $(abspath $(BUILD))/stress $(PDR_SHOTS)
+# ---- end annotr --------------------------------------------------------------------------------
+# `make pdrend-xchk` (PAGEDESK-SPEC 20.22.7): the ladder, codec images, sample depths, the dash
+# walker and edit marks in PDXG - through the stand-in occupants (hosttest/pdr_xmod.c) - against
+# mutool and against the plain image, then hostile occupant answers under ASan+UBSan.
+.PHONY: pdrend-xchk
+pdrend-xchk: $(PDR_REALBIN) $(PDR_FUZZREAL) $(BUILD)/PDRES.BIN $(BUILD)/PDFONTX.RES tools/os88pdfx_rcore.py
+	python3 $(PDR_DIR)/hosttest/pdr_xchk.py $(PDR_REALBIN) $(BUILD)/pdrxchk $(BUILD) --hostile $(PDR_FUZZREAL) -n 40
+# ---- end PageDesk: rend ----
+
+# ---- PageDesk: eng ----------------------------------------------------------
+# PDENG.MOD (PAGEDESK-SPEC 3, 6-8, 20.2): the PDF reader segment, a C MODULE in
+# apps/loom/lmpvmod.asm's shape - the same smlrcc, the same tools/cc8086.py gate
+# and peephole, the same open-coded compile line (a module has no package
+# header, so CC_PACKAGE does not fit it). `make pdeng` builds it and runs the
+# host harness over the engine's own fixtures and, when tools/os88pdfgen.py is
+# there, over the shared samples, stress set and negative corpus, checked
+# against qpdf. NOT in `all`: the lead flips that at integration.
+PDE_SRC := $(wildcard apps/pagedesk/pde*.c apps/pagedesk/pde.h apps/pagedesk/pde_os88.h)
+PDE_INC ?=
+HOSTCC  ?= cc
+$(BUILD)/pdeng.raw.asm: $(PDE_SRC) apps/pagedesk/pdabi.h apps/pagedesk/pdmath.h $(CC_RUNTIME) | $(BUILD) cc-toolchain
+	PATH="$(abspath $(CC_SC)):$$PATH" $(CC_SMLRCC) -tiny -S \
+		-SI $(CC_SCINC) -I $(CC_SCINC) -I $(CC_DIR) -I $(BUILD) -I apps/pagedesk \
+		apps/pagedesk/pdeng.c -o $@
+	@rm -f apps/pagedesk/pdeng.i
+
+$(BUILD)/pdeng.gen.asm: $(BUILD)/pdeng.raw.asm tools/cc8086.py tools/ccpeep.py $(CC_PEEPSTAMP)
+	python3 tools/cc8086.py $< -o $@ --max-frame $(CC_MAXFRAME) $(CC_PEEPARG)
+
+$(BUILD)/PDENG.MOD: apps/pagedesk/pdeng.asm $(BUILD)/pdeng.gen.asm apps/pagedesk/pdmath.inc \
+                    apps/pagedesk/pdabi.inc apps/os88api.inc $(CC_RUNTIME) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ $(PDE_INC) -l $(BUILD)/PDENG.lst -o $@ apps/pagedesk/pdeng.asm
+	@python3 -c "import struct,sys; d=open('$@','rb').read(); m,a,s,b=struct.unpack_from('<HHHH',d,0); \
+	    assert s==len(d),(s,len(d)); print('PDENG.MOD: image %d + bss %d = %d bytes (target 40960, cap 65024, a part: PAGEDESK-SPEC 20.22.3.7)' % (s,b,s+b)); \
+	    sys.exit(1 if s+b>65024 else 0)"
+
+$(BUILD)/pde_test: $(PDE_SRC) apps/pagedesk/pdmath.c apps/pagedesk/pdmath.h apps/pagedesk/hosttest/pde_test.c \
+                   apps/pagedesk/hosttest/pde_host.c apps/pagedesk/hosttest/pdhost.c | $(BUILD)
+	$(HOSTCC) -g -Wall -Wextra -Wno-unused-parameter -DPD_HOST -Iapps/pagedesk -Iapps/pagedesk/hosttest \
+		apps/pagedesk/pdeng.c apps/pagedesk/hosttest/pde_test.c apps/pagedesk/hosttest/pde_host.c \
+		apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c -o $@
+
+pdeng: $(BUILD)/PDENG.MOD $(BUILD)/pde_test apps/pagedesk/hosttest/pde_check.py
+	python3 apps/pagedesk/hosttest/pde_check.py $(BUILD)/pde_test $(BUILD)/pdeng-fix
+
+# `make pdefuzz` - the hostile-input pass (PAGEDESK-SPEC 20.2.1, PD-28): the
+# engine built with AddressSanitizer and UBSan, every verb driven over
+# mutations of the corpus `make pdeng` generates. PDEFUZZ_N mutations a file
+# (100 is about half a minute here), PDEFUZZ_SEED picks them. Host only.
+PDEFUZZ_N    ?= 100
+PDEFUZZ_SEED ?= 1
+PDE_SAN      ?= -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer
+$(BUILD)/pde_fuzz: $(PDE_SRC) apps/pagedesk/pdmath.c apps/pagedesk/pdmath.h apps/pagedesk/hosttest/pde_fuzz.c \
+                   apps/pagedesk/hosttest/pde_host.c apps/pagedesk/hosttest/pdhost.c | $(BUILD)
+	$(HOSTCC) -g -O1 $(PDE_SAN) -Wall -Wextra -Wno-unused-parameter -DPD_HOST -Iapps/pagedesk -Iapps/pagedesk/hosttest \
+		apps/pagedesk/pdeng.c apps/pagedesk/hosttest/pde_fuzz.c apps/pagedesk/hosttest/pde_host.c \
+		apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c -o $@
+
+.PHONY: pdeng pdefuzz
+pdefuzz: pdeng $(BUILD)/pde_fuzz
+	$(BUILD)/pde_fuzz -n $(PDEFUZZ_N) -s $(PDEFUZZ_SEED) -o $(BUILD)/pdeng-fix \
+		$(BUILD)/pdeng-fix/own/*.pdf $(BUILD)/pdeng-fix/shared/samples/*.PDF \
+		$(BUILD)/pdeng-fix/shared/neg/*.pdf $(BUILD)/pdeng-fix/shared/stress/*.PDF tests/pdfany/eng/*.PDF
+# ---- end PageDesk: eng ------------------------------------------------------
+
+# ---- PageDesk: flate --------------------------------------------------------
+# FlateDecode and the PNG/TIFF predictors in PDENG (PAGEDESK-SPEC 20.13, PD-25).
+# `make pdflate` builds PDENG.MOD (the target gates and the size print) and the
+# host driver hosttest/pde_fl_test.c, then hosttest/pde_fl_check.py runs the
+# whole matrix against Python's zlib, a predictor written from the spec and
+# qpdf. `make pdflatefuzz` is the same engine under AddressSanitizer and UBSan,
+# driven over mutated streams and every read size (hosttest/pde_fl_fuzz.c).
+# Host only; the target arm is hosttest/pde_boot.py's (PDENG.MOD in QEMU).
+PDFL_SRC := $(PDE_SRC) apps/pagedesk/pdeflate.h apps/pagedesk/pdeflate.c
+# The SHIPPED module's dependencies on flate's own files: eng's PDE_SRC wildcard
+# (pde*.c, pde.h) does not match pdeflate.h, and eng's PDENG.MOD rule predates
+# pdeflate.inc, so without these an edit to either left PDENG.MOD stale.
+$(BUILD)/pdeng.raw.asm $(BUILD)/pde_test $(BUILD)/pde_fuzz: apps/pagedesk/pdeflate.h
+$(BUILD)/PDENG.MOD: apps/pagedesk/pdeflate.inc
+# ---- PageDesk: perf ----
+# the lexer's classes, word scan and buffer moves in assembly (pdelex.inc)
+$(BUILD)/PDENG.MOD $(BUILD)/flc/PDENG.MOD: apps/pagedesk/pdelex.inc
+# verify-perf: PDREND's caches live for the document, so `make pdrend-real`
+# also draws page after page in ONE process against a fresh process per page,
+# with a read failed inside a font load (hosttest/pdr_cache.py). PDENG's
+# cursor and lexer edges are pde_check.py's (`make pdeng`)
+pdrend-real: pdrend-cache
+.PHONY: pdrend-cache
+pdrend-cache: $(PDR_REALBIN) $(BUILD)/PDRES.BIN $(BUILD)/PDFONTX.RES $(PDR_DIR)/hosttest/pdr_cache.py
+	python3 $(PDR_DIR)/hosttest/pdr_cache.py $(PDR_REALBIN) $(BUILD)/pdrcache $(BUILD) $(PDR_DIR)/samples
+# ---- end PageDesk: perf ----
+$(BUILD)/pde_fl_test: $(PDFL_SRC) apps/pagedesk/pdmath.c apps/pagedesk/pdmath.h apps/pagedesk/hosttest/pde_fl_test.c \
+                      apps/pagedesk/hosttest/pde_host.c apps/pagedesk/hosttest/pdhost.c | $(BUILD)
+	$(HOSTCC) -g -Wall -Wextra -Wno-unused-parameter -DPD_HOST -Iapps/pagedesk -Iapps/pagedesk/hosttest \
+		apps/pagedesk/pdeng.c apps/pagedesk/hosttest/pde_fl_test.c apps/pagedesk/hosttest/pde_host.c \
+		apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c -o $@
+
+$(BUILD)/pde_fl_fuzz: $(PDFL_SRC) apps/pagedesk/pdmath.c apps/pagedesk/pdmath.h apps/pagedesk/hosttest/pde_fl_fuzz.c \
+                      apps/pagedesk/hosttest/pde_host.c apps/pagedesk/hosttest/pdhost.c | $(BUILD)
+	$(HOSTCC) -g -O1 $(PDE_SAN) -Wall -Wextra -Wno-unused-parameter -DPD_HOST -Iapps/pagedesk -Iapps/pagedesk/hosttest \
+		apps/pagedesk/pdeng.c apps/pagedesk/hosttest/pde_fl_fuzz.c apps/pagedesk/hosttest/pde_host.c \
+		apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c -o $@
+
+.PHONY: pdflate pdflatefuzz pdflateboot
+pdflate: $(BUILD)/PDENG.MOD $(BUILD)/pde_fl_test apps/pagedesk/hosttest/pde_fl_check.py
+	python3 apps/pagedesk/hosttest/pde_fl_check.py $(BUILD)/pde_fl_test $(BUILD)
+
+# the module itself, in QEMU (a 386-class CPU running the 16-bit code SmallerC
+# emitted): `make pdflateboot` checks its CRCs and prints instructions a byte
+pdflateboot: $(BUILD)/PDENG.MOD $(BUILD)/flc/PDENG.MOD apps/pagedesk/hosttest/pde_fl_boot.py apps/pagedesk/hosttest/pde_fl_boot.c
+	python3 apps/pagedesk/hosttest/pde_fl_boot.py $(BUILD) --icount
+
+PDFLFUZZ_N ?= 300
+pdflatefuzz: $(BUILD)/pde_fl_fuzz apps/pagedesk/hosttest/pde_fl_check.py
+	python3 apps/pagedesk/hosttest/pde_fl_check.py --corpus $(BUILD)/pdfl-corpus
+	$(BUILD)/pde_fl_fuzz -n $(PDFLFUZZ_N) -s $(PDEFUZZ_SEED) $(BUILD)/pdfl-corpus/*.pdf
+# THE C TWIN ON THE TARGET: the same module with the hand-written symbol loop
+# (apps/pagedesk/pdeflate.inc) left out and its C twin compiled in, into
+# $(BUILD)/flc/. `make pdflateboot` boots both and compares them.
+$(BUILD)/flc: | $(BUILD)
+	mkdir -p $@
+$(BUILD)/flc/pdeng.raw.asm: $(PDFL_SRC) apps/pagedesk/pdabi.h apps/pagedesk/pdmath.h $(CC_RUNTIME) | $(BUILD)/flc cc-toolchain
+	PATH="$(abspath $(CC_SC)):$$PATH" $(CC_SMLRCC) -tiny -S -DFL_NOASM \
+		-SI $(CC_SCINC) -I $(CC_SCINC) -I $(CC_DIR) -I $(BUILD) -I apps/pagedesk \
+		apps/pagedesk/pdeng.c -o $@
+	@rm -f apps/pagedesk/pdeng.i
+$(BUILD)/flc/pdeng.gen.asm: $(BUILD)/flc/pdeng.raw.asm tools/cc8086.py tools/ccpeep.py $(CC_PEEPSTAMP)
+	python3 tools/cc8086.py $< -o $@ --max-frame $(CC_MAXFRAME) $(CC_PEEPARG)
+$(BUILD)/flc/PDENG.MOD: apps/pagedesk/pdeng.asm $(BUILD)/flc/pdeng.gen.asm apps/pagedesk/pdmath.inc \
+                        apps/pagedesk/pdabi.inc apps/os88api.inc $(CC_RUNTIME) | $(BUILD)
+	$(NASM) -f bin -w+error -DFL_NOASM -I apps/ -I $(BUILD)/flc/ -I $(BUILD)/ -o $@ apps/pagedesk/pdeng.asm
+# ---- end PageDesk: flate ----------------------------------------------------
+
+
+# ---- PageDesk: wrt ----------------------------------------------------------
+# PDWRT.MOD (PAGEDESK-SPEC 20.5): the writer module - serialiser, appearance
+# streams, incremental save, fresh documents. A SEPARATE compilation and a
+# separate `nasm -f bin` job, open-coded the way LOOM.WPV is (a module has no
+# package header, so CC_PACKAGE does not fit). `make pdwrt` builds it AND runs
+# its host harness; the harness is host-side only and is not in `all`.
+#
+# PDW_SDK is an extra include root searched BEFORE apps/ - a tree holding a
+# newer cc/os88.h, cc/os88thunk.asm and pagedesk/pdmath.inc, pdabi.inc. It
+# exists for verifying before those files land on this branch and is empty in
+# the lead's integration tree.
+PDW_C    := apps/pagedesk/pdwrt.c apps/pagedesk/pdwio.c apps/pagedesk/pdwser.c apps/pagedesk/pdwap.c \
+            apps/pagedesk/pdwscan.c apps/pagedesk/pdwsave.c \
+            apps/pagedesk/pdwpg.c apps/pagedesk/pdwgc.c apps/pagedesk/pdwin.c   # pages: 20.11, insert: 20.16
+PDW_H    := apps/pagedesk/pdw.h apps/pagedesk/pdwwid.h apps/pagedesk/pdabi.h apps/pagedesk/pdmath.h apps/pagedesk/pdwmap.h
+PDW_SDK  ?=
+PDW_OUT  := $(BUILD)/pdw
+PDW_CAP  := 61440   # D24: PDWRT <= 48 KiB (D18's 46, raised for Insert); 60 KiB for any PDF: a slot occupant that enciphers with crypt's shared primitives (20.22.4, lead 23:30)
+.PHONY: pdwrt pdwrt-host
+$(BUILD)/pdwrt.raw.asm: $(PDW_C) $(PDW_H) $(CC_RUNTIME) | $(BUILD) cc-toolchain
+	PATH="$(abspath $(CC_SC)):$$PATH" $(CC_SMLRCC) -tiny -S \
+		-SI $(CC_SCINC) -I $(CC_SCINC) -I $(if $(PDW_SDK),$(PDW_SDK)/cc,$(CC_DIR)) -I apps/pagedesk \
+		apps/pagedesk/pdwrt.c -o $@
+$(BUILD)/pdwrt.gen.asm: $(BUILD)/pdwrt.raw.asm tools/cc8086.py tools/ccpeep.py $(CC_PEEPSTAMP)
+	python3 tools/cc8086.py $< -o $@ --max-frame $(CC_MAXFRAME) $(CC_PEEPARG)
+$(BUILD)/PDWRT.MOD: apps/pagedesk/pdwrt.asm $(BUILD)/pdwrt.gen.asm $(CC_RUNTIME) \
+                    $(wildcard apps/pagedesk/pdmath.inc apps/pagedesk/pdabi.inc) | $(BUILD)
+	$(NASM) -f bin -w+error $(if $(PDW_SDK),-I $(PDW_SDK)/) -I apps/ -I $(BUILD)/ -o $@ apps/pagedesk/pdwrt.asm
+	@python3 -c "import struct,sys; d=open('$@','rb').read(); m,a,i,b=struct.unpack_from('<HHHH',d); \
+	    assert i==len(d), (i,len(d)); t=i+b; print('PDWRT.MOD: image %d + bss %d = %d bytes (%.1f KiB; target 40, cap 48)'%(i,b,t,t/1024)); \
+	    sys.exit(1 if t>$(PDW_CAP) else 0)"
+# PDXF.MOD - the font module (PAGEDESK-SPEC 20.22.8): TrueType, CFF, Type 1,
+# CMaps, ToUnicode. One C translation unit (apps/pagedesk/pdxf.c #includes pdxf*.c)
+# through the same smlrcc + tools/cc8086.py chain as PDWRT; the door and the inner
+# loops are apps/pagedesk/pdxf.asm. `make pdxf` builds it and runs its host checks
+# (hosttest/pdx_check.py against mutool, hosttest/pdx_chain.py through the real PDENG).
+PDX_C    := apps/pagedesk/pdxf.c apps/pagedesk/pdxfol.c apps/pagedesk/pdxfsf.c apps/pagedesk/pdxfcf.c \
+            apps/pagedesk/pdxft1.c apps/pagedesk/pdxft3.c apps/pagedesk/pdxfnm.c apps/pagedesk/pdxfcm.c apps/pagedesk/pdxfwd.c apps/pagedesk/pdxfz.c apps/pagedesk/pdxfnm.h
+PDX_CAP  := 65024   # PAGEDESK-SPEC 20.22: PDXF <= the part limit, image + bss (the lead, 23:56)
+.PHONY: pdxf pdxf-host
+$(BUILD)/pdxf.raw.asm: $(PDX_C) apps/pagedesk/pdabi.h apps/pagedesk/pdmath.h $(CC_RUNTIME) | $(BUILD) cc-toolchain
+	PATH="$(abspath $(CC_SC)):$$PATH" $(CC_SMLRCC) -tiny -S \
+		-DPDXF_ASM -SI $(CC_SCINC) -I $(CC_SCINC) -I $(CC_DIR) -I apps/pagedesk \
+		apps/pagedesk/pdxf.c -o $@
+$(BUILD)/pdxf.gen.asm: $(BUILD)/pdxf.raw.asm tools/cc8086.py tools/ccpeep.py $(CC_PEEPSTAMP)
+	python3 tools/cc8086.py $< -o $@ --max-frame $(CC_MAXFRAME) $(CC_PEEPARG)
+$(BUILD)/PDXF.MOD: apps/pagedesk/pdxf.asm apps/pagedesk/pdxfrs.inc $(BUILD)/pdxf.gen.asm $(CC_RUNTIME) \
+                   $(wildcard apps/pagedesk/pdmath.inc apps/pagedesk/pdabi.inc) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ -o $@ apps/pagedesk/pdxf.asm
+	@python3 -c "import struct,sys; d=open('$@','rb').read(); m,a,i,b=struct.unpack_from('<HHHH',d); \
+	    assert i==len(d), (i,len(d)); t=i+b; print('PDXF.MOD: image %d + bss %d = %d bytes (%.1f KiB; cap 65,024)'%(i,b,t,t/1024)); \
+	    sys.exit(1 if t>$(PDX_CAP) else 0)"
+pdxf: $(BUILD)/PDXF.MOD pdxf-host
+pdxf-host:
+	python3 apps/pagedesk/hosttest/pdx_check.py --build --limit 6.0
+	python3 apps/pagedesk/hosttest/pdx_chain.py --build
+# the parsers under ASan + UBSan on mutated font programs, CMaps and zlib streams (hosttest/pdx_fuzz.c)
+PDX_FUZZ_N ?= 300
+.PHONY: pdxf-fuzz
+pdxf-fuzz: | $(BUILD)
+	cc -std=gnu99 -O1 -g -w -fsanitize=address,undefined -fno-sanitize-recover=undefined -DPD_HOST -I apps/pagedesk \
+		-o $(BUILD)/pdx_fuzz apps/pagedesk/hosttest/pdx_fuzz.c apps/pagedesk/pdmath.c -lz
+	$(BUILD)/pdx_fuzz -n $(PDX_FUZZ_N) tests/pdfany/fonts/vera-sub.ttf tests/pdfany/fonts/vera.cff tests/pdfany/fonts/vera-cid.cff \
+		tests/pdfany/fonts/vera2048.cff tests/pdfany/fonts/t1-simple.pfa tests/pdfany/fonts/t1-hex.pfa
+	$(BUILD)/pdx_fuzz -c -n $(PDX_FUZZ_N)
+	$(BUILD)/pdx_fuzz -z -n $(PDX_FUZZ_N) tests/pdfany/fonts/vera-sub.ttf tests/pdfany/fonts/vera.cff tests/pdfany/fonts/t1-simple.pfa
+$(BUILD)/pdxf.o88: $(BUILD)/PDXF.MOD
+
+# the host harness and its independent readers (qpdf, mutool, Poppler); PDW_SHOTS
+# is where the rendered PNGs go ('' = none)
+PDW_SHOTS ?=
+$(PDW_OUT)/.host.stamp: apps/pagedesk/hosttest/pdw_test.c apps/pagedesk/hosttest/pdw_verify.py $(PDW_C) $(PDW_H) \
+                        apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c | $(BUILD)
+	mkdir -p $(PDW_OUT)
+	$(CC) -std=gnu99 -O1 -Wall -DPD_HOST -I apps/pagedesk -o $(PDW_OUT)/pdw_test \
+		apps/pagedesk/hosttest/pdw_test.c apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c -lm
+	PDW_OUT=$(abspath $(PDW_OUT)) $(PDW_OUT)/pdw_test > $(PDW_OUT)/files.txt || { cat $(PDW_OUT)/files.txt; exit 1; }
+	python3 apps/pagedesk/hosttest/pdw_verify.py $(abspath $(PDW_OUT)) $(PDW_SHOTS)
+	touch $@
+pdwrt-host: $(PDW_OUT)/.host.stamp
+pdwrt: $(BUILD)/PDWRT.MOD pdwrt-host
+# PDWRT against the REAL PDENG (hosttest/pdw_real.c): on demand, and a SKIP
+# until pdeng.c is on the branch. PDW_ENG is the directory holding pdeng.c and
+# hosttest/pde_host.c; PDW_REAL_PDF the source it saves over twice.
+PDW_ENG      ?= apps/pagedesk
+PDW_REAL_PDF ?= apps/pagedesk/samples/MARKUP.PDF
+.PHONY: pdwrt-real
+pdwrt-real: | $(BUILD)
+ifneq ($(wildcard $(PDW_ENG)/pdeng.c),)
+	mkdir -p $(BUILD)/pdw-real
+	$(CC) -std=gnu99 -O1 -w -DPD_HOST -I $(PDW_ENG) -c $(PDW_ENG)/pdeng.c -o $(BUILD)/pdw-real/pdeng.o
+	$(CC) -std=gnu99 -O1 -w -DPD_HOST -I $(PDW_ENG) -c $(PDW_ENG)/hosttest/pde_host.c -o $(BUILD)/pdw-real/pde_host.o
+	$(CC) -std=gnu99 -O1 -Wall -DPD_HOST $(PDW_TRACE) -DPDW_ROOT='"$(CURDIR)"' -I apps/pagedesk -o $(BUILD)/pdw-real/pdw_real apps/pagedesk/hosttest/pdw_real.c \
+		apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c $(BUILD)/pdw-real/pdeng.o $(BUILD)/pdw-real/pde_host.o
+	cd $(BUILD)/pdw-real && ./pdw_real $(abspath $(PDW_REAL_PDF))
+	qpdf --check $(BUILD)/pdw-real/R1.PDF && qpdf --check $(BUILD)/pdw-real/R2.PDF
+	python3 apps/pagedesk/hosttest/pdw_pgcheck.py $(abspath $(BUILD)/pdw-real) $(abspath apps/pagedesk/samples)
+else
+	@echo "pdwrt-real: SKIP - PDENG ($(PDW_ENG)/pdeng.c) is not on this branch yet"
+endif
+# PDWRT on xref-stream, object-stream and ENCRYPTED sources (PAGEDESK-SPEC
+# 20.22.4.6, hosttest/pdw_enc.c): the writer over a stand-in for the PDENG
+# verbs the engine agents own (PDRC_PLAIN, CRYPTINFO, SETKEY, PDV_ENG_CRYPT),
+# on fixtures qpdf makes (plain xref stream + object stream, AES-128, AES-256,
+# RC4-128, RC4-40, a user password, a classic table), every output held to
+# qpdf --check, qpdf's own decryption and mutool. The writer enciphers
+# with crypt's shared primitives (pdctwin.c on the host), checked by qpdf.
+.PHONY: pdwrt-enc
+pdwrt-enc: | $(BUILD)
+	mkdir -p $(BUILD)/pdw-enc
+	$(CC) -std=gnu99 -O1 -Wall -Wno-deprecated-declarations -DPD_HOST -DPDW_ROOT='"$(CURDIR)"' -I apps/pagedesk -o $(BUILD)/pdw-enc/pdw_enc \
+		apps/pagedesk/hosttest/pdw_enc.c apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c
+	$(CC) -std=gnu99 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -DPD_HOST -I apps/pagedesk -o $(BUILD)/pdw-enc/pdw_encfuzz \
+		apps/pagedesk/hosttest/pdw_encfuzz.c apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c
+	$(BUILD)/pdw-enc/pdw_encfuzz 100000
+	python3 apps/pagedesk/hosttest/pdw_encrun.py $(BUILD)/pdw-enc/run $(BUILD)/pdw-enc/pdw_enc
+# ---- end PageDesk: wrt ------------------------------------------------------
+# ---- PageDesk: crypt ----------------------------------------------------------
+# PDXK.MOD (PAGEDESK-SPEC 20.22.5): the key occupant - the Standard security handler's
+# password side (algorithms 2, 4-7, 2.A, 2.B) over the crypto library's assembly
+# (pdcmd5/pdcrc4/pdcaes/pdcsha2.inc). pdwrt's shape. `make pdxk` builds the module
+# and runs the library's differential test (tests/pdcrypt/pdc_diff.py); the part
+# rules that pack it into PAGEDESK.O88 are plat's.
+PDK_C   := apps/pagedesk/pdxk.c apps/pagedesk/pdcsum.c
+PDK_H   := apps/pagedesk/pdcrypto.h apps/pagedesk/pdabi.h apps/pagedesk/pdmath.h
+PDK_CAP := 32768
+.PHONY: pdxk pdxk-host
+$(BUILD)/pdxk.raw.asm: $(PDK_C) $(PDK_H) $(CC_RUNTIME) | $(BUILD) cc-toolchain
+	PATH="$(abspath $(CC_SC)):$$PATH" $(CC_SMLRCC) -tiny -S \
+		-SI $(CC_SCINC) -I $(CC_SCINC) -I $(CC_DIR) -I apps/pagedesk \
+		apps/pagedesk/pdxk.c -o $@
+$(BUILD)/pdxk.gen.asm: $(BUILD)/pdxk.raw.asm tools/cc8086.py tools/ccpeep.py $(CC_PEEPSTAMP)
+	python3 tools/cc8086.py $< -o $@ --max-frame $(CC_MAXFRAME) $(CC_PEEPARG)
+$(BUILD)/PDXK.MOD: apps/pagedesk/pdxk.asm $(BUILD)/pdxk.gen.asm $(CC_RUNTIME) \
+                   apps/pagedesk/pdcmd5.inc apps/pagedesk/pdcrc4.inc apps/pagedesk/pdcaes.inc apps/pagedesk/pdcsha2.inc \
+                   $(wildcard apps/pagedesk/pdmath.inc apps/pagedesk/pdabi.inc) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ -o $@ apps/pagedesk/pdxk.asm
+	@python3 -c "import struct,sys; d=open('$@','rb').read(); m,a,i,b=struct.unpack_from('<HHHH',d); \
+	    assert i==len(d), (i,len(d)); t=i+b; print('PDXK.MOD: image %d + bss %d = %d bytes (%.1f KiB; cap 32)'%(i,b,t,t/1024)); \
+	    sys.exit(1 if t>$(PDK_CAP) else 0)"
+pdxk: $(BUILD)/PDXK.MOD
+	python3 tests/pdcrypt/pdc_diff.py
+# `make pdcrypt`: the whole encryption check (PAGEDESK-SPEC 20.22.5) - the library's assembly against the
+# vectors and the host twins, the REAL PDENG + PDXK (host) against qpdf over 17 fixtures, the COMPILED
+# PDENG.MOD + PDXK.MOD in Unicorn against the host, the ASan/UBSan fuzz. Not in `all`.
+PDC_E2E_SRC := apps/pagedesk/pdeng.c apps/pagedesk/pdxk.c apps/pagedesk/pdecrypt.c apps/pagedesk/pdcsum.c apps/pagedesk/pdctwin.c \
+               apps/pagedesk/pdcrypto.h apps/pagedesk/hosttest/pdc_e2e.c $(PDE_SRC)
+$(BUILD)/pdc_e2e: $(PDC_E2E_SRC) apps/pagedesk/hosttest/pde_host.c apps/pagedesk/hosttest/pdhost.c apps/pagedesk/pdmath.c | $(BUILD)
+	$(CC) -g -Wall -Wno-unused-function -DPD_HOST -Iapps/pagedesk -Iapps/pagedesk/hosttest apps/pagedesk/pdeng.c apps/pagedesk/pdxk.c \
+		apps/pagedesk/hosttest/pdc_e2e.c apps/pagedesk/hosttest/pde_host.c apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c -o $@
+.PHONY: pdcrypt
+pdcrypt: pdxk $(BUILD)/pdc_e2e $(BUILD)/PDENG.MOD
+	python3 tests/pdcrypt/pdc_diff.py
+	python3 tests/pdcrypt/pdc_far.py
+	python3 tests/pdcrypt/pdc_e2e.py $(BUILD)/pdc_e2e $(BUILD)/pdcrypt/e2e
+	python3 tests/pdcrypt/pdc_plain.py $(BUILD)/pdc_e2e $(BUILD)/pdcrypt/e2e
+	python3 tests/pdcrypt/pdc_target.py
+	python3 tests/pdcrypt/pdc_heldkey.py
+	python3 tests/pdcrypt/pdk_stack.py
+	python3 tests/pdcrypt/pdc_fuzz.py 300 1
+# ---- end PageDesk: crypt ------------------------------------------------------
+
+# ---- PageDesk: gfx ----------------------------------------------------------
+# PDXG.MOD (PAGEDESK-SPEC 20.22.9): colour spaces, functions, shading, patterns -
+# the slot occupant that works at interpretation time. pdwrt's open-coded shape.
+# `make pdxg` builds it and holds it to mutool (tools/os88pdfx_gfx.py --check).
+PDX_C    := apps/pagedesk/pdxg.c apps/pagedesk/pdxgm.c apps/pagedesk/pdxgmt.c apps/pagedesk/pdxgp.c \
+            apps/pagedesk/pdxgf.c apps/pagedesk/pdxgc.c apps/pagedesk/pdxgs.c \
+            apps/pagedesk/pdxdash.c apps/pagedesk/pdxedit.c
+PDX_CAP    := 65024   # PAGEDESK-SPEC 20.22.9 / L6: image + bss
+.PHONY: pdxg pdxg-host
+$(BUILD)/pdxg.raw.asm: $(PDX_C) apps/pagedesk/pdabi.h apps/pagedesk/pdmath.h $(CC_RUNTIME) | $(BUILD) cc-toolchain
+	PATH="$(abspath $(CC_SC)):$$PATH" $(CC_SMLRCC) -tiny -S \
+		-SI $(CC_SCINC) -I $(CC_SCINC) -I $(CC_DIR) -I apps/pagedesk \
+		apps/pagedesk/pdxg.c -o $@
+$(BUILD)/pdxg.gen.asm: $(BUILD)/pdxg.raw.asm tools/cc8086.py tools/ccpeep.py $(CC_PEEPSTAMP)
+	python3 tools/cc8086.py $< -o $@ --max-frame $(CC_MAXFRAME) $(CC_PEEPARG)
+$(BUILD)/PDXG.MOD: apps/pagedesk/pdxg.asm $(BUILD)/pdxg.gen.asm $(CC_RUNTIME) \
+                   $(wildcard apps/pagedesk/pdmath.inc apps/pagedesk/pdabi.inc) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ -o $@ apps/pagedesk/pdxg.asm
+	@python3 -c "import struct,sys; d=open('$@','rb').read(); m,a,i,b=struct.unpack_from('<HHHH',d); \
+	    assert i==len(d), (i,len(d)); t=i+b; print('PDXG.MOD: image %d + bss %d = %d bytes (%.1f KiB; cap 60)'%(i,b,t,t/1024)); \
+	    sys.exit(1 if t>$(PDX_CAP) else 0)"
+pdxg-host: $(PDX_C) apps/pagedesk/hosttest/pdxg_test.c apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c | $(BUILD)
+	python3 tools/os88pdfx_gfx.py --check --build $(BUILD)
+pdxg: $(BUILD)/PDXG.MOD pdxg-host
+# ---- end PageDesk: gfx ------------------------------------------------------
+# ---- PageDesk: xi -----------------------------------------------------------
+# PDXI.MOD (PAGEDESK-SPEC 20.22.11): the image-decoder occupant of the module
+# slot - DCT (pdxidct.c + pdxidct.inc), and the bilevel agent's CCITT and JBIG2
+# files when they are on the branch. PDWRT's recipe: a separate compilation and
+# a separate `nasm -f bin`. `make pdxi` builds the module AND runs the host check
+# against libjpeg (tools/os88pdfx_dct.py); the host side is not in `all`.
+PDI_BIT  := $(if $(wildcard apps/pagedesk/pdxiccit.c),-DPDXI_CCIT) $(if $(wildcard apps/pagedesk/pdxijb2.c),-DPDXI_JB2)
+# the hand-written JBIG2 MQ decoder and template-0 row (bilevel's pdxijb2.inc), when it is on the branch
+PDI_JBA  := $(if $(wildcard apps/pagedesk/pdxijb2.inc),-DJB_ASM)
+PDI_C    := apps/pagedesk/pdxi.c apps/pagedesk/pdxidct.c $(wildcard apps/pagedesk/pdxiccit.c apps/pagedesk/pdxijb2.c)
+PDI_H    := apps/pagedesk/pdxi.h apps/pagedesk/pdabi.h apps/pagedesk/pdmath.h
+PDI_SDK  ?=
+PDI_OUT  := $(BUILD)/pdi
+PDI_CAP  := 65024   # image + bss (PAGEDESK-SPEC 20.22.11): DCT <= 24,576 of it, bilevel <= 36,864
+.PHONY: pdxi pdxi-host
+$(BUILD)/pdxi.raw.asm: $(PDI_C) $(PDI_H) $(CC_RUNTIME) | $(BUILD) cc-toolchain
+	PATH="$(abspath $(CC_SC)):$$PATH" $(CC_SMLRCC) -tiny -S $(PDI_BIT) $(PDI_JBA) $(PDI_DEFS) \
+		-SI $(CC_SCINC) -I $(CC_SCINC) -I $(if $(PDI_SDK),$(PDI_SDK)/cc,$(CC_DIR)) -I apps/pagedesk \
+		apps/pagedesk/pdxi.c -o $@
+$(BUILD)/pdxi.gen.asm: $(BUILD)/pdxi.raw.asm tools/cc8086.py tools/ccpeep.py $(CC_PEEPSTAMP)
+	python3 tools/cc8086.py $< -o $@ --max-frame $(CC_MAXFRAME) $(CC_PEEPARG)
+$(BUILD)/PDXI.MOD: apps/pagedesk/pdxi.asm apps/pagedesk/pdxidct.inc $(BUILD)/pdxi.gen.asm $(CC_RUNTIME) \
+                   $(wildcard apps/pagedesk/pdmath.inc apps/pagedesk/pdabi.inc apps/pagedesk/pdxijb2.inc) | $(BUILD)
+	$(NASM) -f bin -w+error $(PDI_JBA) $(PDI_DEFS) $(if $(PDI_SDK),-I $(PDI_SDK)/) -I apps/ -I $(BUILD)/ -o $@ apps/pagedesk/pdxi.asm
+	@python3 -c "import struct,sys; d=open('$@','rb').read(); m,a,i,b=struct.unpack_from('<HHHH',d); \
+	    assert i==len(d), (i,len(d)); t=i+b; print('PDXI.MOD: image %d + bss %d = %d bytes (%.1f KiB; cap 63.5)'%(i,b,t,t/1024)); \
+	    sys.exit(1 if t>$(PDI_CAP) else 0)"
+# the host harness (the C twins of the assembly) and its independent reader, libjpeg's djpeg
+$(PDI_OUT)/.host.stamp: apps/pagedesk/hosttest/pdi_test.c tools/os88pdfx_dct.py $(PDI_C) apps/pagedesk/pdxitwin.c $(PDI_H) \
+                        apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c | $(BUILD)
+	mkdir -p $(PDI_OUT)
+	$(CC) -std=gnu99 -O1 -Wall -Wno-unused-function -DPD_HOST $(PDI_BIT) -I apps/pagedesk -o $(PDI_OUT)/pdi_test \
+		apps/pagedesk/hosttest/pdi_test.c apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c
+	python3 tools/os88pdfx_dct.py --dir $(PDI_OUT)/fx --bin $(PDI_OUT)/pdi_test
+	touch $@
+pdxi-host: $(PDI_OUT)/.host.stamp
+pdxi: $(BUILD)/PDXI.MOD pdxi-host
+# the assembly against its C twins under Unicorn (pip install unicorn), the 8088 cost model, and the
+# ASan/UBSan fuzz over the marker parser and the entropy decoder: on demand, never in `all`
+.PHONY: pdxi-asm pdxi-cycles pdxi-fuzz
+pdxi-asm: $(PDI_OUT)/.host.stamp
+	$(CC) -std=gnu99 -O1 -Wall -Wno-unused-function -DPD_HOST -I apps/pagedesk -o $(PDI_OUT)/pdi_twin \
+		apps/pagedesk/hosttest/pdi_twin.c apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c
+	python3 apps/pagedesk/hosttest/pdi_asm.py
+pdxi-cycles: pdxi-asm
+	python3 apps/pagedesk/hosttest/pdi_cycles.py
+PDI_FUZZN ?= 300
+pdxi-fuzz: $(PDI_OUT)/.host.stamp
+	$(CC) -std=gnu99 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer \
+		-Wno-unused-function -DPD_HOST -I apps/pagedesk -o $(PDI_OUT)/pdi_fuzz \
+		apps/pagedesk/hosttest/pdi_fuzz.c apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c
+	$(PDI_OUT)/pdi_fuzz $(PDI_FUZZN) 1 $(PDI_OUT)/fx/*.jpg
+# ---- end PageDesk: xi -------------------------------------------------------
+
+# ---- PageDesk: jpx ----------------------------------------------------------
+# PDXJ.MOD (PAGEDESK-SPEC 20.22.13): JPEG 2000 at a reduced resolution level, a
+# slot occupant (PDX_JPX). PDWRT's shape: a SEPARATE compilation and its own
+# `nasm -f bin` job. `make pdxj` builds it AND runs the host checks, which are
+# host-side only and not in `all`: the module against opj_decompress -r
+# (hosttest/pdxj_cmp.py, a SKIP without OpenJPEG's tools), the assembly against
+# its C twin (hosttest/pdxj_asm.py, a SKIP without Unicorn) and the parser fuzz
+# (hosttest/pdxj_fuzz.c, ASan + UBSan, a few seconds).
+PDXJ_C   := apps/pagedesk/pdxj.c apps/pagedesk/pdxjhdr.c apps/pagedesk/pdxjpkt.c apps/pagedesk/pdxjt1.c \
+            apps/pagedesk/pdxjdwt.c apps/pagedesk/pdxjimg.c
+PDXJ_H   := apps/pagedesk/pdxj.h apps/pagedesk/pdabi.h apps/pagedesk/pdmath.h
+PDXJ_CAP := 65024   # PAGEDESK-SPEC 20.22.13, L6: PDXJ image + bss
+PDXJ_OUT := $(BUILD)/pdxj
+.PHONY: pdxj pdxj-host
+$(BUILD)/pdxj.raw.asm: $(PDXJ_C) $(PDXJ_H) $(CC_RUNTIME) | $(BUILD) cc-toolchain
+	PATH="$(abspath $(CC_SC)):$$PATH" $(CC_SMLRCC) -tiny -S \
+		-SI $(CC_SCINC) -I $(CC_SCINC) -I $(CC_DIR) -I apps/pagedesk \
+		apps/pagedesk/pdxj.c -o $@
+$(BUILD)/pdxj.gen.asm: $(BUILD)/pdxj.raw.asm tools/cc8086.py tools/ccpeep.py $(CC_PEEPSTAMP)
+	python3 tools/cc8086.py $< -o $@ --max-frame $(CC_MAXFRAME) $(CC_PEEPARG)
+$(BUILD)/PDXJ.MOD: apps/pagedesk/pdxj.asm apps/pagedesk/pdxjasm.inc apps/pagedesk/hosttest/pdxj_mqtab.inc \
+                   $(BUILD)/pdxj.gen.asm $(CC_RUNTIME) \
+                   $(wildcard apps/pagedesk/pdmath.inc apps/pagedesk/pdabi.inc) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ -o $@ apps/pagedesk/pdxj.asm
+	@python3 -c "import struct,sys; d=open('$@','rb').read(); m,a,i,b=struct.unpack_from('<HHHH',d); \
+	    assert i==len(d), (i,len(d)); t=i+b; print('PDXJ.MOD: image %d + bss %d = %d bytes (%.1f KiB; cap 63.5)'%(i,b,t,t/1024)); \
+	    sys.exit(1 if t>$(PDXJ_CAP) else 0)"
+$(PDXJ_OUT)/.host.stamp: apps/pagedesk/hosttest/pdxj_test.c apps/pagedesk/hosttest/pdxj_cmp.py apps/pagedesk/hosttest/pdxj_asm.py \
+                         $(PDXJ_C) $(PDXJ_H) apps/pagedesk/pdxjtw.c apps/pagedesk/pdxjasm.inc apps/pagedesk/pdmath.c \
+                         apps/pagedesk/hosttest/pdhost.c | $(BUILD)
+	mkdir -p $(PDXJ_OUT)
+	$(CC) -std=gnu99 -O1 -Wall -DPD_HOST -I apps/pagedesk -I apps/pagedesk/hosttest -o $(PDXJ_OUT)/pdxj_test \
+		apps/pagedesk/hosttest/pdxj_test.c apps/pagedesk/hosttest/pdhost.c apps/pagedesk/pdmath.c
+	@if command -v opj_decompress >/dev/null 2>&1; then python3 apps/pagedesk/hosttest/pdxj_cmp.py; \
+	  else echo "pdxj: SKIP the opj_decompress comparison - OpenJPEG's tools are not installed"; fi
+	@python3 apps/pagedesk/hosttest/pdxj_asm.py; r=$$?; [ $$r -eq 0 -o $$r -eq 77 ]
+	touch $@
+pdxj-host: $(PDXJ_OUT)/.host.stamp
+pdxj: $(BUILD)/PDXJ.MOD pdxj-host
+# the parser fuzz (ASan + UBSan; the second build lowers the arena floor so the
+# arena-full path is reached) and the real module in Unicorn: on demand, minutes
+.PHONY: pdxj-fuzz pdxj-uc
+pdxj-fuzz: | $(BUILD)
+	mkdir -p $(PDXJ_OUT)
+	clang -std=gnu99 -O1 -g -fsanitize=address,undefined -DPD_HOST -w -I apps/pagedesk -I apps/pagedesk/hosttest \
+		-o $(PDXJ_OUT)/pdxj_fuzz apps/pagedesk/hosttest/pdxj_fuzz.c apps/pagedesk/hosttest/pdhost.c apps/pagedesk/pdmath.c
+	clang -std=gnu99 -O1 -g -fsanitize=address,undefined -DJX_ARENA_MIN=300 -DPD_HOST -w -I apps/pagedesk -I apps/pagedesk/hosttest \
+		-o $(PDXJ_OUT)/pdxj_fuzz_small apps/pagedesk/hosttest/pdxj_fuzz.c apps/pagedesk/hosttest/pdhost.c apps/pagedesk/pdmath.c
+	$(PDXJ_OUT)/pdxj_fuzz -n 200 tests/pdfany/jpx/*.j2k tests/pdfany/jpx/*.jp2
+	$(PDXJ_OUT)/pdxj_fuzz_small -n 100 -s 3 tests/pdfany/jpx/*.j2k tests/pdfany/jpx/*.jp2
+pdxj-uc: $(BUILD)/PDXJ.MOD $(PDXJ_OUT)/.host.stamp
+	python3 apps/pagedesk/hosttest/pdxj_uc.py
+# ---- end PageDesk: jpx ------------------------------------------------------
+
+
+# ---- PageDesk: math ----
+# PageDesk's arithmetic contract (PAGEDESK-SPEC 4, 20.7). `pdabi-check` is in
+# `all`: tools/os88pdabi.py --check holds apps/pagedesk/pdabi.h to its generated
+# assembly mirror pdabi.inc, pdmath.inc's mirrored constants and its coverage of
+# pdmath.h, in a few milliseconds. `pdmathtest` is the differential test -
+# pdmath.inc (8086, run in Unicorn's real-mode x86) against pdmath.c bit for bit
+# - on demand, like the other host-side instruments (needs nasm, cc and
+# `pip install unicorn`). `pdabi-write` regenerates pdabi.inc.
+.PHONY: pdabi-check pdabi-write pdmathtest
+all: pdabi-check
+pdabi-check:
+	@python3 tools/os88pdabi.py --check
+pdabi-write:
+	python3 tools/os88pdabi.py --write
+pdmathtest:
+	python3 tests/pdmath/pdmath_diff.py $(PDMATH_ARGS)
+# ---- end PageDesk: math ----
+# ---- PageDesk: fonts ----
+# PDRES.BIN and PDFONTX.RES (docs/PAGEDESK-SPEC.md 20.4, DECISIONS D3/D5): the
+# document font strikes, the Core14 width tables, the glyph-name table and the icon
+# atlas, packed from the COMMITTED sources under apps/pagedesk/fonts/ and
+# apps/pagedesk/art/.  Pure Python, no network, no Pillow.  PDRES.BIN is the core
+# (8/10/12 px, widths, names, icons) that rides inside PAGEDESK.O88; PDFONTX.RES is
+# the optional file of the other sizes that rides beside it; PDFONTS.TXT is the
+# font licence text that must travel with both (SIL OFL 1.1 section 2).
+# `python3 tools/os88pdfont.py fetch|draw` is the one-time regeneration of the font
+# sources from the pinned TTFs/AFMs (never run by make).
+PD_RES_BIN   := $(BUILD)/PDRES.BIN
+PD_FONTX_RES := $(BUILD)/PDFONTX.RES
+PD_FONT_TXT  := $(BUILD)/PDFONTS.TXT
+PD_ART_INC   := $(BUILD)/pdart_appicon.inc
+PD_FONT_LIC  := apps/pagedesk/fonts/LICENSES.txt apps/pagedesk/fonts/OFL-Liberation.txt \
+                apps/pagedesk/fonts/AUTHORS-Liberation.txt apps/pagedesk/fonts/AFM-NOTICE.txt
+PD_RES_SRC   := $(wildcard apps/pagedesk/fonts/*.t88) apps/pagedesk/fonts/widths.txt \
+                $(wildcard apps/pagedesk/art/*.art) apps/pagedesk/art/face.kit $(PD_FONT_LIC) \
+                tools/os88pdfont.py tools/os88pdart.py tools/os88pdkit.py tools/os88lz.py
+
+# the face kit's names for the C (PAGEDESK-SPEC 20.21.2): the icons in
+# art/face.kit's order. --selfcheck holds the kit to its own format first
+$(BUILD)/pdkit.h: apps/pagedesk/art/face.kit tools/os88pdkit.py tools/os88pdfont.py \
+                  $(wildcard apps/pagedesk/fonts/mono-*-1[02].t88) | $(BUILD)
+	python3 tools/os88pdkit.py --selfcheck --header $@
+
+$(PD_RES_BIN): $(PD_RES_SRC)
+	@mkdir -p $(BUILD)
+	python3 tools/os88pdfont.py build -o $@
+	python3 tools/os88pdfont.py check --res $@
+
+$(PD_FONTX_RES): $(PD_RES_SRC)
+	@mkdir -p $(BUILD)
+	python3 tools/os88pdfont.py build --extra -o $@
+	python3 tools/os88pdfont.py check --extra --res $@
+
+$(PD_FONT_TXT): $(PD_FONT_LIC) tools/os88pdfont.py
+	@mkdir -p $(BUILD)
+	python3 tools/os88pdfont.py notice -o $@
+
+# both includes come out of one run; the second rides on the first
+$(PD_ART_INC): $(wildcard apps/pagedesk/art/*.art) tools/os88pdart.py
+	@mkdir -p $(BUILD)
+	python3 tools/os88pdart.py build --inc-dir $(BUILD)
+$(BUILD)/pdart_docglyph.inc: $(PD_ART_INC) ;
+
+.PHONY: pdfonts
+all: $(PD_RES_BIN) $(PD_FONTX_RES) $(PD_FONT_TXT) $(PD_ART_INC)
+pdfonts: $(PD_RES_BIN) $(PD_FONTX_RES) $(PD_FONT_TXT) $(PD_ART_INC)
+	python3 tools/os88pdart.py check
+# ---- end PageDesk: fonts ----
+
+# ---- PageDesk: nav ----
+# Navigation, selection, Find, thumbnails, outline and links (PAGEDESK-SPEC
+# 20.10). `make pdnav` builds PDENG's host harnesses for SEARCH and the link
+# records and runs them: pde_srch.py is a differential test of the matcher
+# against a reference over random pages and piece sizes, pde_link reads the
+# sample guide's links. The primary's own files (pdunav.c, pdusel.c,
+# pdufind.c, pduside.c) are matched by PDCSRC's pdu*.c wildcard; the
+# overlay's tenant is not, so it is named here.
+$(BUILD)/pagedesk.raw.asm: $(PDDIR)/pdovlnav.c
+$(BUILD)/pde_srch: $(PDE_SRC) apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pde_srch.c \
+                   apps/pagedesk/hosttest/pde_host.c apps/pagedesk/hosttest/pdhost.c | $(BUILD)
+	$(HOSTCC) -g -Wall -Wextra -Wno-unused-parameter -DPD_HOST -Iapps/pagedesk -Iapps/pagedesk/hosttest \
+		apps/pagedesk/pdeng.c apps/pagedesk/hosttest/pde_srch.c apps/pagedesk/hosttest/pde_host.c \
+		apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c -o $@
+$(BUILD)/pde_link: $(PDE_SRC) apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pde_link.c \
+                   apps/pagedesk/hosttest/pde_host.c apps/pagedesk/hosttest/pdhost.c | $(BUILD)
+	$(HOSTCC) -g -Wall -Wextra -Wno-unused-parameter -DPD_HOST -Iapps/pagedesk -Iapps/pagedesk/hosttest \
+		apps/pagedesk/pdeng.c apps/pagedesk/hosttest/pde_link.c apps/pagedesk/hosttest/pde_host.c \
+		apps/pagedesk/pdmath.c apps/pagedesk/hosttest/pdhost.c -o $@
+pdnav: $(BUILD)/pde_srch $(BUILD)/pde_link
+	python3 apps/pagedesk/hosttest/pde_srch.py $(BUILD)/pde_srch apps/pagedesk/samples/HELLO.PDF 400
+	$(BUILD)/pde_link apps/pagedesk/samples/XTGUIDE.PDF | grep -c '^L ' | grep -qx 7
+.PHONY: pdnav
+# ---- end PageDesk: nav ----
+
+# ---- PageDesk: notes ----
+# Notes & edits, the note popover and the Text properties inspector
+# (docs/PAGEDESK-SPEC.md 20.9). pdovlnotes.c is included by pdovl.c, so the
+# shell block's PDCSRC wildcard (pdu*.c) does not name it: say so here, or an
+# edit to it rebuilds nothing. `make pdnotes` runs the list model's host test
+# (apps/pagedesk/hosttest/pdu_nt.c compiles pdunotes.c, the file the package
+# compiles, against a fake store); tests/unit/t_pdnotes.py is the same run.
+$(BUILD)/pagedesk.raw.asm: $(PDDIR)/pdovlnotes.c
+
+# ---- PageDesk: prefs ----
+# pdovlpref.c is #included by pdovl.c and the wildcard (pdu*.c) does not name it
+$(BUILD)/pagedesk.raw.asm: $(PDDIR)/pdovlpref.c
+# pdovlauth.c likewise (the password prompt, PAGEDESK-SPEC 20.22.6)
+$(BUILD)/pagedesk.raw.asm: $(PDDIR)/pdovlauth.c
+# pdovlplat.c likewise (the key of an encrypted open, PAGEDESK-SPEC 20.22.2.6): an edit to it alone rebuilt nothing
+$(BUILD)/pagedesk.raw.asm: $(PDDIR)/pdovlplat.c
+# ---- end PageDesk: prefs ----
+
+$(BUILD)/pdu_nt: apps/pagedesk/hosttest/pdu_nt.c apps/pagedesk/pdunotes.c \
+                 apps/pagedesk/pdu.h apps/pagedesk/pdabi.h | $(BUILD)
+	$(HOSTCC) -O1 -Wall -Wno-unused-function -DPD_HOST -Iapps/pagedesk \
+		apps/pagedesk/hosttest/pdu_nt.c -o $@
+
+pdnotes: $(BUILD)/pdu_nt
+	$(BUILD)/pdu_nt
+.PHONY: pdnotes
+# ---- end PageDesk: notes ----
+
+# ---- PageDesk: PDX8, the raster compositor of transparency (PAGEDESK-SPEC 20.22.10.11) [blend] ----
+# A part loaded into the PDMEM_X8 region, built like PDWRT.MOD: its own C unit (pdx8.c), pdx8.asm
+# for the header, the door and the primitives. `make pdx8` builds it and prints its size against
+# PDX8_RES. PDREND carries the hooks under -DPDR_X8 (pdrx8.c, pdrxb.c, pdrx8h.inc).
+PDX8_C   := apps/pagedesk/pdx8.c
+PDX8_H   := apps/pagedesk/pdabi.h apps/pagedesk/pdmath.h apps/pagedesk/pdx8i.c
+PDX8_CAP := 16384
+.PHONY: pdx8
+$(BUILD)/pdx8.raw.asm: $(PDX8_C) $(PDX8_H) $(CC_RUNTIME) | $(BUILD) cc-toolchain
+	PATH="$(abspath $(CC_SC)):$$PATH" $(CC_SMLRCC) -tiny -S \
+		-SI $(CC_SCINC) -I $(CC_SCINC) -I $(CC_DIR) -I apps/pagedesk \
+		$(PDX8_C) -o $@
+$(BUILD)/pdx8.gen.asm: $(BUILD)/pdx8.raw.asm tools/cc8086.py tools/ccpeep.py $(CC_PEEPSTAMP)
+	python3 tools/cc8086.py $< -o $@ --max-frame $(CC_MAXFRAME) $(CC_PEEPARG)
+$(BUILD)/PDX8.MOD: apps/pagedesk/pdx8.asm apps/pagedesk/pdrx8.inc $(BUILD)/pdx8.gen.asm $(CC_RUNTIME) \
+                   $(wildcard apps/pagedesk/pdmath.inc apps/pagedesk/pdabi.inc) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ -o $@ apps/pagedesk/pdx8.asm
+	@python3 -c "import struct,sys; d=open('$@','rb').read(); m,a,i,b=struct.unpack_from('<HHHH',d); \
+	    assert i==len(d), (i,len(d)); t=i+b; print('PDX8.MOD: image %d + bss %d = %d bytes (cap $(PDX8_CAP))'%(i,b,t)); \
+	    sys.exit(1 if t>$(PDX8_CAP) else 0)"
+pdx8: $(BUILD)/PDX8.MOD
+# ---- end PageDesk: PDX8 ----
+
+# SPEC.md9.16: failed package-entry glyph ownership and same-slot reuse.
+$(BUILD)/kbdabort.bin: tests/kbdlayoutabort/kbdlayoutabort.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ $<
+$(BUILD)/kbdhold.bin: tests/kbdlayoutabort/kbdlayoutabort.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -DKA_LIVE -o $@ $<
+$(BUILD)/kbdabort.o88: $(BUILD)/kbdabort.bin tools/os88pkg.py
+	$(OS88PKG) $< -o $@
+$(BUILD)/kbdhold.o88: $(BUILD)/kbdhold.bin tools/os88pkg.py
+	$(OS88PKG) $< -o $@
+$(BUILD)/kbdlayoutabort.img: $(BUILD)/kbdabort.o88 $(BUILD)/kbdhold.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/kbdabort.o88 $(BUILD)/kbdhold.o88
+#> [Gate disks] kbdlayoutaborttest :: failed-entry keyboard hold and instance reuse fixtures
+.PHONY: kbdlayoutaborttest
+kbdlayoutaborttest: $(BUILD)/kbdlayoutabort.img
+
+# SPEC.md18.5.3: file mutations execute through the existing disk module.
+$(BUILD)/diskmut.bin: tests/diskmut/diskmut.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ $<
+$(BUILD)/diskmut.o88: $(BUILD)/diskmut.bin tools/os88pkg.py
+	$(OS88PKG) $< -o $@
+$(BUILD)/diskmut.img: $(BUILD)/diskmut.o88 tests/diskmut/old.txt tests/diskmut/leaf.txt tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 --folder CASE/EMPTY \
+		CASE:$(BUILD)/diskmut.o88 CASE:tests/diskmut/old.txt CASE/TREE/CHILD:tests/diskmut/leaf.txt
+#> [Gate disks] diskmuttest :: directory mutations, target restoration and the tree's missing-module refusal
+.PHONY: diskmuttest
+diskmuttest: $(BUILD)/diskmut.img
+
+# SPEC.md9.16/53.2.3: protected-mode REAL glyph borrowing, not shipped software.
+$(BUILD)/kbdreal.bin: tests/kbdlayoutreal/fixture.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ $<
+$(BUILD)/kbdreal.o88: $(BUILD)/kbdreal.bin tools/os88pkg.py
+	$(OS88PKG) $< -o $@
+$(BUILD)/kbdlayoutreal.img: $(BUILD)/kbdreal.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/kbdreal.o88
+#> [Gate disks] kbdlayoutrealtest :: protected-to-REAL keyboard glyph borrowing fixture
+.PHONY: kbdlayoutrealtest
+kbdlayoutrealtest: $(BUILD)/kbdlayoutreal.img
+
+# SPEC.md9.16: existing legacy frontends retain BIOS character input.
+$(BUILD)/kbdlayoutlegacy.img: $(BUILD)/win16.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/win16.o88
+#> [Gate disks] kbdlayoutlegacytest :: DOS and WIN16 keyboard ownership fixture
+.PHONY: kbdlayoutlegacytest
+kbdlayoutlegacytest: $(BUILD)/kbdlayoutlegacy.img
+
+# Native Borat typing tutor, SPEC.md 134 / docs/BORATYPE-SPEC.md.
+$(eval $(call CC_PACKAGE,boratype,boratype,BORATYPE.OVL,$(BUILD)/BTART.BIN $(BUILD)/BTSOUND.BIN,part,$(BUILD)/BTAN0.BIN $(BUILD)/BTAN1.BIN $(BUILD)/BTAN2.BIN $(BUILD)/BTAN3.BIN $(BUILD)/BTAN4.BIN))
+BORATYPESRC := $(wildcard apps/boratype/*.c apps/boratype/*.h)
+$(BUILD)/boratype.raw.asm: $(BORATYPESRC) apps/cc/gk.h
+$(BUILD)/boratype.bin: $(wildcard apps/boratype/*.inc) apps/breadxt/draw.inc apps/cc/gk.inc apps/cc/gkmus.inc apps/os88data.inc apps/os88ui.inc
+$(BUILD)/BTART.BIN: tools/os88btart.py tools/os88bbart.py apps/boratype/art.h $(wildcard apps/boratype/art/*.txt) $(wildcard apps/win16/fonts/*.txt) | $(BUILD)
+	python3 tools/os88btart.py build -o $@
+$(BUILD)/BTSOUND.BIN: tools/os88gkmus.py tools/os88btart.py tools/os88bbart.py apps/boratype/art.h apps/boratype/art/blink.txt apps/boratype/art/masthead.mask apps/boratype/art/badges.mask apps/boratype/art/large.txt apps/boratype/art/music.txt apps/boratype/art/sfx.txt | $(BUILD)
+	python3 tools/os88btart.py build-sound -o $@
+$(BUILD)/BTAN%.BIN: tools/os88btanim.py tools/os88lz.py tools/os88btscenes.py apps/boratype/art/scene-cards.txt apps/boratype/art/badges.mask apps/boratype/art/animation.txt | $(BUILD)
+	python3 tools/os88btanim.py build --bank $* --output $@
+#> [Applications] boratype :: Borat Teaches Typing native C lessons, practice and challenges (SPEC.md 134)
+boratype: $(BUILD)/boratype.o88
+#> [Applications] boratypedisk :: Borat Teaches Typing software disk in all four floppy geometries
+boratypedisk: $(BUILD)/boratype.img $(BUILD)/boratype720.img $(BUILD)/boratype120.img $(BUILD)/boratype360.img
+$(BUILD)/boratype.img: $(BUILD)/boratype.o88 apps/boratype/HELP.TXT tools/os88disk.py Makefile
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/boratype.o88 apps/boratype/HELP.TXT --folder SYSTEM/APPDATA
+	python3 tools/os88disk.py --verify $@
+$(BUILD)/boratype720.img: $(BUILD)/boratype.o88 apps/boratype/HELP.TXT tools/os88disk.py Makefile
+	python3 tools/os88disk.py -o $@ --size 720 $(BUILD)/boratype.o88 apps/boratype/HELP.TXT --folder SYSTEM/APPDATA
+	python3 tools/os88disk.py --verify $@
+$(BUILD)/boratype120.img: $(BUILD)/boratype.o88 apps/boratype/HELP.TXT tools/os88disk.py Makefile
+	python3 tools/os88disk.py -o $@ --size 1200 $(BUILD)/boratype.o88 apps/boratype/HELP.TXT --folder SYSTEM/APPDATA
+	python3 tools/os88disk.py --verify $@
+$(BUILD)/boratype360.img: $(BUILD)/boratype.o88 apps/boratype/HELP.TXT tools/os88disk.py Makefile
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/boratype.o88 apps/boratype/HELP.TXT --folder SYSTEM/APPDATA
+	python3 tools/os88disk.py --verify $@
+#> [Applications] boratypebundle :: build and validate a local Borat Teaches Typing WPK installer
+boratypebundle: $(BUILD)/BORATYPE.WPK
+$(BUILD)/BORATYPE.WPK: $(BUILD)/boratype.o88 apps/boratype/HELP.TXT tools/os88wire.py Makefile
+	@mkdir -p $(BUILD)/boratype-stage
+	@cp $(BUILD)/boratype.o88 $(BUILD)/boratype-stage/BORATYPE.O88
+	@cp apps/boratype/HELP.TXT $(BUILD)/boratype-stage/HELP.TXT
+	python3 tools/os88wire.py --archive $@ --srcdir $(BUILD)/boratype-stage --home BORATYPE --program BORATYPE.O88
+#> [Applications] boratypepcmdisk :: build a local Sound Blaster disk from the 14 named MP3s in BT_AUDIO_SRC
+boratypepcmdisk: boratype
+	@test -n "$(BT_AUDIO_SRC)" || { echo "Set BT_AUDIO_SRC to the folder containing the 14 source MP3s"; exit 1; }
+	python3 tools/os88btpcm.py "$(BT_AUDIO_SRC)" "$(BUILD)/boratype-local-audio"
+	python3 tools/os88disk.py -o $(BUILD)/boratype-sb.img --size 1440 $(BUILD)/boratype.o88 apps/boratype/HELP.TXT $(BUILD)/boratype-local-audio/BTAUDIO.IDX $(BUILD)/boratype-local-audio/BTMUSIC.BTA $(BUILD)/boratype-local-audio/BTCLIPS.BTA --folder SYSTEM/APPDATA
+	python3 tools/os88disk.py --verify $(BUILD)/boratype-sb.img
+.PHONY: boratype boratypedisk boratypebundle boratypepcmdisk
+# BONANZA (Bounce Bonanza, SPEC.md 137): an isometric rolling-ball game that
 # hardware-scrolls in both directions on the CGA and the Hercules.  Its art is
 # GENERATED from code and text alone (no input file, no reference game), so
 # this block needs NASM and Python and nothing else: tools/bonanza_assets.py
 # writes the three balls' parts and bzconst.inc, tools/bbcourse.py compiles the
-# text courses (SPEC.md 130.10.3) into one part each and bzcourse.inc.  Every
+# text courses (SPEC.md 137.10.3) into one part each and bzcourse.inc.  Every
 # part is the CGA's: on the Hercules the guest translates it in place at the
-# fetch (SPEC.md 130.11.3).
+# fetch (SPEC.md 137.11.3).
 # `local` in apps/RETIRED.txt: NOT in `all`, on no standard image, allapps
 # floppy or live media; `bonanzadisk` is its own floppy in all four geometries.
 BZ_ART := $(BUILD)/bonanza-art
-# THE COURSES, IN ORDER, NEVER A GLOB (SPEC.md 130.10.3): course K is the K-th
-# of this list, its part row K - and NOTHING ELSE keys by K (SPEC.md 130.22.5.1,
-# 130.14.7.4: the save keys courses by name, the game starts on pathway pad 0's,
+# THE COURSES, IN ORDER, NEVER A GLOB (SPEC.md 137.10.3): course K is the K-th
+# of this list, its part row K - and NOTHING ELSE keys by K (SPEC.md 137.22.5.1,
+# 137.14.7.4: the save keys courses by name, the game starts on pathway pad 0's,
 # the demos and BENCH's exemptions go by NAME).  As listed: 0 FIRST, 1 DOWN (Downhill
 # Decision, the real course 3: since 2026-11-21 in the slot the rubber ball's trial held, TRIAL a TEST
 # course now, in BZ_TESTCRS), 2 MILL (Windmill Lane: the real course 4's attempt 1 since 2026-11-21, in the
-# obstacles' prototype's place - its features TMIL's, SPEC.md 130.54.10), 3 and 4 wave 4's (MOON, Moonlit
-# Green, and PEAK, Summit Rush, SPEC.md 130.14.6), 5 wave 6's PLAYGROUND (PLAY,
-# SPEC.md 130.16.8) - the same K in the BZDEV=1 build, whose TEST courses
+# obstacles' prototype's place - its features TMIL's, SPEC.md 137.54.10), 3 and 4 wave 4's (MOON, Moonlit
+# Green, and PEAK, Summit Rush, SPEC.md 137.14.6), 5 wave 6's PLAYGROUND (PLAY,
+# SPEC.md 137.16.8) - the same K in the BZDEV=1 build, whose TEST courses
 # (BZ_TESTCRS, below: BENCH, the benchmark's, among them) come AFTER every
-# other course and nowhere else (SPEC.md 130.54: the shipped game carries no
+# other course and nowhere else (SPEC.md 137.54: the shipped game carries no
 # test course).  ONE bbcourse.py
 # run compiles the whole list and writes bzcourse.inc WHOLE, its OS88_PART rows
 # included, and the --part list below is built from the same list, so the
 # rows' order and the file's order cannot drift.
-# THE TEST COURSES (SPEC.md 130.54): the courses the rows play, each with a `test` statement, the BZDEV=1
+# THE TEST COURSES (SPEC.md 137.54): the courses the rows play, each with a `test` statement, the BZDEV=1
 # build's alone - BZDEV's block below puts them AFTER every other course, so none shifts a shipped course's K.
 # BENCH (Proving Ground), the benchmark's; TQUIK (the plan's TQUICK) and TCUP, the exits' and the save's (a goal, a cup).
 # TPLY (the plan's TPLAY), the physics and replay rows' (the prototypes' features on one course).
-# TLFT (Two Lifts), SPEC.md 130.12.4.7's: two lifts, the tracked one handed over on its route.
-# TTALL (Tall Test), SPEC.md 130.30.12.8's: the course past one picture part, played in two SHEETS.
+# TLFT (Two Lifts), SPEC.md 137.12.4.7's: two lifts, the tracked one handed over on its route.
+# TTALL (Tall Test), SPEC.md 137.30.12.8's: the course past one picture part, played in two SHEETS.
 # TRIAL (Bounce Trial), the wave-2 prototype whose rubber-bounce legs the rows still play: DOWN took its shipped
 # slot and its pathway pad (2026-11-21), so it is a test course, listed LAST so no other test course's K moved.
 # bbcourse.default_paths() reads this line and BZ_COURSES's first: the selfcheck checks them as well
@@ -22545,18 +23331,18 @@ BZ_COURSES := apps/bonanza/courses/first.bbc apps/bonanza/courses/down.bbc \
 # (6 FIRST ROLL and 7 LITTLE HOP, the real courses 1 and 2 (wave 11; the pathway's pads 0 and 1 since
 # 2026-11-19): appended when K still mattered; the BZROLL knob that carried them is gone)
 # (8 KITE HILL, 9 LODESTONE GORGE, 10 CLOCKWORK KEEP and 11 CASTLE CLIMB (CASTL, the owner's own), 2026-11-25:
-# the pathway's pads 8, 9, 10 and 11, in the owner's order of that day, SPEC.md 130.22.11.  APPENDED in the
+# the pathway's pads 8, 9, 10 and 11, in the owner's order of that day, SPEC.md 137.22.11.  APPENDED in the
 # order they were made, so every course before them keeps its K - K is not play order, the pathway is.  To take
 # one out of the default build, drop it here AND its pad, routes and icon in path.bbc)
-# wave 8b (SPEC.md 130.19.5): THE PATHWAY, a course of its own beside BZ_COURSES (not in it: not a tour
+# wave 8b (SPEC.md 137.19.5): THE PATHWAY, a course of its own beside BZ_COURSES (not in it: not a tour
 # course, nor the face's, nor a demo's), compiled by the same tool as BZPATH.BIN, the LAST part row
 BZ_PATH := apps/bonanza/courses/path.bbc
 # the PAD-0 TEST KNOBS' map (2026-11-19): the prototype pathway the shipped one replaced, which each knob's
 # path<knob>.sed edits to put its course on pad 0 (their seds name its pads and cells)
 BZ_PATHTEST := apps/bonanza/courses/pathtest.bbc
-# THE TEST MAP (SPEC.md 130.54.6): the BZDEV=1 build's pathway (its block below), never shipped (`test`)
+# THE TEST MAP (SPEC.md 137.54.6): the BZDEV=1 build's pathway (its block below), never shipped (`test`)
 BZ_PATHDEV := apps/bonanza/courses/pathdev.bbc
-#> [Knobs] BZSHAPES=1 :: Bounce Bonanza with its two FIELD-cell test courses, SHAPE and PITS (SPEC.md 130.28): SHAPE is the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/shapes BZSHAPES=1 bonanzadisk)
+#> [Knobs] BZSHAPES=1 :: Bounce Bonanza with its two FIELD-cell test courses, SHAPE and PITS (SPEC.md 137.28): SHAPE is the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/shapes BZSHAPES=1 bonanzadisk)
 # BZSHAPES=1 (the owner, 2026-11-17: "a knob build with various shapes on a course to try ... a course I
 # can easily launch") adds apps/bonanza/courses/shapes.bbc and pits.bbc to BZ_COURSES (after the shipped
 # ones, so every shipped course keeps its K; not on the TOUR, bbcourse.TOUR) and compiles the pathway
@@ -22581,8 +23367,8 @@ BZSHAPESTAMP := $(BUILD)/.bzshapes-$(or $(BZSHAPES),0)
 $(BZSHAPESTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzshapes-*
 	@touch $@
-#> [Knobs] BZMAGNET=1 :: Bounce Bonanza with its MAGNETS test course, MAGS (SPEC.md 130.33): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/magnet BZMAGNET=1 bonanzadisk)
-# BZMAGNET=1 (SPEC.md 130.33.10) adds apps/bonanza/courses/magnets.bbc to BZ_COURSES (after the shipped ones,
+#> [Knobs] BZMAGNET=1 :: Bounce Bonanza with its MAGNETS test course, MAGS (SPEC.md 137.33): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/magnet BZMAGNET=1 bonanzadisk)
+# BZMAGNET=1 (SPEC.md 137.33.10) adds apps/bonanza/courses/magnets.bbc to BZ_COURSES (after the shipped ones,
 # so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
 # apps/bonanza/courses/pathmagnet.sed applied: pad 0 becomes MAGS, its exit 1 goes to FIRST on a pad of its
 # own.  BZSHAPES's precedent; the two both claim pad 0, so they are refused together.  STAMPED.
@@ -22607,8 +23393,8 @@ BZMAGNETSTAMP := $(BUILD)/.bzmagnet-$(or $(BZMAGNET),0)
 $(BZMAGNETSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzmagnet-*
 	@touch $@
-#> [Knobs] BZWIND=1 :: Bounce Bonanza with its WIND test course (SPEC.md 130.34): blowers - a gust across a crumbling bridge, a steady wind across a thin path, an updraft only glass rises on - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/wind BZWIND=1 bonanzadisk)
-# BZWIND=1 (SPEC.md 130.34.8, BZSHAPES's precedent) adds apps/bonanza/courses/wind.bbc to BZ_COURSES (after
+#> [Knobs] BZWIND=1 :: Bounce Bonanza with its WIND test course (SPEC.md 137.34): blowers - a gust across a crumbling bridge, a steady wind across a thin path, an updraft only glass rises on - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/wind BZWIND=1 bonanzadisk)
+# BZWIND=1 (SPEC.md 137.34.8, BZSHAPES's precedent) adds apps/bonanza/courses/wind.bbc to BZ_COURSES (after
 # the shipped ones: every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc
 # with apps/bonanza/courses/pathwind.sed applied: pad 0 becomes WIND, FIRST moves to pad 6 (WIND's exit 1).
 # STAMPED; without it the build is byte for byte the knob-less one.  Not with BZSHAPES=1 (both take pad 0).
@@ -22636,7 +23422,7 @@ BZWINDSTAMP := $(BUILD)/.bzwind-$(or $(BZWIND),0)
 $(BZWINDSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzwind-*
 	@touch $@
-#> [Knobs] BZRAIL=1 :: Bounce Bonanza with its GUARD RAIL test course, RAIL (SPEC.md 130.35): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/rail BZRAIL=1 bonanzadisk)
+#> [Knobs] BZRAIL=1 :: Bounce Bonanza with its GUARD RAIL test course, RAIL (SPEC.md 137.35): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/rail BZRAIL=1 bonanzadisk)
 # BZRAIL=1 adds apps/bonanza/courses/rails.bbc to BZ_COURSES (after the shipped ones, so every shipped course
 # keeps its K; not on the TOUR) and compiles the pathway through apps/bonanza/courses/pathrail.sed: pad 0
 # becomes RAIL, FIRST gets pad 6 beside it.  Pad 0 is one course, so BZRAIL and BZSHAPES are refused together.
@@ -22665,8 +23451,8 @@ BZRAILSTAMP := $(BUILD)/.bzrail-$(or $(BZRAIL),0)
 $(BZRAILSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzrail-*
 	@touch $@
-#> [Knobs] BZWATER=1 :: Bounce Bonanza with its WATER test course, WATER (SPEC.md 130.36): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/water BZWATER=1 bonanzadisk)
-# BZWATER=1 (SPEC.md 130.36, the owner's sketch) adds apps/bonanza/courses/water.bbc to BZ_COURSES (after
+#> [Knobs] BZWATER=1 :: Bounce Bonanza with its WATER test course, WATER (SPEC.md 137.36): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/water BZWATER=1 bonanzadisk)
+# BZWATER=1 (SPEC.md 137.36, the owner's sketch) adds apps/bonanza/courses/water.bbc to BZ_COURSES (after
 # the shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from
 # path.bbc with apps/bonanza/courses/pathwater.sed applied: pad 0 becomes WATER (a new game rests on it) and
 # FIRST gets a pad of its own beside it.  BZSHAPES's precedent, and not with it (both rewrite pad 0).
@@ -22695,8 +23481,8 @@ BZWATERSTAMP := $(BUILD)/.bzwater-$(or $(BZWATER),0)
 $(BZWATERSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzwater-*
 	@touch $@
-#> [Knobs] BZARCH=1 :: Bounce Bonanza with its ARCHWAY test course, ARCH (SPEC.md 130.39): arches to roll under - one over a steel pad rubber cannot boost past, one to Hop into, a two-wide one - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/arch BZARCH=1 bonanzadisk)
-# BZARCH=1 (SPEC.md 130.39.7, BZWATER's precedent) adds apps/bonanza/courses/arches.bbc to BZ_COURSES (after
+#> [Knobs] BZARCH=1 :: Bounce Bonanza with its ARCHWAY test course, ARCH (SPEC.md 137.39): arches to roll under - one over a steel pad rubber cannot boost past, one to Hop into, a two-wide one - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/arch BZARCH=1 bonanzadisk)
+# BZARCH=1 (SPEC.md 137.39.7, BZWATER's precedent) adds apps/bonanza/courses/arches.bbc to BZ_COURSES (after
 # the shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from
 # path.bbc with apps/bonanza/courses/patharch.sed applied: pad 0 becomes ARCH (a new game rests on it) and
 # FIRST gets a pad of its own beside it.  Not with the other pad-0 knobs.  STAMPED; without it the build's
@@ -22722,8 +23508,8 @@ BZARCHSTAMP := $(BUILD)/.bzarch-$(or $(BZARCH),0)
 $(BZARCHSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzarch-*
 	@touch $@
-#> [Knobs] BZSPIKE=1 :: Bounce Bonanza with its SPIKES test course, SPIKE (SPEC.md 130.38): a spike corridor, pop-up spikes, a glass-only membrane bridge and water over spikes - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/spike BZSPIKE=1 bonanzadisk)
-# BZSPIKE=1 (SPEC.md 130.38, BZWATER's precedent) adds apps/bonanza/courses/spike.bbc to BZ_COURSES (after the
+#> [Knobs] BZSPIKE=1 :: Bounce Bonanza with its SPIKES test course, SPIKE (SPEC.md 137.38): a spike corridor, pop-up spikes, a glass-only membrane bridge and water over spikes - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/spike BZSPIKE=1 bonanzadisk)
+# BZSPIKE=1 (SPEC.md 137.38, BZWATER's precedent) adds apps/bonanza/courses/spike.bbc to BZ_COURSES (after the
 # shipped ones; not on the TOUR) and compiles the pathway from path.bbc with apps/bonanza/courses/pathspike.sed
 # applied: pad 0 becomes SPIKE and FIRST gets a pad of its own beside it.  Not with the other pad-0 knobs.
 # STAMPED; without it the build is byte for byte the knob-less one.
@@ -22748,8 +23534,8 @@ BZSPIKESTAMP := $(BUILD)/.bzspike-$(or $(BZSPIKE),0)
 $(BZSPIKESTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzspike-*
 	@touch $@
-#> [Knobs] BZBOOST=1 :: Bounce Bonanza with its BOOST PADS test course, BOOS (SPEC.md 130.40): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/boost BZBOOST=1 bonanzadisk)
-# BZBOOST=1 (SPEC.md 130.40.6) adds apps/bonanza/courses/boost.bbc to BZ_COURSES (after the shipped ones, so
+#> [Knobs] BZBOOST=1 :: Bounce Bonanza with its BOOST PADS test course, BOOS (SPEC.md 137.40): the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/boost BZBOOST=1 bonanzadisk)
+# BZBOOST=1 (SPEC.md 137.40.6) adds apps/bonanza/courses/boost.bbc to BZ_COURSES (after the shipped ones, so
 # every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
 # apps/bonanza/courses/pathboost.sed applied: pad 0 becomes BOOS, FIRST gets pad 6 beside it.  Pad 0 is one
 # course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
@@ -22775,8 +23561,8 @@ BZBOOSTSTAMP := $(BUILD)/.bzboost-$(or $(BZBOOST),0)
 $(BZBOOSTSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzboost-*
 	@touch $@
-#> [Knobs] BZHUMP=1 :: Bounce Bonanza with its HUMPS test course, HUMP (SPEC.md 130.44): low and high domes, a ridge, a speed bump steel needs a run at - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/hump BZHUMP=1 bonanzadisk)
-# BZHUMP=1 (SPEC.md 130.44.6) adds apps/bonanza/courses/humps.bbc to BZ_COURSES (after the shipped ones, so
+#> [Knobs] BZHUMP=1 :: Bounce Bonanza with its HUMPS test course, HUMP (SPEC.md 137.44): low and high domes, a ridge, a speed bump steel needs a run at - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/hump BZHUMP=1 bonanzadisk)
+# BZHUMP=1 (SPEC.md 137.44.6) adds apps/bonanza/courses/humps.bbc to BZ_COURSES (after the shipped ones, so
 # every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
 # apps/bonanza/courses/pathhump.sed applied: pad 0 becomes HUMP, FIRST gets pad 6 beside it.  Pad 0 is one
 # course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
@@ -22802,8 +23588,8 @@ BZHUMPSTAMP := $(BUILD)/.bzhump-$(or $(BZHUMP),0)
 $(BZHUMPSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzhump-*
 	@touch $@
-#> [Knobs] BZQSTEP=1 :: Bounce Bonanza with its QUARTER STEPS test course, QSTP (SPEC.md 130.48): eight lanes stepping up 1/4 to 2 units from one plate, every step of the quarter-unit ladder side by side - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/qstep BZQSTEP=1 bonanzadisk)
-# BZQSTEP=1 (SPEC.md 130.48, BZHUMP's precedent) adds apps/bonanza/courses/qsteps.bbc to BZ_COURSES (after the
+#> [Knobs] BZQSTEP=1 :: Bounce Bonanza with its QUARTER STEPS test course, QSTP (SPEC.md 137.48): eight lanes stepping up 1/4 to 2 units from one plate, every step of the quarter-unit ladder side by side - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/qstep BZQSTEP=1 bonanzadisk)
+# BZQSTEP=1 (SPEC.md 137.48, BZHUMP's precedent) adds apps/bonanza/courses/qsteps.bbc to BZ_COURSES (after the
 # shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
 # apps/bonanza/courses/pathqstep.sed applied: pad 0 becomes QSTP, FIRST gets pad 6 beside it.  Pad 0 is one
 # course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
@@ -22829,8 +23615,8 @@ BZQSTEPSTAMP := $(BUILD)/.bzqstep-$(or $(BZQSTEP),0)
 $(BZQSTEPSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzqstep-*
 	@touch $@
-#> [Knobs] BZGATE=1 :: Bounce Bonanza with its SWITCHES, KEYS, GATES and DRAWBRIDGE test course, GATE (SPEC.md 130.41): a plate's gate, a key's gate, a timed drawbridge and a switched one - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/gate BZGATE=1 bonanzadisk)
-# BZGATE=1 (SPEC.md 130.41.6, BZBOOST's precedent) adds apps/bonanza/courses/gate.bbc to BZ_COURSES (after the
+#> [Knobs] BZGATE=1 :: Bounce Bonanza with its SWITCHES, KEYS, GATES and DRAWBRIDGE test course, GATE (SPEC.md 137.41): a plate's gate, a key's gate, a timed drawbridge and a switched one - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/gate BZGATE=1 bonanzadisk)
+# BZGATE=1 (SPEC.md 137.41.6, BZBOOST's precedent) adds apps/bonanza/courses/gate.bbc to BZ_COURSES (after the
 # shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
 # apps/bonanza/courses/pathgate.sed applied: pad 0 becomes GATE, FIRST gets pad 6 beside it.  Pad 0 is one
 # course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
@@ -22856,8 +23642,8 @@ BZGATESTAMP := $(BUILD)/.bzgate-$(or $(BZGATE),0)
 $(BZGATESTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzgate-*
 	@touch $@
-#> [Knobs] BZTILT=1 :: Bounce Bonanza with its SEE-SAW test course, TILT (SPEC.md 130.42): a ledge only light glass reaches, a gate the ball's weight lays down, a rocker - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/tilt BZTILT=1 bonanzadisk)
-# BZTILT=1 (SPEC.md 130.42.7, BZBOOST's precedent) adds apps/bonanza/courses/tilt.bbc to BZ_COURSES (after the
+#> [Knobs] BZTILT=1 :: Bounce Bonanza with its SEE-SAW test course, TILT (SPEC.md 137.42): a ledge only light glass reaches, a gate the ball's weight lays down, a rocker - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/tilt BZTILT=1 bonanzadisk)
+# BZTILT=1 (SPEC.md 137.42.7, BZBOOST's precedent) adds apps/bonanza/courses/tilt.bbc to BZ_COURSES (after the
 # shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc with
 # apps/bonanza/courses/pathtilt.sed applied: pad 0 becomes TILT, FIRST gets pad 6 beside it.  Pad 0 is one
 # course, so it is refused with every other pad-0 knob.  STAMPED; without it the build's courses and demos are the
@@ -22883,8 +23669,8 @@ BZTILTSTAMP := $(BUILD)/.bztilt-$(or $(BZTILT),0)
 $(BZTILTSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bztilt-*
 	@touch $@
-#> [Knobs] BZTURN=1 :: Bounce Bonanza with its QUARTER-TURN TURNTABLE test course, TURN (SPEC.md 130.43): half-filled tables turning a quarter turn a second, crossed on the turn - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/turn BZTURN=1 bonanzadisk)
-# BZTURN=1 (SPEC.md 130.43.7, BZBOOST's precedent) adds apps/bonanza/courses/turntable.bbc to BZ_COURSES (after
+#> [Knobs] BZTURN=1 :: Bounce Bonanza with its QUARTER-TURN TURNTABLE test course, TURN (SPEC.md 137.43): half-filled tables turning a quarter turn a second, crossed on the turn - the pathway's pad 0, so Play Game, Enter plays it - a knob build, into a private tree (make BUILD=build/turn BZTURN=1 bonanzadisk)
+# BZTURN=1 (SPEC.md 137.43.7, BZBOOST's precedent) adds apps/bonanza/courses/turntable.bbc to BZ_COURSES (after
 # the shipped ones, so every shipped course keeps its K; not on the TOUR) and compiles the pathway from path.bbc
 # with apps/bonanza/courses/pathturn.sed applied: pad 0 becomes TURN, FIRST gets pad 6 beside it.  Pad 0 is one
 # course, so it is refused with every other pad-0 knob.  STAMPED; without it the build is byte for byte the
@@ -22910,9 +23696,9 @@ BZTURNSTAMP := $(BUILD)/.bzturn-$(or $(BZTURN),0)
 $(BZTURNSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzturn-*
 	@touch $@
-#> [Knobs] BZFSHOW=1 :: Bounce Bonanza's SHOW rule on every course's FIELD cells - a ball ON a shape drawn whole, fewer occluder records (SPEC.md 130.28.6): the owner's toggle, off by default (make BUILD=build/shapesb BZSHAPES=1 BZFSHOW=1 bonanzadisk)
+#> [Knobs] BZFSHOW=1 :: Bounce Bonanza's SHOW rule on every course's FIELD cells - a ball ON a shape drawn whole, fewer occluder records (SPEC.md 137.28.6): the owner's toggle, off by default (make BUILD=build/shapesb BZSHAPES=1 BZFSHOW=1 bonanzadisk)
 # BZFSHOW=1 (the owner, 2026-11-17: "A is actually better ... B is still cheaper, in every way; so can we keep
-# it around as a toggle we can turn on at will?") passes --fshow to bbcourse.py: SPEC.md 130.28.6's SHOW rule
+# it around as a toggle we can turn on at will?") passes --fshow to bbcourse.py: SPEC.md 137.28.6's SHOW rule
 # (a FIELD cell's poses only from BZ_CLIMB up, airborne, a pose's pixels only past FSHOW = 8 lit px, and no
 # OCCG on a FIELD cell) on every course. Off, a FIELD cell's ball is cut at every real pose and its cell
 # carries OCCG. A course without FIELD cells is byte for byte the same either way; a course's own `fshow`
@@ -22927,9 +23713,9 @@ BZFSHOWSTAMP := $(BUILD)/.bzfshow-$(or $(BZFSHOW),0)
 $(BZFSHOWSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzfshow-*
 	@touch $@
-# (BZHEADROOM=1, SPEC.md 130.58.17.1's knob, is gone: since 130.58.36 its two capacities - BZ_NSIGN 255 and
+# (BZHEADROOM=1, SPEC.md 137.58.17.1's knob, is gone: since 137.58.36 its two capacities - BZ_NSIGN 255 and
 # BZ_PAD_EXITS for BZ_PAD_MAX pads - are the shipped build's, and the pad count is a byte of data)
-#> [Knobs] BZSHADOW=1 :: Bounce Bonanza's CAST SHADOWS (SPEC.md 130.47.5): light from -x+y onto every course, a 50% dither on the tops a shadow falls on - off by default, kept for a disk that can afford its bytes (make BUILD=build/shadow BZSHADOW=1 bonanzadisk)
+#> [Knobs] BZSHADOW=1 :: Bounce Bonanza's CAST SHADOWS (SPEC.md 137.47.5): light from -x+y onto every course, a 50% dither on the tops a shadow falls on - off by default, kept for a disk that can afford its bytes (make BUILD=build/shadow BZSHADOW=1 bonanzadisk)
 # BZSHADOW=1 (the owner, 2026-11-18: "good art, not good info ... keep that renderer ... gate it to off by
 # default") passes --shadow to bbcourse.py.  STAMPED, so a change recompiles the courses.
 BZSHADOW ?=
@@ -22942,15 +23728,15 @@ BZSHADOWSTAMP := $(BUILD)/.bzshadow-$(or $(BZSHADOW),0)
 $(BZSHADOWSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzshadow-*
 	@touch $@
-#> [Knobs] BZDEV=1 :: Bounce Bonanza's TEST BUILD (SPEC.md 130.26.6.1): the harness bytes, the instruments' keys and face, the benchmark, the autopilot, the measured marks and the scripted camera the bonanza rows drive - none of it shipped; a knob build, into a private tree (make BUILD=build/bzdev BZDEV=1 bonanzadisk)
+#> [Knobs] BZDEV=1 :: Bounce Bonanza's TEST BUILD (SPEC.md 137.26.6.1): the harness bytes, the instruments' keys and face, the benchmark, the autopilot, the measured marks and the scripted camera the bonanza rows drive - none of it shipped; a knob build, into a private tree (make BUILD=build/bzdev BZDEV=1 bonanzadisk)
 #> [Knobs] BZSSLOG=1 :: Bounce Bonanza's SEE-SAW LOG, a diagnostic: every step near MILL's plate recorded and SYSTEM\APPDATA\SSLOG.BIN written at the play's end (apps/bonanza/bzsslog.inc) - into a private tree (make BUILD=build/bzss BZSSLOG=1 bonanzadisk)
 # BZDEV=1 (the owner, 2026-11-19: "anything that is a test only needs to be on a knob. We don't ship tests")
 # assembles BONANZA.O88 with -DBZDEV: bz_dev and every key and page it opens (B R D F G V W L N M T S, the tour,
 # the results page, the benchmark), the instruments (the measured marks, bz_presented's period, the beam
 # check, the results copy), the autopilot and bz_apilot, the scripted camera, bz_hold, bz_hvoff, bz_phforce,
 # and the shell part's instruments' face - and the TEST COURSES (BZ_TESTCRS: BENCH, the benchmark's, TQUIK,
-# TCUP), AFTER the shipped courses and any knob's (SPEC.md 130.54; 2026-11-19: "then bench can come out of the
-# shipping build"), and THE TEST MAP (pathdev.bbc, 130.54.6) as the pathway unless a knob gives its own,
+# TCUP), AFTER the shipped courses and any knob's (SPEC.md 137.54; 2026-11-19: "then bench can come out of the
+# shipping build"), and THE TEST MAP (pathdev.bbc, 137.54.6) as the pathway unless a knob gives its own,
 # compiled with bbcourse's --dev (without it a `test` course or map is refused). Off, the package
 # is the player's alone. STAMPED: the package, its link map, its shell part and the courses (the test courses
 # are courses of the one build and not the other) are rebuilt when it turns on or off.
@@ -22962,7 +23748,7 @@ endif
 endif
 ifeq ($(BZDEV),1)
 BZ_COURSES := $(BZ_COURSES) $(BZ_TESTCRS)
-# ...and THE TEST MAP (SPEC.md 130.54.6) in place of the shipped pathway: pads 0 and 1 the shipped map's (ROLL,
+# ...and THE TEST MAP (SPEC.md 137.54.6) in place of the shipped pathway: pads 0 and 1 the shipped map's (ROLL,
 # HOP), the rest the test courses', one route a feature the rows walk (straight, diagonal, across the pages,
 # an icon, a climb, a secret route by TQUIK's hidden exit). A pad-0 knob's map (BZ_PATHTEST + its sed) wins.
 ifeq ($(BZ_PATH),apps/bonanza/courses/path.bbc)
@@ -22974,13 +23760,13 @@ BZDEVSTAMP := $(BUILD)/.bzdev-$(or $(BZDEV),0)
 $(BZDEVSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.bzdev-*
 	@touch $@
-# SPEC.md 130.23: THE TITLE, a course of its own after the pathway (a FIXED window, baked art, four
+# SPEC.md 137.23: THE TITLE, a course of its own after the pathway (a FIXED window, baked art, four
 # start-state demos), compiled by the same run as BZTITLE.BIN and BZTDEMO.BIN, the LAST two part rows
 BZ_TITLE := apps/bonanza/courses/title.bbc
 BZ_TITLESRC := $(BZ_TITLE) apps/bonanza/courses/title.bba $(wildcard apps/bonanza/demos/*.bzt)
 BZ_CRSPARTS := $(foreach k,$(shell seq 0 $$(( $(words $(BZ_COURSES)) - 1 ))),$(BZ_ART)/BZ$(k).BIN)
-# The SHIPPED DEMOS (SPEC.md 130.14.7.4): one a course but a TEST course's (its `test`
-# statement, SPEC.md 130.54, never by K), each BZD<NAME>.BIN, written by the same
+# The SHIPPED DEMOS (SPEC.md 137.14.7.4): one a course but a TEST course's (its `test`
+# statement, SPEC.md 137.54, never by K), each BZD<NAME>.BIN, written by the same
 # run - a course's apps/bonanza/demos/<file>.bzd when it has one (text, checked by the
 # model), else the ROUTE DEMO the tool makes from the course's route.  The tool lists
 # them in row order in bzdemo.lst; their rows follow the courses' (BZ_P_DEMO, bzcourse.inc's
@@ -22993,20 +23779,20 @@ BZ_GEN := $(BZ_ART)/bzconst.inc $(BZ_BALLS)
 BZ_CGEN := $(BZ_ART)/bzcourse.inc $(BZ_CRSPARTS) $(BZ_ART)/BZPATH.BIN $(BZ_ART)/BZTITLE.BIN \
            $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN $(BZ_ART)/bzdemo.lst $(BZ_ART)/bzparts.lst $(BZ_ART)/BZRES.BIN
 .PHONY: bonanza bonanzadisk bonanza-art bonanza-check bonanza-course-check bonanza-music-check bonanza-sizes
-# The course part's RAM record is D's, 4 bytes (SPEC.md 130.15.5): wave
+# The course part's RAM record is D's, 4 bytes (SPEC.md 137.15.5): wave
 # 5b's D/C acceptance, re-taken under the owner's smoothness rule
-# (130.15.5.4), measured D as smooth as C on both cards, so C's 8-byte arm
+# (137.15.5.4), measured D as smooth as C on both cards, so C's 8-byte arm
 # and the BZREC knob were deleted, and bbcourse.py's `--rec` with them: records
 # are 4 bytes, and bzcourse.inc's BZ_REC says so. (The identity is still
-# taken over the 8-byte layout of the model, SPEC.md 130.15.7.)
+# taken over the 8-byte layout of the model, SPEC.md 137.15.7.)
 # BZPARTZF is the format of BONANZA.O88's compressed PARTS (os88pkg's
 # --part-compress; the format byte is the parts TABLE's, so the courses, the
 # balls, the sound, the songs and the demos go together): LZB, the owner's
-# decision (2026-11-14, SPEC.md 130.15.9; the LZ4/LZB knob that measured it is
+# decision (2026-11-14, SPEC.md 137.15.9; the LZ4/LZB knob that measured it is
 # removed). A `COMPRESS=lz4` or `COMPRESS=lzb` kernel reads one format only
 # (SPEC.md 20.13.6), so it forces its own, as $(OS88PKGB) falls back for an
 # image. The courses' compile does not read it (the course budget is LZ4's,
-# 130.15.8): a change re-packs BONANZA.O88 and recompiles nothing.
+# 137.15.8): a change re-packs BONANZA.O88 and recompiles nothing.
 BZPARTZF := $(if $(filter lz4 lzb,$(COMPRESS)),$(COMPRESS),lzb)
 BZPARTZSTAMP := $(BUILD)/.bzpartz-$(BZPARTZF)
 $(BZPARTZSTAMP): | $(BUILD)
@@ -23031,22 +23817,22 @@ $(BZ_ART)/.bz-crs: tools/bbcourse.py tools/bonanza_assets.py tools/bbmusic.py to
 	python3 tools/bbcourse.py -o $(BZ_ART) $(if $(BZDEV),--dev) $(if $(BZFSHOW),--fshow) $(if $(BZSHADOW),--shadow) --path $(BZ_PATH) --title $(BZ_TITLE) $(BZ_COURSES)
 $(BZ_CGEN): $(BZ_ART)/.bz-crs
 	@test -f $@ || { rm -f $<; $(MAKE) --no-print-directory $<; }
-#> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 130.10.4)
+#> [Applications] bonanza-art :: Bounce Bonanza's generated parts and includes, the ball's and every course's (SPEC.md 137.10.4)
 bonanza-art: $(BZ_GEN) $(BZ_CGEN)
 # The host-side gates, by hand; the bonanzaassets and bonanzacourse soak rows
 # run the same commands.
-#> [Applications] bonanza-check :: Bounce Bonanza's ball generator's selfcheck: BZB2 for three balls, the Hercules table, determinism (SPEC.md 130.11.17.2)
+#> [Applications] bonanza-check :: Bounce Bonanza's ball generator's selfcheck: BZB2 for three balls, the Hercules table, determinism (SPEC.md 137.11.17.2)
 bonanza-check:
 	python3 tools/bonanza_assets.py --selfcheck
-#> [Applications] bonanza-course-check :: Bounce Bonanza's course compiler's selfcheck: grammar, picture, grid, occluders, physics, route, the compact form, the budget (SPEC.md 130.10.4.6, 130.15.12.3); the title art is tools/bbtitle.py's (130.23.2)
+#> [Applications] bonanza-course-check :: Bounce Bonanza's course compiler's selfcheck: grammar, picture, grid, occluders, physics, route, the compact form, the budget (SPEC.md 137.10.4.6, 137.15.12.3); the title art is tools/bbtitle.py's (137.23.2)
 bonanza-course-check:
 	python3 tools/bbcourse.py --selfcheck $(filter-out $(BZ_TESTCRS),$(BZ_COURSES)) $(BZ_TESTCRS)
 	python3 tools/bbtitle.py --check
-#> [Applications] bonanza-sizes :: Bounce Bonanza's courses and package, section by section, packed both ways, against the course budget (SPEC.md 130.15.12.2); minutes
+#> [Applications] bonanza-sizes :: Bounce Bonanza's courses and package, section by section, packed both ways, against the course budget (SPEC.md 137.15.12.2); minutes
 bonanza-sizes: $(BUILD)/bonanza.o88
 	python3 tools/bbcourse.py --sizes $(BZ_COURSES)
 
-# THE SOUND (SPEC.md 130.20): tools/bbmusic.py packs the bank and the songs
+# THE SOUND (SPEC.md 137.20): tools/bbmusic.py packs the bank and the songs
 # under apps/bonanza/music/ into BZSND.BIN and one part a song, BZM<S>.BIN,
 # and writes bzsnd.inc.  BZ_SONGS is the tool's SONGS manifest, in its order.
 BZ_SONGS := fairway trial windmill moonlit summit victory attract firstroll timeup littlehop \
@@ -23057,7 +23843,7 @@ BZ_SGEN := $(BZ_SNDPARTS) $(BZ_ART)/bzsnd.inc
 $(BZ_ART)/.bz-snd: tools/bbmusic.py $(BZ_MUSSRC) | $(BUILD)
 	python3 tools/bbmusic.py -o $(BZ_ART)
 $(BZ_SGEN): $(BZ_ART)/.bz-snd ;
-#> [Applications] bonanza-music-check :: Bounce Bonanza's music packer's selfcheck: every song's notes, instruments and volumes as the guest's sequencer keys them (SPEC.md 130.20.2)
+#> [Applications] bonanza-music-check :: Bounce Bonanza's music packer's selfcheck: every song's notes, instruments and volumes as the guest's sequencer keys them (SPEC.md 137.20.2)
 bonanza-music-check:
 	python3 tools/bbmusic.py --selfcheck
 
@@ -23070,20 +23856,20 @@ $(BUILD)/bonanza.bin: apps/bonanza/bonanza.asm apps/bonanza/bzvideo.inc apps/bon
                       $(BZ_ART)/bzconst.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzsnd.inc $(BZ_ART)/bzwin.inc $(BZDEVSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(BZDEVDEF) -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -l $(BUILD)/bonanza.lst -o $@ $<
 
-# SPEC.md 130.58.36: the course and demo rows are bbcourse.py's bzparts.lst, BZ_CRS_MAX of each, the rows past the
+# SPEC.md 137.58.36: the course and demo rows are bbcourse.py's bzparts.lst, BZ_CRS_MAX of each, the rows past the
 # list's RESERVED (BZRES.BIN, never fetched), so a list of another length renumbers no row after them.
-# THE ART FILES ARE PARTS OF IT (SPEC.md 130.11.3.1, 20.12), and this --part
+# THE ART FILES ARE PARTS OF IT (SPEC.md 137.11.3.1, 20.12), and this --part
 # order MUST equal the OS88_PART rows' order in apps/bonanza/bonanza.asm: row
 # K course K of BZ_COURSES (the three balls ride the RESIDENT BUNDLE, below,
-# since SPEC.md 130.25.5.2), then the sound part and one part a song (SPEC.md 130.20.3), then
-# one shipped demo a course but the benchmark's, bzdemo.lst's BZD<NAME>.BIN (SPEC.md 130.14.7.4, 130.16.2).
-# SPEC.md 130.37: THE KIT, BZKIT.BIN (the standard pieces the play courses name, from
+# since SPEC.md 137.25.5.2), then the sound part and one part a song (SPEC.md 137.20.3), then
+# one shipped demo a course but the benchmark's, bzdemo.lst's BZD<NAME>.BIN (SPEC.md 137.14.7.4, 137.16.2).
+# SPEC.md 137.37: THE KIT, BZKIT.BIN (the standard pieces the play courses name, from
 # apps/bonanza/courses/kit.bzk), the row after the title's demos, before the family rows.
-# The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 130.25.6.9): a home-`fetch`
+# The family rows come last, as tools/bbcourse.py's `famparts` lists them (SPEC.md 137.25.6.9): a home-`fetch`
 # family's own part each, ID order, then the RESIDENT BUNDLE, $(BUILD)/bzfbun.bin, every home-`resident`
 # family's part in one - so a family's home moves by its FAMILIES row alone, and this list follows.
-# SPEC.md 130.30.5: a TWO-PART course's world part is in its course's ONE part, BZ<K>.BIN (OP_BIG), as a
-# SHEETED course's is (130.30.12.5): no world rows, no BZ<K>W.BIN.
+# SPEC.md 137.30.5: a TWO-PART course's world part is in its course's ONE part, BZ<K>.BIN (OP_BIG), as a
+# SHEETED course's is (137.30.12.5): no world rows, no BZ<K>W.BIN.
 BZ_PARTS1 := $(BZ_CRSPARTS)
 BZ_PARTS2 := $(BUILD)/bzshell.bin $(BZ_ART)/BZPATH.BIN \
             $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN
@@ -23095,7 +23881,7 @@ BZ_PARTS := $(BZ_PARTS1) $(BZ_PARTS2)
 BZ_DATAPARTS := $(BZ_CRSPARTS) $(BZ_ART)/BZPATH.BIN \
                 $(BZ_ART)/BZTITLE.BIN $(BZ_ART)/BZTDEMO.BIN $(BZ_ART)/BZKIT.BIN
 
-# THE SHELL PART (SPEC.md 130.19.2, wave 8a): the desktop face, out of the
+# THE SHELL PART (SPEC.md 137.19.2, wave 8a): the desktop face, out of the
 # resident image, LINKED against the package PiXEL's way (SPEC.md 106.20):
 # tools/pxlink.py re-assembles bonanza.asm with a symbol map, refuses unless it
 # is byte-identical to build/bonanza.bin, and writes its bss and constants
@@ -23103,11 +23889,11 @@ BZ_DATAPARTS := $(BZ_CRSPARTS) $(BZ_ART)/BZPATH.BIN \
 $(BZ_ART)/bzlink.inc: $(BUILD)/bonanza.bin tools/pxlink.py
 	python3 tools/pxlink.py $(BUILD)/bonanza.bin --src apps/bonanza/bonanza.asm -I apps/ -I apps/bonanza/ \
 		-I $(BZ_ART)/ $(if $(BZDEV),-D BZDEV) $(if $(BZSSLOG),-D BZSSLOG) --prefix BZL --consts BZ -o $@
-# The window's art (SPEC.md 130.26.2): tools/bzwinart.py draws it from code
+# The window's art (SPEC.md 137.26.2): tools/bzwinart.py draws it from code
 # into bzwin.inc, which only the shell part assembles.
 $(BZ_ART)/bzwin.inc: tools/bzwinart.py tools/bbtitle.py | $(BUILD)
 	python3 tools/bzwinart.py -o $(BZ_ART)
-# THE VGA PART (SPEC.md 130.46.6): the VGA's writers and its one-off converter, LINKED as the
+# THE VGA PART (SPEC.md 137.46.6): the VGA's writers and its one-off converter, LINKED as the
 # shell part is; the package's last row, after the families' (BZ_P_VGA)
 $(BUILD)/bzvga.bin: apps/bonanza/bzvga.asm apps/bonanza/bzvga.inc apps/os88api.inc $(BZ_ART)/bzcourse.inc \
                     $(BZ_ART)/bzlink.inc | $(BUILD)
@@ -23115,14 +23901,14 @@ $(BUILD)/bzvga.bin: apps/bonanza/bzvga.asm apps/bonanza/bzvga.inc apps/os88api.i
 $(BUILD)/bzshell.bin: apps/bonanza/bzshell.asm apps/bonanza/bzface.inc apps/bonanza/bzwface.inc apps/bonanza/bzshell.inc \
                       apps/os88api.inc $(BZ_ART)/bzcourse.inc $(BZ_ART)/bzlink.inc $(BZ_ART)/bzwin.inc $(BZDEVSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(BZDEVDEF) -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
-# wave 9 (SPEC.md 130.25.6.2): THE FAMILY PARTS, one a tools/bbcourse.py FAMILIES row (BZ_FAMS: every
+# wave 9 (SPEC.md 137.25.6.2): THE FAMILY PARTS, one a tools/bbcourse.py FAMILIES row (BZ_FAMS: every
 # family, whatever its home; a family added there and not here leaves `famparts` naming a file nothing
 # builds), each apps/bonanza/fam/<name>.asm
 # LINKED against the package as the shell part is (bzlink.inc: its bss and constants, never a code label)
 $(BUILD)/bzf-%.bin: apps/bonanza/fam/%.asm $(wildcard apps/bonanza/fam/*.inc) apps/os88api.inc $(BZ_ART)/bzcourse.inc \
                     $(BZ_ART)/bzlink.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/bonanza/ -I $(BZ_ART)/ -o $@ $<
-# THE RESIDENT BUNDLE (SPEC.md 130.25.6.9, 130.25.5.2): the three balls' stored BZB3 parts first (generated
+# THE RESIDENT BUNDLE (SPEC.md 137.25.6.9, 137.25.5.2): the three balls' stored BZB3 parts first (generated
 # in place once, at the open), then the home-`resident` families' parts back to back, each from a
 # paragraph, its header's +11 its paragraphs - a row in every build
 $(BUILD)/bzfbun.bin: $(BZ_FAMPARTS) $(BZ_BALLS) $(BZ_MUSSRC) tools/bbmusic.py tools/bbcourse.py
@@ -23135,13 +23921,13 @@ $(BUILD)/bonanza.o88: $(BUILD)/bonanza.bin $(BZ_PARTS) $(BZ_ART)/bzdemo.lst $(BZ
 		$(foreach p,$(BZ_DATAPARTS),--part-data $(p)) \
 		$$(sed 's|^|--part-data $(BZ_ART)/|' $(BZ_ART)/bzparts.lst)
 
-#> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 130)
+#> [Applications] bonanza :: Bounce Bonanza's package, BONANZA.O88, with its generated art as parts (SPEC.md 137)
 bonanza: $(BUILD)/bonanza.o88
 
 # The disk is the package and its README, LZ-wrapped like every other data
 # file (SPEC.md 20.14); `make PKGZ=` ships it raw - and SYSTEM\APPDATA, built
 # empty (SPEC.md 19.9: os88data.inc creates no folder), where the game keeps
-# BONANZA.DAT, its best times (SPEC.md 130.14.3.3).
+# BONANZA.DAT, its best times (SPEC.md 137.14.3.3).
 BZ_Z := $(ZDATA)/bonanza
 BZ_DATA := apps/bonanza/README.md
 BZ_DISKFILES := $(BUILD)/bonanza.o88 $(if $(PKGZ),$(addprefix $(BZ_Z)/,$(notdir $(BZ_DATA))),$(BZ_DATA))
@@ -23160,7 +23946,7 @@ $(BUILD)/bonanza120.img: $(BZ_DISKFILES) tools/os88disk.py
 $(BUILD)/bonanza360.img: $(BZ_DISKFILES) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BZ_DISKFILES) $(APPDATAFOLDER)
 	python3 tools/os88disk.py --verify $@
-# SPEC.md 130.30.7: THE TWO-SEGMENT TEST BUILD - BZ_COURSES and TWOSEG (bbcourse.py twoseg: PLAYGROUND with its
+# SPEC.md 137.30.7: THE TWO-SEGMENT TEST BUILD - BZ_COURSES and TWOSEG (bbcourse.py twoseg: PLAYGROUND with its
 # diagonal lane run on until one part refuses it) as the last course, a package and floppy of their own in a private
 # tree, on no shipped disk and not in the tour.  On demand; nothing in `all` builds it.
 BZ_TWOSEG := $(BUILD)/bztwoseg
@@ -23168,46 +23954,46 @@ $(BZ_TWOSEG)/twoseg.bbc: tools/bbcourse.py apps/bonanza/courses/playground.bbc
 	@mkdir -p $(BZ_TWOSEG)
 	python3 tools/bbcourse.py twoseg -o $@
 .PHONY: bonanzatwoseg
-#> [Applications] bonanzatwoseg :: Bounce Bonanza with a TWO-PART test course added as the last course, in $(BUILD)/bztwoseg/ (SPEC.md 130.30.7); not shipped
+#> [Applications] bonanzatwoseg :: Bounce Bonanza with a TWO-PART test course added as the last course, in $(BUILD)/bztwoseg/ (SPEC.md 137.30.7); not shipped
 bonanzatwoseg: $(BZ_TWOSEG)/twoseg.bbc
 	$(MAKE) --no-print-directory BUILD=$(BZ_TWOSEG) BZ_COURSES="$(BZ_COURSES) $(BZ_TWOSEG)/twoseg.bbc" bonanzadisk
-#> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package, README and SYSTEM/APPDATA for its best times, in all four geometries (SPEC.md 130.1, 130.14.3.3)
+#> [Applications] bonanzadisk :: Bounce Bonanza's floppy, package, README and SYSTEM/APPDATA for its best times, in all four geometries (SPEC.md 137.1, 137.14.3.3)
 bonanzadisk: $(BUILD)/bonanza.img $(BUILD)/bonanza720.img $(BUILD)/bonanza120.img $(BUILD)/bonanza360.img
-# SPEC.md 130.11.17.2's and 130.12.13.2's emulator rows, by hand (the soak
+# SPEC.md 137.11.17.2's and 137.12.13.2's emulator rows, by hand (the soak
 # rows of the same names run the same scripts). Every red arm builds a broken
 # copy of the package into a temporary directory, never $(BUILD):
 # `python3 tests/bonanza_<row>.py --red <arm>`, the arms each script's
 # `--help` lists (ring, phys, replay, exit, mega, wheel, perf, game, demo and
 # sound have them; no list is kept here, so none goes stale - wave 5b's
 # are ring nodither|recstep, exit expoff1|rowtab1|cellsafe, mega expcs,
-# SPEC.md 130.15.13).  Each script's `--check`
+# SPEC.md 137.15.13).  Each script's `--check`
 # (bonanza_ring's `--check-reds`) is the host half: every red arm's broken
 # copy assembles, and the scenarios are proved on the model.
 .PHONY: bonanzaring bonanzaperf bonanzaphys bonanzareplay bonanzaexit bonanzapath bonanzamega bonanzawheel bonanzasound
-#> [Applications] bonanzaring :: Bounce Bonanza's ring on MartyPC, CGA and Hercules: card = the oracle with shadow, sprite, occluders, lanes at their drawn poses and the lift's slab; TRIAL's boxes in raster order; MILL's wheel, lead and contact frames; the row-0 probe (SPEC.md 130.11.17.2, 130.12.13.2)
+#> [Applications] bonanzaring :: Bounce Bonanza's ring on MartyPC, CGA and Hercules: card = the oracle with shadow, sprite, occluders, lanes at their drawn poses and the lift's slab; TRIAL's boxes in raster order; MILL's wheel, lead and contact frames; the row-0 probe (SPEC.md 137.11.17.2, 137.12.13.2)
 bonanzaring: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_ring.py
-#> [Applications] bonanzaperf :: Bounce Bonanza's frame cost on MartyPC, CGA and Hercules: BENCH's A/B against wave 2 with the heavy rule off, BENCH and TRIAL with it, MILL's wheel and the lift's ride (SPEC.md 130.11.17.2, 130.12.13.2)
+#> [Applications] bonanzaperf :: Bounce Bonanza's frame cost on MartyPC, CGA and Hercules: BENCH's A/B against wave 2 with the heavy rule off, BENCH and TRIAL with it, MILL's wheel and the lift's ride (SPEC.md 137.11.17.2, 137.12.13.2)
 bonanzaperf: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_perf.py --ab
-#> [Applications] bonanzaphys :: Bounce Bonanza's physics on MartyPC equals bbcourse.Physics every frame: the benchmark, wave 1's pokes, wave 2's replayed scenarios, MILL's windmills, tubes, posts and lift (SPEC.md 130.11.17.2, 130.12.13.2)
+#> [Applications] bonanzaphys :: Bounce Bonanza's physics on MartyPC equals bbcourse.Physics every frame: the benchmark, wave 1's pokes, wave 2's replayed scenarios, MILL's windmills, tubes, posts and lift (SPEC.md 137.11.17.2, 137.12.13.2)
 bonanzaphys: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_phys.py
-#> [Applications] bonanzareplay :: Bounce Bonanza's replays on MartyPC: a recorded play, its replay on both cards and injected logs, all equal to the host model; MILL's play and another course's log refused (SPEC.md 130.11.12, 130.12.8)
+#> [Applications] bonanzareplay :: Bounce Bonanza's replays on MartyPC: a recorded play, its replay on both cards and injected logs, all equal to the host model; MILL's play and another course's log refused (SPEC.md 137.11.12, 137.12.8)
 bonanzareplay: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_replay.py
-#> [Applications] bonanzaexit :: Bounce Bonanza drops both parts on every way out with each ball and on MILL, Esc with the ball hidden in a tube, and a held C, M or N is one press (SPEC.md 130.11.17.2, 130.12.13.2)
+#> [Applications] bonanzaexit :: Bounce Bonanza drops both parts on every way out with each ball and on MILL, Esc with the ball hidden in a tube, and a held C, M or N is one press (SPEC.md 137.11.17.2, 137.12.13.2)
 bonanzaexit: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_exit.py
-#> [Applications] bonanzapath :: Bounce Bonanza's game loop: the pathway, a node's course, a finish opening the next node, lives and game over, in one bracket (SPEC.md 130.19.5)
+#> [Applications] bonanzapath :: Bounce Bonanza's game loop: the pathway, a node's course, a finish opening the next node, lives and game over, in one bracket (SPEC.md 137.19.5)
 bonanzapath: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_path.py
-#> [Applications] bonanzamega :: Bounce Bonanza on kern_mega, 86Box's 286-mega-multimon, on its Hercules: the translation, replays (TMIL's route, TPLY's boost, HOP's demo), the fake shifts; no fault, no leak (SPEC.md 130.11.17.2, 130.12.12)
+#> [Applications] bonanzamega :: Bounce Bonanza on kern_mega, 86Box's 286-mega-multimon, on its Hercules: the translation, replays (TMIL's route, TPLY's boost, HOP's demo), the fake shifts; no fault, no leak (SPEC.md 137.11.17.2, 137.12.12)
 bonanzamega: bonanzadisk $(BUILD)/mega.img
 	python3 tests/bonanza_mega.py
-#> [Applications] bonanzawheel :: Bounce Bonanza's wheel on MartyPC, CGA and Hercules: MILL's commits ahead of and behind the beam, by the deadline, at their calibrated cost, in the allowed cells; the lead; lit posts (SPEC.md 130.12.13.2)
+#> [Applications] bonanzawheel :: Bounce Bonanza's wheel on MartyPC, CGA and Hercules: MILL's commits ahead of and behind the beam, by the deadline, at their calibrated cost, in the allowed cells; the lead; lit posts (SPEC.md 137.12.13.2)
 bonanzawheel: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_wheel.py
-#> [Applications] bonanzasound :: Bounce Bonanza's sound on MartyPC, the speaker and the AdLib: the guest's sequencer held to tools/bbmusic.py's, every ball's impacts, S, the chip's shadows, the cost (SPEC.md 130.20.8)
+#> [Applications] bonanzasound :: Bounce Bonanza's sound on MartyPC, the speaker and the AdLib: the guest's sequencer held to tools/bbmusic.py's, every ball's impacts, S, the chip's shadows, the cost (SPEC.md 137.20.8)
 bonanzasound: bonanzadisk $(BUILD)/os8088-360.img
 	python3 tests/bonanza_sound.py

@@ -33,7 +33,7 @@ floor rect  24  29  29  35  flat 21.25   # G
 float rect  10  30  14  31 thick 1   # the lip over a gap
 float rect  15  34  16  37 thick 1   # the lip over a gap
 
-# the chute (SPEC.md 130.28): unfenced, its shape guides
+# the chute (SPEC.md 137.28): unfenced, its shape guides
 
 # rails: block rails (wall tiles) on the void side of each railed edge
 wall  tile   9  22  flat 30
@@ -92,7 +92,7 @@ wall  tile  21  35  flat 24
 wall  tile  21  36  flat 24
 wall  tile  21  37  flat 24
 wall  tile  22  15  flat 25
-# guard rails ON the floors' edges (SPEC.md 130.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
+# guard rails ON the floors' edges (SPEC.md 137.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
 guard tile  30  13 side +y
 guard rect  33  13  35  14 side +y
 guard rect  22  19  25  20 side +y
@@ -143,7 +143,7 @@ wall  tile  35  11  flat 26.5
 wall  tile  35  12  flat 26.5
 wall  tile  35  13  flat 26.5
 
-spring 16 24 768                      # SPEC.md 130.14: thrown up, away from the camera
+spring 16 24 768                      # SPEC.md 137.14: thrown up, away from the camera
 goal  rect 26 29 29 35  flat 21.25
 start 33 11
 checkpoint 19 24 ball rubber   # flag 0

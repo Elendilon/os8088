@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bzprof.py - BONANZA's sampling profiler (SPEC.md 130.46.13).
+"""bzprof.py - BONANZA's sampling profiler (SPEC.md 137.46.13).
 
 Plays a replay (.BZR) or a shipped demo on a MartyPC machine and reports, a
 guest second at a time, the frames presented and the physics steps run (54.6
@@ -15,7 +15,7 @@ parts arena, a course part ...) with its size.
 
 It is an instrument for an optimisation round, not a row: it asserts nothing
 (tests/bonanza_perf.py's VGA leg holds the numbers that are asserted).  It
-was the scratch script that found 130.46.13's three faults - the column
+was the scratch script that found 137.46.13's three faults - the column
 writer's cost, the step loop's lost game time and the long frame that waited
 a refresh.
 """
@@ -102,7 +102,7 @@ def main():
                     help="sample only while the physics step bz_nstep is in [A, B) (a stretch of a replay)")
     a = ap.parse_args()
     vga = "vga" in a.machine
-    R.dev()                     # (the BZDEV=1 build, SPEC.md 130.26.6.1: R, V and the demos' keys are its own)
+    R.dev()                     # (the BZDEV=1 build, SPEC.md 137.26.6.1: R, V and the demos' keys are its own)
     art = R.at("build/bonanza-art")
     sym = R.symbols(None, art)
     with tempfile.TemporaryDirectory() as td:

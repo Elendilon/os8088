@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedlayout - the course builder's CLIPPING AUDIT (SPEC.md 130.58.54).
+"""bbedlayout - the course builder's CLIPPING AUDIT (SPEC.md 137.58.54).
 
     xvfb-run -s "-screen 0 1920x1080x24" python3 tools/bbedlayout.py [--geometry WxH] [--shots DIR]
                                                                        [--only PAGE] [--quick]

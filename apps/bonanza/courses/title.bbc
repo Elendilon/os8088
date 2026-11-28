@@ -1,8 +1,8 @@
-# THE TITLE SCREEN - a course nobody plays (SPEC.md 130.23): after the owner's
+# THE TITLE SCREEN - a course nobody plays (SPEC.md 137.23): after the owner's
 # sketch (docs/plans/bounce-bonanza/title-sketch.png), its perspective made
 # isometric. The window never moves (`view`); the lettering and the key hints
 # are ART painted over the picture (title.bba); label 0 is the slot's digit.
-# PROVISIONAL: the owner's to refine (130.23.5).
+# PROVISIONAL: the owner's to refine (137.23.5).
 #
 # Screen directions: +x is right-down, +y left-down, -x up-left, -y up-right.
 #  UR  the upper right platform, 4 units up: the brown tube's exit and the
@@ -22,8 +22,8 @@ course TITLE "Bounce Bonanza"
 width 128
 origin 512
 ball rubber
-# story 9.8 (SPEC.md 130.25.20): today's props' families, home RESIDENT (130.25.6.9); and GLASS, home
-# FETCH, for the glass bridge over the pit (SPEC.md 130.23.5, the owner 2026-11-17)
+# story 9.8 (SPEC.md 137.25.20): today's props' families, home RESIDENT (137.25.6.9); and GLASS, home
+# FETCH, for the glass bridge over the pit (SPEC.md 137.23.5, the owner 2026-11-17)
 uses rotor spring tube glass
 title
 view 56 124 drop 128
@@ -71,14 +71,14 @@ tube keep 14 8 14 11 via 13 8 via 13 11 out +x
 # right corner (the owner, 2026-11-16: nearer its exit), its body in the rail, up it and along
 # the back rail to UR's back row
 tube keep 23 11 17 6 via 24 11 via 24 5 via 17 5 out +y
-# the GLASS BRIDGE (SPEC.md 130.25.8's glass path; the owner, 2026-11-17): LS carried over the pit at
+# the GLASS BRIDGE (SPEC.md 137.25.8's glass path; the owner, 2026-11-17): LS carried over the pit at
 # LS's height to the channel, where the strip used to be, invisible until a ball rolls onto it - demo
 # 3's glass ball, down the step and across; it ends half a step above the channel (no row of the pit
 # is level both sides), so its hint is at LS's end, the level one
 floor rect 12 12 14 13 flat 2.5
 prop glass 12 12
 prop glass 13 12
-# spring 1 at LL's edge over the pit (the title's springs may stand beside VOID, SPEC.md 130.23.2)
+# spring 1 at LL's edge over the pit (the title's springs may stand beside VOID, SPEC.md 137.23.2)
 spring 11 15 512
 spring 15 9 768
 

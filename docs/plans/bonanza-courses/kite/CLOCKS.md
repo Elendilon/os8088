@@ -3,7 +3,7 @@
 **PICKED (2026-11-25): B, `sock`, the WINDSOCK.** The owner: *"I do like the kite clocks a lot, but the windsock
 is probably better; just because kites themselves don't have a reason to be in that spot, and we'll have kite
 art."* It is the tool's `sock1`, `sock2`, `sock3` and `sock4` (`_clock_sock` in `tools/bbcourse.py`, SPEC.md
-130.18.5.2), named on the four `clock` lines that [kite/sketch.py](sketch.py) writes into
+137.18.5.2), named on the four `clock` lines that [kite/sketch.py](sketch.py) writes into
 `apps/bonanza/courses/kite.bbc`. The `kite1` - `kite4` frames stay in the tool for another course: a frame no
 course names costs no byte of any part. What follows is the study, its numbers re-measured with the pick in.
 
@@ -29,7 +29,7 @@ YELLOW. On the Hercules green and red are one grey checker and yellow is white.*
 
 A diamond kite, taller than it is wide, flying on a string from a peg in the clock's tile. The sail is YELLOW
 in a broad RED hem with black spars, and the digits sit on the yellow where the spars cross: no window. The
-course's clock lines say `digits 0 -16` (SPEC.md 130.18.5.5), which lifts the kite two block rows clear of its
+course's clock lines say `digits 0 -16` (SPEC.md 137.18.5.5), which lifts the kite two block rows clear of its
 tile so that it FLIES; at a clock's natural spot the same frame stands with its foot on the tile.
 
 What changes is the TAIL, a bow a clock, and the lean:
@@ -44,7 +44,7 @@ the meadow the yellow sail stands on yellow and green floor: the red hem and the
 on the CGA, and on the Hercules it is a white diamond on a white and grey checker, the weakest of the four.
 A red sail with a yellow band was tried and dropped: it was lost on the launch plaza's red face.
 
-**Paint, not geometry.** The sail and the peg are the clock's keyed face (SPEC.md 130.18.5.4). The string, the
+**Paint, not geometry.** The sail and the peg are the clock's keyed face (SPEC.md 137.18.5.4). The string, the
 tail, its bows and the wind marks are PAINT, as a clock's shadow is: thin lines each cut an occluder mask of
 their own in every block they cross. MEASURED on this course: 232 masks with them keyed, 180 as paint (the
 course has 178 with the default frame). A ball behind a string is drawn over it.
@@ -79,7 +79,7 @@ the cone are the clock's keyed face.
 | `sock` (picked) | **752 (+5)** | **200 (+22)** | 55,400 (+526) | 14,870 / 12,258 | **+522 B LZ4, +399 LZB** | 0, 0, 0, 0 |
 | `kite` | **777 (+30)** | **180 (+2)** | 55,402 (+528) | 15,167 / 12,616 | **+819 B LZ4, +757 LZB** | 5, 1, 0, 0 |
 
-Both compile under `--strict` and pass 130.18.5.4's one ball length. Neither adds a lane: the fan plaza's
+Both compile under `--strict` and pass 137.18.5.4's one ball length. Neither adds a lane: the fan plaza's
 windows stay at 5 own-clock lanes of 6 (KITE.md section 9).
 
 ## Rules each one keeps
@@ -87,7 +87,7 @@ windows stay at 5 own-clock lanes of 6 (KITE.md section 9).
 - **G9, G10, G12** (MEASURED, `--guide`, the picked `sock`; its digits are at a clock's natural spot): the
   start's window holds clock 0; no two clocks in one window; the longest stretch with no clock in view is 3.1 s
   on the CGA and 2.2 s on the Hercules, as with the default frame. (The kites, 16 px higher, measured the same.)
-- **G11**: no run touches a clock. The post's circle is the tile's, whatever the frame (SPEC.md 130.18.5.3).
+- **G11**: no run touches a clock. The post's circle is the tile's, whatever the frame (SPEC.md 137.18.5.3).
 - **No flat squares**: the kite is a kite. The sock's band is discussed above.
 
 ## Tool support

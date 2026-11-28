@@ -15,18 +15,18 @@ the wall and the floor when there is one."*
 ## 1. Why the picture cannot say it today
 
 Every face over the void hangs down to the course's ground plane (SPEC.md
-130.27). A floor in front then covers the face's lower part, so where the
+137.27). A floor in front then covers the face's lower part, so where the
 face visibly ends is always **the floor's back edge**: one black outline
 pixel, the same line whether that floor is the column's neighbour or a
 floor further away with void in between.
 
-The projection makes it exact. `y = 8 (wx + wy) - z` (130.10.2), so a floor
+The projection makes it exact. `y = 8 (wx + wy) - z` (137.10.2), so a floor
 one cell further forward and **one unit higher** lands on the same line as
 the neighbouring floor would. [edges/edgedemo.bbc](edges/edgedemo.bbc) is
 that scene: a wall row nine units high, on the LEFT a floor at five units
 that touches it, and on the RIGHT one row of void and then a floor at six.
 In the top-left panel of [edge-joins.png](edges/edge-joins.png) the two halves are drawn the same.
-The diagonal alias of 130.47.1 is the same effect: a cell one step forward
+The diagonal alias of 137.47.1 is the same effect: a cell one step forward
 on both axes and two units higher.
 
 ## 2. What the mock-ups decide, per pixel
@@ -56,7 +56,7 @@ input changes. Feet found, joined against gap: FIRST 111 / 46, TRIAL
 | **J1 seamless join** | the floor's black outline under a joined foot is not drawn: the face's ink meets the floor's ink directly | one piece of masonry. This REMOVES ink and adds none |
 | J2 cyan plinth | the face's bottom 2 px drawn cyan | a skirting board. Lost on Hercules (see below) |
 | J3 white sill | the face's bottom 1 px drawn white | a lit seam. Fine on CGA, faint at a distance |
-| J4 heavy joint | the face's bottom 1 px drawn black, so a contact line is 2 px | the opposite convention to G2, and too close to the rejected 2 px contour (130.47.1) to recommend |
+| J4 heavy joint | the face's bottom 1 px drawn black, so a contact line is 2 px | the opposite convention to G2, and too close to the rejected 2 px contour (137.47.1) to recommend |
 
 ### Cues for a column standing over a GAP
 
@@ -64,7 +64,7 @@ input changes. Feet found, joined against gap: FIRST 111 / 46, TRIAL
 |---|---|---|
 | **G2 void band** | the face's bottom 3 visible px drawn black | dark space under the column's edge: you see the void between it and the floor |
 | **G5 measured gap** | G2, but `1 + 2 x cells of void` px (1 - 7) | the same, and a FAR column shows a wider band than a near one. This is the "far away" half of the brief |
-| G1 dissolve | the face fades to black over 8 px, an ordered dither | the column sinks into the abyss. A dither again: the contact band's "fuzz when moving" verdict (130.47.1) is a risk |
+| G1 dissolve | the face fades to black over 8 px, an ordered dither | the column sinks into the abyss. A dither again: the contact band's "fuzz when moving" verdict (137.47.1) is a risk |
 | G3 teeth | a sawtooth notch, 1 - 5 px, period 8 | a broken or icicled bottom, a cousin of the pathway's floating crystal look. Busy over a long wall |
 | G4 band + fringe | 2 px black, then 2 px of 50% dither | between G1 and G2 |
 
@@ -74,7 +74,7 @@ input changes. Feet found, joined against gap: FIRST 111 / 46, TRIAL
 - [edge-gaps.png](edges/edge-gaps.png): G1 - G3, and the pairs J1+G2, J3+G1, J2+G2
 - [edge-measured.png](edges/edge-measured.png): G5 and J1+G5
 - [roll.png](edges/roll.png), [roll-measured.png](edges/roll-measured.png), [mill.png](edges/mill.png): the same on the real courses
-- [edge-herc.png](edges/edge-herc.png): the Hercules translation (130.11.3), horizontally squashed. The black bands survive it; the cyan plinth mostly does not
+- [edge-herc.png](edges/edge-herc.png): the Hercules translation (137.11.3), horizontally squashed. The black bands survive it; the cyan plinth mostly does not
 
 ## 4. What it costs
 
@@ -107,9 +107,9 @@ that. These are proxies; the real figure is the part's LZB size from
    every pose, which widens that prop's lanes. PLAYGROUND's vanishing crack at
    (35, 16) is refused under every style for exactly this ("its picture
    changes over 88 x 23 blocks"). The rule wants what cast shadows already
-   do (130.47.5): no cue on, or because of, a cell that moves. A cue is
+   do (137.47.5): no cue on, or because of, a cell that moves. A cue is
    computed from the pose-0 geometry only.
-2. **PLAYGROUND is at `BLK_MAX`** already (130.47.5). Any option here makes
+2. **PLAYGROUND is at `BLK_MAX`** already (137.47.5). Any option here makes
    that worse, so it needs the same fallback as shadows, or the owner's
    call on that course.
 
@@ -123,17 +123,17 @@ scrolls, and both survive the Hercules translation. J1 costs almost
 nothing. If the "far away" case still reads poorly in play, **G5** is the
 same idea with the band scaled to the gap and costs about twice the blocks.
 
-Neither is a contour line (130.47.1's rejected 1 - 2 px lines on depth
+Neither is a contour line (137.47.1's rejected 1 - 2 px lines on depth
 breaks), but G2 is closest to one. The way to tell is to play it, which is the next
 step if the owner picks it: a knob build of the chosen pair (as `BZSHADOW`
 was), with the dynamic-cell rule above, on FIRST, MILL and ROLL.
 
-## 5b. Manual, not automatic (the owner, 2026-11-21): SPEC.md 130.57
+## 5b. Manual, not automatic (the owner, 2026-11-21): SPEC.md 137.57
 
 *"In the places that this works, it completely works. And then, its spread all over a ton of places that
 don't need it and it just looks weird ... So lets make it manual."* The `BZEDGE=1` knob below is DELETED. G4 is now
 the course statement `gap <shape> [sw|se]`, and the detector (`c.gap_faces`, `bbcourse.py --gaps`) lists the
-candidates for the course builder's overlay to show, so the owner can click through them. SPEC.md 130.57 is the
+candidates for the course builder's overlay to show, so the owner can click through them. SPEC.md 137.57 is the
 contract. The sizes in 5a were for G4 on EVERY candidate face; a hand-marked course pays for its own marks only.
 
 ## 5a. G4 as a build: `BZEDGE=1` (the owner, 2026-11-21; the knob since deleted, 5b)
@@ -143,7 +143,7 @@ default: `make BUILD=build/edge BZDOWN=1 BZEDGE=1 bonanzadisk` (BZDOWN puts DOWN
 place on the pathway). `bbcourse.py --edge` runs `look_edge()` after the picture is drawn. It uses the same
 per-pixel geometry buffers as cast shadows, and its rule is the mock-up's: a foot is JOINED only when the top under it
 is the cell across that face's own edge, and otherwise the face's last 2 px go black and the 2 above them 50%.
-It follows the shadows' two rules (130.47.5):
+It follows the shadows' two rules (137.47.5):
 
 - **no band on, or because of, a cell that moves or vanishes** (`_SHADOW_DYN`: the face's cell, the top's
   cell and the cell across the face's edge). So every crack, bridge, see-saw and turntable compiles.

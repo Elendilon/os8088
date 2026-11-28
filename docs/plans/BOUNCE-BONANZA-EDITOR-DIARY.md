@@ -1,7 +1,7 @@
 # How It Was Built: the Bounce Bonanza course builder
 
 *The plan is [BOUNCE-BONANZA-EDITOR.md](BOUNCE-BONANZA-EDITOR.md); the
-contract SPEC.md 130.58. Entries are dated, newest last. Each separates what
+contract SPEC.md 137.58. Entries are dated, newest last. Each separates what
 was OBSERVED from what was INTENDED, and names what was actually tested.*
 
 ## 2026-11-21 - mockups, three rounds, and the contract
@@ -78,7 +78,7 @@ would have (fork rule 11, added to CLAUDE.md and AGENTS.md).
 ## 2026-11-21 - waves 0 to 3, the first build to try
 
 **Built**: the model (`tools/bbedproj.py`), the warning tier in the compiler, the jobs
-(`tools/bbedjob.py`), the window (`tools/bbedit.py`) and a host row (`bbedit`). SPEC.md 130.58.10
+(`tools/bbedjob.py`), the window (`tools/bbedit.py`) and a host row (`bbedit`). SPEC.md 137.58.10
 says what each does and what is missing.
 
 **Observed, and tested here:**
@@ -142,7 +142,7 @@ says what each does and what is missing.
 - **Ramps exist, but only as text.** The only way in was typing `ramp x ...` into the statement box. The
   compiler also wants a ramp to rise a whole number of half units on each tile, which nothing said.
 
-**What changed (SPEC.md 130.58.12):**
+**What changed (SPEC.md 137.58.12):**
 - **Select first, then act.** A drag selects an area, and the area stays. Adding is a button in the
   palette's Add panel.
 - **Heights come from the surroundings.** A wall stands one above the highest floor in or around the
@@ -188,7 +188,7 @@ The `bbedit` row and the MILL drive still pass. Not tested: the owner's machine,
 - **An archway's legs may stand on walls**, so making the leg cells wall tiles at the floor's height
   compiles.
 
-**What changed (SPEC.md 130.58.13):**
+**What changed (SPEC.md 137.58.13):**
 - **`replace_area` cuts the area out of the statements around it** and adds the new ground, in one edit.
 - **The area panel has Make it and Paint buttons.**
 - **A part on an empty cell brings a floor tile.** An archway brings its wall legs.
@@ -231,8 +231,8 @@ double segment option?"
 - The plan shades where no floor may go.
 
 **Merged `bounce-bonanza`**, which brings the LIFE pickup and course edits. Upstream wrote the LIFE as
-SPEC.md 130.55, which this branch had used, so the builder is now 130.58. Only this branch's own lines
-were renumbered: the compiler's LIFE references stay 130.55. The palette has the heart, with `once`,
+SPEC.md 137.55, which this branch had used, so the builder is now 137.58. Only this branch's own lines
+were renumbered: the compiler's LIFE references stay 137.55. The palette has the heart, with `once`,
 `respawn` and `overwrite` as tick boxes.
 
 ## 2026-11-21 - the owner's third test: a course of ramps
@@ -280,7 +280,7 @@ The `bbedit` row adds the rejoin, the one-step group and the route point's place
 
 **Observed:**
 - **What still refused was the wholly hidden case.** The half-hidden cases were warnings already. When
-  nothing of an element was left to draw, its lane could not be built, so 130.58.10 had kept that an
+  nothing of an element was left to draw, its lane could not be built, so 137.58.10 had kept that an
   error.
 - **The fix depends on how the lane's rect is made.** For a boost pad, gate, plate, bridge, gate art and
   turntable cell, the rect is computed before any clipping, so it stands with empty poses. For a magnet,
@@ -288,7 +288,7 @@ The `bbedit` row adds the rejoin, the one-step group and the route point's place
   does.
 - **No shipped byte moved, and the touched selfcheck sections pass.**
 - **The plan's diagonals are exact.** A `Split` is one record per half or quarter, so the plan draws
-  each one as its own triangle (SPEC.md 130.24.3's corners). On PLAY's diagonal section, a click at a
+  each one as its own triangle (SPEC.md 137.24.3's corners). On PLAY's diagonal section, a click at a
   cell's two corners picks its two different halves.
 - **Cut a corner** keeps whole halves of each cell's own statement, and the rest rejoins.
 - **Diagonal strip** lays a `floor box`, which the compiler builds straight down the screen.
@@ -307,7 +307,7 @@ The `bbedit` row adds the rejoin, the one-step group and the route point's place
 **The ask came from another session.** `bb-visuals` worked on telling a column that touches a floor from one
 that stands over a gap. Its band (the face's last 2 px black, 2 px of dither above) looked right in some
 places and wrong in others, and no rule separated them, so the owner chose to mark them by hand. That
-session built the statement (`gap`), the refusal and the detector (SPEC.md 130.57); the builder's part was
+session built the statement (`gap`), the refusal and the detector (SPEC.md 137.57); the builder's part was
 to show the candidates and let a click choose.
 
 **Observed:**
@@ -342,7 +342,7 @@ shipped compile's identity. The frame is drawn from the compiler's own pieces: t
 **Tested here:** the `bbplay` row, red on the ball drawn one pixel off, a log without its RETURN, and the
 block limit left lifted; the bundle plays MILL for 120 frames from the zip. **Not yet:** a frame compared
 with MartyPC, a saved demo replayed on the game, and anyone playing it by hand. The frame's known
-approximations are listed in SPEC.md 130.58.16.2.
+approximations are listed in SPEC.md 137.58.16.2.
 
 ## The Shapes tab (2026-11-21)
 
@@ -355,7 +355,7 @@ and how each ball rides them (plan wave 4).
   that keeps every leg straight, and the row's red arm (a corner dragged alone) is refused by the
   compiler with "not along one axis".
 - **The ride readout needed no new physics.** The game's own autopilot already steers onto FIELD ways
-  (130.28.10), so the job sets its route to points a quarter and three quarters along each leg, never on a
+  (137.28.10), so the job sets its route to points a quarter and three quarters along each leg, never on a
   corner, the way the shipped SHAPE route does by hand.
 - **Recompiling per chute was the trap.** A first prototype rewrote the course's route and recompiled:
   93 s for SHAPE. Setting `Physics.route` directly on one cached compile makes the job about half a second.
@@ -484,7 +484,7 @@ on top of the new MILL is refused; why a jump-pickup course glass can make will 
   them; with Route on they are now numbered, picked first and dragged, with a panel to insert, reorder
   and delete.
 - **The guard rail is the compiler's rule, not a bug.** A guard cell is a wall at every height drawn only as
-  a rail on its flat floor's edge (130.35.1), so it may not touch a ramp. On MILL the one empty column
+  a rail on its flat floor's edge (137.35.1), so it may not touch a ramp. On MILL the one empty column
   between the start floor (A) and the ramp (R) touches both, so every rail cell there is refused. The banner
   now says so in plain words; the fix is a course change (or a rule change on `bounce-bonanza`).
 - **The jump pickup's refusal could not be reproduced** without the course: the pickup raises the reach
@@ -504,7 +504,7 @@ be walling off only something lower".
 - **The refusal guarded less than it looked.** The physics never read a wall's height against its
   neighbours (a WALL blocks at every height, in the model and the guest alike), and the renderer draws a wall
   like any solid cell. The one thing it guarded was that the ball never hits a column it cannot see.
-- **So the rule became per edge** (SPEC.md 130.10.3): a wall walls off what is below it, and a higher floor
+- **So the rule became per edge** (SPEC.md 137.10.3): a wall walls off what is below it, and a higher floor
   beside it simply ends at the wall's edge. Only a wall sunk under everything it touches is still refused.
   No guest byte, physics version or demo moved; no shipped course needed changing.
 - **Letting the ball roll onto a lower wall top was rejected:** on MILL it would carry the ball from the ramp
@@ -528,7 +528,7 @@ refusal - not a reach bound, as first thought); the occluder bound refusing an o
 viewer; window and lane budgets refusing a see-saw beside a clock, synchronised spikes, a 6-long see-saw and
 a membrane bigger than 2 x 2; and two of the builder's own: a full check that passed what the game build
 refused (music, target, the finish clock), and "not a FLAT FLOOR" that never said why. NO TRAP, the
-occluder bound and the lane budgets went to three agents; the builder's two are fixed here (130.58.23).
+occluder bound and the lane budgets went to three agents; the builder's two are fixed here (137.58.23).
 
 **Tested here:** the `bbedit` row's item 12; every shipped course passes the game's rules in the full check;
 the new messages on a constructed course (a goal cell, a holed cell, a ramp, nothing).

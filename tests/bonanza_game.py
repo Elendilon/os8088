@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BONANZA: the GAME - the bests and BONANZA.DAT (SPEC.md 130.14.3, 130.14.14 bonanzagame).
+"""BONANZA: the GAME - the bests and BONANZA.DAT (SPEC.md 137.14.3, 137.14.14 bonanzagame).
 
     make bonanzadisk && python3 tests/bonanza_game.py [--adapter cga|herc|both] [--leg NAME ...]
     python3 tests/bonanza_game.py --red NAME        (a red arm, below)
@@ -12,7 +12,7 @@ play's (bzphys.inc bz_step) - so a course is played by exactly the keys
 bbcourse.Physics.auto() chooses, and its time is the MODEL's, the same on
 both cards.
 
-ONE BOOT A CARD (docs/plans/BOUNCE-BONANZA-SOAK.md phase 3), on the TEST courses (SPEC.md 130.54) found by
+ONE BOOT A CARD (docs/plans/BOUNCE-BONANZA-SOAK.md phase 3), on the TEST courses (SPEC.md 137.54) found by
 NAME: TQUIK, the goal 165 autopilot steps (3.0 s) from its start, is the course every best is made on, and
 TCUP (its cup 291 steps away) the second course a file names.  The disk is the row's (the package, with
 SYSTEM\\APPDATA as bonanzadisk builds it) and carries EVERY hostile and physics-identity file the legs need,
@@ -27,7 +27,7 @@ legs, on MartyPC's CGA (os8088_5150_cga_gla) and Hercules (os8088_5150_herc_gla)
   posts   V loads ROLL's and HOP's SHIPPED demos ([bz_vk] poked to each one's row), R replays a TQUIK log
           MADE FROM THE MODEL (the autopilot's play, bbcourse.encode_log) to its goal, D benchmarks it,
           and D runs a TCUP log to the CUP - and after each BONANZA.DAT is still ABSENT from the floppy
-          (read off it on the host, os88flush): only a PLAY posts a best (130.14.3.3)
+          (read off it on the host, os88flush): only a PLAY posts a best (137.14.3.3)
   pause   a free play of TQUIK with its own ball, P pressed at step 40: no step for a guest second, the
           log unchanged; P again: the play ends at the model's goal step (the pause added none) with the
           model's log, and BONANZA.DAT holds TQUIK's best alone
@@ -35,12 +35,12 @@ legs, on MartyPC's CGA (os8088_5150_cga_gla) and Hercules (os8088_5150_herc_gla)
           best - the length; a bad magic; an entry under a foreign key; a duplicate key; a best of 0; a
           count past BZD_NENT; entries out of order, ...; slots judged alone, keyed by PAD: another pathway
           version, a pad word past the pathway's, exit bits past the pad's course's) - bz_dat after the
-          reader is the image 130.14.3.3 and 130.14.17 item 6 say (the file refused whole, or the bad entry
+          reader is the image 137.14.3.3 and 137.14.17 item 6 say (the file refused whole, or the bad entry
           alone), and the next best (TQUIK by the autopilot) REWRITES THE FILE WHOLE as this build's BZS5
           bytes
-  physdat wave 6 (SPEC.md 130.16.9, 130.16.14): BONANZA.DAT +5 is BZ_PHYSV.  A reload a file, each
+  physdat wave 6 (SPEC.md 137.16.9, 137.16.14): BONANZA.DAT +5 is BZ_PHYSV.  A reload a file, each
           carrying THIS build's course identities and a best on every course: +5 = 00h (5b's unset
-          value), +5 = A0h (5b's physics) and (wave 6b, SPEC.md 130.17.7, 130.17.10) +5 = 25h (wave 6's:
+          value), +5 = A0h (5b's physics) and (wave 6b, SPEC.md 137.17.7, 137.17.10) +5 = 25h (wave 6's:
           the owner's round-1 disk) load with the identities kept and EVERY best cleared (bz_dat the first
           run's image), and the next best (TQUIK by the autopilot) rewrites the file whole with
           +5 = BZ_PHYSV and TQUIK's best alone; the same file with +5 = BZ_PHYSV keeps every best (the
@@ -83,10 +83,10 @@ import bbcourse as BB          # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
 DAT = "SYSTEM/APPDATA/BONANZA.DAT"
-NENT = 23                       # BZD_NENT = BZ_CRS_MAX (SPEC.md 130.22.5.1: BZS5's best entries)
+NENT = 23                       # BZD_NENT = BZ_CRS_MAX (SPEC.md 137.22.5.1: BZS5's best entries)
 LEGS = ("posts", "pause", "hostile", "physdat", "noapp")     # (one boot, in this order: noapp last)
-PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 130.16.9: PHYSV_SHIPPED's last before wave 6)
-PHYSV_6 = 0x25                  # wave 6's, on the owner's round-1 disk (SPEC.md 130.17.7: its bests cleared once)
+PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 137.16.9: PHYSV_SHIPPED's last before wave 6)
+PHYSV_6 = 0x25                  # wave 6's, on the owner's round-1 disk (SPEC.md 137.17.7: its bests cleared once)
 
 
 # ---- the model's side -----------------------------------------------------------
@@ -111,7 +111,7 @@ def second():
 
 def physv():
     """this build's BZ_PHYSV, read out of the GENERATED bzcourse.inc (never a
-    literal: a retune moves it, SPEC.md 130.16.11)"""
+    literal: a retune moves it, SPEC.md 137.16.11)"""
     import re
     inc = open(os.path.join(ROOT, R.at("build/bonanza-art"), "bzcourse.inc")).read()
     return int(re.search(r"^BZ_PHYSV\s+equ\s+0?([0-9A-Fa-f]+)h", inc, re.M).group(1), 16)
@@ -156,12 +156,12 @@ def _equ(name):
 
 
 def keys():
-    """K -> course K's SAVE KEY (SPEC.md 130.22.5.1): bzcourse.inc's BZ_CRS_KEYS"""
+    """K -> course K's SAVE KEY (SPEC.md 137.22.5.1): bzcourse.inc's BZ_CRS_KEYS"""
     return dict(enumerate(_words("BZ_CRS_KEYS")))
 
 
 def path_ver():
-    """the pathway's version, a slot's +20 (BZ_PATH_VER, SPEC.md 130.22.5.1)"""
+    """the pathway's version, a slot's +20 (BZ_PATH_VER, SPEC.md 137.22.5.1)"""
     return _equ("BZ_PATH_VER")
 
 
@@ -171,14 +171,14 @@ def pad_exits():
     return _words("BZ_PAD_EXITS")
 
 
-PAD_MAX = 23                    # BZ_PAD_MAX (SPEC.md 130.22.5.1): a slot's word-a-pad tables
-SLOTB = 22 + 4 * PAD_MAX        # BZS5 (SPEC.md 130.22.5.1): 23 best entries, three 114-byte slots
+PAD_MAX = 23                    # BZ_PAD_MAX (SPEC.md 137.22.5.1): a slot's word-a-pad tables
+SLOTB = 22 + 4 * PAD_MAX        # BZS5 (SPEC.md 137.22.5.1): 23 best entries, three 114-byte slots
 SLOT_OFF = 8 + 6 * NENT         # BZD_SLOT: the first slot, +146 (no reserved bytes since BZS5)
-DAT_FILE0 = SLOT_OFF + 3 * SLOTB  # BZD_FILE0: BZS5 before THE LIVES GIVEN (SPEC.md 130.55), still read
+DAT_FILE0 = SLOT_OFF + 3 * SLOTB  # BZD_FILE0: BZS5 before THE LIVES GIVEN (SPEC.md 137.55), still read
 LIFE_OFF = DAT_FILE0            # BZD_LIFE: a dword a slot, a bit a pad whose `once` life the game took
 DAT_FILE = LIFE_OFF + 4 * 3
 BB_LIVES = 5                    # bonanza.asm BZ_LIVES, a new game's lives
-BB_LVMAX = 9                    # bzcourse.inc BZ_LVMAX, a slot's most lives (a LIFE pickup's, 130.55)
+BB_LVMAX = 9                    # bzcourse.inc BZ_LVMAX, a slot's most lives (a LIFE pickup's, 137.55)
 assert DAT_FILE == 500, "BZS5 is 500 bytes: under one sector, never a whole one (od_write's in-place arm)"
 
 
@@ -188,7 +188,7 @@ def crs_max():
 
 
 def slot(lives, mode=0, pad=0, open_=1, done=0, ropn=0, rtak=0, ver=None, exits=None, best=None, z3=0, tail=b""):
-    """one 114-byte BZS5 slot (SPEC.md 130.22.5.1): +0 lives, +1 the mode, +2 the pad, +3 zero, +4 the open
+    """one 114-byte BZS5 slot (SPEC.md 137.22.5.1): +0 lives, +1 the mode, +2 the pad, +3 zero, +4 the open
     pads, +8 the done ones, +12 the routes opened, +16 taken (dwords), +20 the pathway's VERSION, +22 the
     exits found (a word a PAD, 23), +68 the best a pad (23 words).  TAIL is poked over the last bytes"""
     ex = [0] * PAD_MAX
@@ -218,11 +218,11 @@ def entries(best):
 
 
 def dat_image(best=None, count=None, pv=None, slots=None, old=0, magic=b"BZS5", given=None):
-    """the bytes bz_dat holds and a save writes (SPEC.md 130.14.3.3, 130.22.5.1): `BZS5`, 488 bytes, 23 best
+    """the bytes bz_dat holds and a save writes (SPEC.md 137.14.3.3, 137.22.5.1): `BZS5`, 488 bytes, 23 best
     entries in NO ORDER (BEST, entries()'s forms: each +0 the course's SAVE KEY, +2 the steps, +4 the falls),
     +5 PV (this build's BZ_PHYSV by default) and three 114-byte SLOTS (bytes, or empty).  OLD = 64 / 304 /
     494: an older layout's LENGTH (`BZT1` / `BZS3` / `BZS4`, no longer read: the bytes only have to be of
-    that length); 488 BZS5 before THE LIVES GIVEN (SPEC.md 130.55: still read, the table zero).  GIVEN: the
+    that length); 488 BZS5 before THE LIVES GIVEN (SPEC.md 137.55: still read, the table zero).  GIVEN: the
     three slots' lives-given dwords"""
     kt = keys()
     if old:
@@ -243,7 +243,7 @@ def dat_image(best=None, count=None, pv=None, slots=None, old=0, magic=b"BZS5", 
 
 
 def posted(best, k, t, f=0):
-    """BEST (entries()'s forms) after a play's best T on course K as bz_post files it (130.22.5.1): into the
+    """BEST (entries()'s forms) after a play's best T on course K as bz_post files it (137.22.5.1): into the
     entry holding K's key when T beats it, else into the FIRST EMPTY entry -> the list form"""
     es = entries(best)
     for i, e in enumerate(es):
@@ -256,7 +256,7 @@ def posted(best, k, t, f=0):
 
 
 def model_load(raw):
-    """SPEC.md 130.22.5.1's reader, in Python - an independent second reading of the rules bz_dload,
+    """SPEC.md 137.22.5.1's reader, in Python - an independent second reading of the rules bz_dload,
     bz_dchk, bz_dnorm and bz_dslots apply: RAW -> the image the entry proc makes"""
     kt = keys()
     ks = set(kt.values())
@@ -299,8 +299,8 @@ def model_load(raw):
 
 def hostile_set():
     """[(name, the file's bytes, the bz_dat image the entry proc must make,
-    the bests the next TQUIK play files)] - SPEC.md 130.14.3.3's hostile set,
-    130.14.17 item 6's whole-file refusals and 130.22.5.1's keys and pads.
+    the bests the next TQUIK play files)] - SPEC.md 137.14.3.3's hostile set,
+    137.14.17 item 6's whole-file refusals and 137.22.5.1's keys and pads.
     TQUIK's play (the autopilot, its own ball) is the next best in every case,
     so each file is REWRITTEN WHOLE.  (F is TQUIK, the course played; T is TCUP, the file's other course)"""
     F, T = first(), second()
@@ -332,18 +332,18 @@ def hostile_set():
     bad = bytearray(good)
     struct.pack_into("<HHH", bad, 8 + 6 * (NENT - 1), 0, 77, 3)             # the LAST entry EMPTY (key 0) with
     out.append(("entlast", bytes(bad), fresh, {F: (t1, 0)}))                # a best: refused whole
-    # the entries are in NO ORDER (130.22.5.1): TCUP's at entry 20, TQUIK's at 5 - both kept where they are,
+    # the entries are in NO ORDER (137.22.5.1): TCUP's at entry 20, TQUIK's at 5 - both kept where they are,
     # and TQUIK's next best files into its own entry
     scat = [None] * 5 + [(F, t1 + 99, 2)] + [None] * 14 + [(T, 499, 0)]
     out.append(("order", dat_image(scat), dat_image(scat), posted(scat, F, t1)))
     # a DUPLICATE key: the first entry holding it is kept, the second dropped (though its best is better)
     dup = [(T, 499, 0), (F, t1 + 99, 2), (F, 50, 0)]
     out.append(("dupkey", dat_image(dup), dat_image(dup[:2]), posted(dup[:2], F, t1)))
-    # no older layout is read (130.22.5.1): `BZT1`, `BZS3` and `BZS4` are unrecognised - the first run's image
+    # no older layout is read (137.22.5.1): `BZT1`, `BZS3` and `BZS4` are unrecognised - the first run's image
     out.append(("old1", dat_image({F: (t1 + 99, 2), T: (499, 0)}, old=64), fresh, {F: (t1, 0)}))
     out.append(("old3", dat_image({F: (t1 + 99, 2), T: (499, 0)}, old=304), fresh, {F: (t1, 0)}))
     out.append(("old4", dat_image({F: (t1 + 99, 2), T: (499, 0)}, old=494), fresh, {F: (t1, 0)}))
-    # SPEC.md 130.55: BZS5 before THE LIVES GIVEN (488 bytes) IS read, its table zero; a slot at BZ_LVMAX's 9
+    # SPEC.md 137.55: BZS5 before THE LIVES GIVEN (488 bytes) IS read, its table zero; a slot at BZ_LVMAX's 9
     # lives kept with its dword, one at 10 emptied with its dword
     out.append(("bzs5old", dat_image({F: (t1 + 99, 2), T: (499, 0)}, slots=slot(3) + bytes(2 * SLOTB),
                                      given=(5, 6, 7), old=DAT_FILE0),
@@ -372,13 +372,13 @@ def hostile_set():
     out.append(("zero3", dat_image({T: (499, 0)}, slots=slot(3, z3=1) + slot(3, best={PAD_MAX - 1: 1}) +
                                     slot(3, exits={np_: 1})),
                 dat_image({T: (499, 0)}), posted({T: (499, 0)}, F, t1)))
-    # BZS5 (130.22.5.1): the exits found and the best of a pad past the pathway's pads - pad NPAD and
+    # BZS5 (137.22.5.1): the exits found and the best of a pad past the pathway's pads - pad NPAD and
     # PAD_MAX - 1 (the last word) - each EMPTIES its slot alone; the words of the pads that exist are kept
     w3 = slot(3, exits={1: 1, np_ - 1: 1}, best={1: 300, np_ - 1: 450})
     out.append(("wide", dat_image({T: (499, 0)}, slots=slot(3, exits={PAD_MAX - 1: 0x8000}) +
                                    slot(3, best={np_: 7}) + w3),
                 dat_image({T: (499, 0)}, slots=bytes(2 * SLOTB) + w3), posted({T: (499, 0)}, F, t1)))
-    # each pad's exits found MASKED to the exits of the course on it (130.22.5.1: the course on a pad can
+    # each pad's exits found MASKED to the exits of the course on it (137.22.5.1: the course on a pad can
     # change under its progress) - every bit set on every pad, in a kept slot and an empty one
     vx = pad_exits()
     allx = {p_: 0xFFFF for p_ in range(np_)}
@@ -386,7 +386,7 @@ def hostile_set():
                                        bytes(SLOTB)),
                 dat_image({T: (499, 0)}, slots=slot(3, exits=dict(enumerate(vx))) +
                           slot(0, exits=dict(enumerate(vx))) + bytes(SLOTB)), posted({T: (499, 0)}, F, t1)))
-    # EXPLORE rests on any pad of the pathway's, none of them in the open set (130.19.8): KEPT (the verify of
+    # EXPLORE rests on any pad of the pathway's, none of them in the open set (137.19.8): KEPT (the verify of
     # 8R.5: the reader emptied it, and with it the slot's exits found and bests); a pad past the pathway's
     # emptied whatever its open bit says, in either mode
     xkeep = slot(3, mode=1, pad=np_ - 1, exits={1: 1}, best={1: 300})
@@ -397,7 +397,7 @@ def hostile_set():
 
 
 def npad():
-    """the pads a slot's +2 may name (bonanza.asm BZD_NPAD): bzcourse.inc's BZ_PATH_NPAD (130.22.3)"""
+    """the pads a slot's +2 may name (bonanza.asm BZD_NPAD): bzcourse.inc's BZ_PATH_NPAD (137.22.3)"""
     return _equ("BZ_PATH_NPAD")
 
 
@@ -551,7 +551,7 @@ def dat_reload(g, name):
 
 
 def select(g, k):
-    """course K for F's free play: [bz_crsel] POKED (no course key since 2026-11-19, SPEC.md 130.11.5.4)"""
+    """course K for F's free play: [bz_crsel] POKED (no course key since 2026-11-19, SPEC.md 137.11.5.4)"""
     g.m.pause()
     g.putb("bz_crsel", k)
     g.m.run()
@@ -588,7 +588,7 @@ def leg_posts(g):
         d = read_dat(g)
         if d is not None:
             fails.append("posts: after %s BONANZA.DAT is ON the floppy (%d bytes): only a play with the course's "
-                         "own ball posts a best (SPEC.md 130.14.3.3)" % (what, len(d)))
+                         "own ball posts a best (SPEC.md 137.14.3.3)" % (what, len(d)))
         if g.b("bz_newb"):
             fails.append("posts: after %s [bz_newb] is 1" % what)
     if read_dat(g) is not None:
@@ -655,7 +655,7 @@ def leg_pause(g):
     m.run()
     if n1 != n2 or n1 >= t1:
         fails.append("pause: P pressed at step >= 40: the steps %d then %d a guest second later (the goal at %d): "
-                     "a pause runs no step (SPEC.md 130.14.4.7)" % (n1, n2, t1))
+                     "a pause runs no step (SPEC.md 137.14.4.7)" % (n1, n2, t1))
     if log1 != log2:
         fails.append("pause: the log changed while paused")
     g.key("KeyP")
@@ -688,12 +688,12 @@ def leg_hostile(g, cases=None):
         dat_reload(g, fn)
         got = bytes(g.m.read(g.a("bz_dat"), DAT_FILE))
         if got != want:
-            fails.append("hostile %s: [bz_dat] after the reader %s, SPEC.md 130.14.3.3's %s" % (
+            fails.append("hostile %s: [bz_dat] after the reader %s, SPEC.md 137.14.3.3's %s" % (
                 name, got.hex(), want.hex()))
         free_play(g, first(), "hostile %s: TQUIK" % name)
         d = read_dat(g, "SYSTEM/APPDATA/" + fn)
         exp = dat_image(nxt, slots=want[SLOT_OFF:LIFE_OFF],        # (the slots as the reader kept them,
-                        given=struct.unpack_from("<3I", want, LIFE_OFF))  # and their lives given, 130.55)
+                        given=struct.unpack_from("<3I", want, LIFE_OFF))  # and their lives given, 137.55)
         if d != exp:
             fails.append("hostile %s: the next best did not rewrite the file whole: %s, want %s" % (
                 name, d.hex() if d else "ABSENT", exp.hex()))
@@ -742,7 +742,7 @@ def leg_noapp(g):
 
 def physdat_set():
     """[(name, the file's bytes, the bz_dat image the reader must make, the
-    best the next TQUIK play files)] - SPEC.md 130.16.9's three cases: each file
+    best the next TQUIK play files)] - SPEC.md 137.16.9's three cases: each file
     carries THIS build's course identities and a best on every course, and
     differs only at +5"""
     F = first()
@@ -807,18 +807,18 @@ def run(tag, legs=LEGS, src=None, appdata=True, o88=None):
 
 REDS = {
     # the length check removed: a short file's bytes are checked as a whole one
-    "datlen": [("bonanza.asm", "    cmp ax, BZD_FILE            ; BZS5 (130.22.5.1): exactly BZD_FILE bytes; any\n"
+    "datlen": [("bonanza.asm", "    cmp ax, BZD_FILE            ; BZS5 (137.22.5.1): exactly BZD_FILE bytes; any\n"
                 "    je .len                     ; other length (an older layout too) is unrecognised\n",
                 "    jmp short .len              ; RED datlen: no length check\n")],
     # a replay posts a best
     "replaybest": [("bonanza.asm", "    cmp byte [bz_mode], 0       ; a replay posts nothing\n    jne .out\n",
                     "    nop                         ; RED replaybest: a replay posts\n")],
     "noappdata": [],
-    # wave 8R (130.22.5, the verify of 8R.5): EXPLORE's pad held to the open set - the explore slot emptied
+    # wave 8R (137.22.5, the verify of 8R.5): EXPLORE's pad held to the open set - the explore slot emptied
     "explorepad": [("bonanza.asm", "    test byte [si + 1], 1       ; ...and, TIMED, an open one (EXPLORE plays\n"
-                    "    jnz .n                      ; any pad, 130.19.8: none of them in the set)\n",
+                    "    jnz .n                      ; any pad, 137.19.8: none of them in the set)\n",
                     "    nop                         ; RED explorepad: EXPLORE's pad must be open\n")],
-    # BZS5 (130.22.5.1): the bests of pads past the pathway's not held to zero - the slot keeps a best for
+    # BZS5 (137.22.5.1): the bests of pads past the pathway's not held to zero - the slot keeps a best for
     # a pad that does not exist
     "pastbest": [("bonanza.asm", "    lea di, [si + BZD_SBEST]\n    add di, ax\n"
                   "    call bz_dzero\n    jnz .bad\n",
@@ -833,7 +833,7 @@ REDS = {
     "pathver": [("bonanza.asm", "    cmp word [si + BZD_SVER], BZ_PATH_VER ; this build's pathway VERSION (an\n"
                  "    jne .bad                    ; all-zero slot's emptying changes nothing)\n",
                  "    nop                         ; RED pathver: the version not checked\n")],
-    # wave 6 (SPEC.md 130.16.14): +5 not checked - a file under other physics keeps its bests
+    # wave 6 (SPEC.md 137.16.14): +5 not checked - a file under other physics keeps its bests
     "physdat": [("bonanza.asm", "    cmp byte [bz_dat + 5], BZ_PHYSV ; physics or not (a game is no time)\n    je .phys\n"
                  "    xor cl, cl\n.phys:\n",
                  "    nop                         ; RED physdat: +5 not checked\n.phys:\n")],
@@ -878,7 +878,7 @@ def check():
         bad.append("BZ_PAD_MAX %d is not the test's %d (or %d pads exceed it)" % (_equ("BZ_PAD_MAX"), PAD_MAX,
                                                                                  npad()))
     import binascii                             # the keys, re-derived with the standard library's CRC-CCITT
-    for k, key in keys().items():               # (SPEC.md 130.22.5.1: CRC-16/CCITT of the NAME, then the
+    for k, key in keys().items():               # (SPEC.md 137.22.5.1: CRC-16/CCITT of the NAME, then the
         c = R.course_k(k)                       # version byte)
         want = binascii.crc_hqx(c.name.encode("ascii") + bytes([c.version]), 0xFFFF)
         if key != want or not key:
@@ -891,14 +891,14 @@ def check():
         " ".join("%X" % v for v in pad_exits())))
     if crs_max() != NENT or ncrs() > NENT:
         bad.append("BZ_CRS_MAX %d is not the test's NENT %d (or %d courses exceed it)" % (crs_max(), NENT, ncrs()))
-    try:                                        # the tool REFUSES more than BZ_CRS_MAX courses (SPEC.md 130.22.5)
+    try:                                        # the tool REFUSES more than BZ_CRS_MAX courses (SPEC.md 137.22.5)
         BB.compile_all([os.path.join(ROOT, R.COURSES["tquik"])] * (BB.CRS_MAX + 1))
         bad.append("bbcourse built %d courses: BZ_CRS_MAX is %d" % (BB.CRS_MAX + 1, BB.CRS_MAX))
     except BB.CourseError as e:
         print("bonanza_game bbcourse refuses %d courses: %s" % (BB.CRS_MAX + 1, e))
     for name, raw, want, nxt in hostile_set():
         mod = model_load(raw)                   # the rules read a second time, in Python: the case's image
-        if mod != want:                         # is the one SPEC.md 130.22.5.1 says
+        if mod != want:                         # is the one SPEC.md 137.22.5.1 says
             bad.append("hostile %s: the case wants bz_dat %s, the Python reader makes %s" % (
                 name, want.hex(), mod.hex()))
         print("bonanza_game hostile %-8s %3d bytes -> bz_dat %s (the Python reader %s); the next best files %s" % (
@@ -925,7 +925,7 @@ def main():
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true", help="the host half only")
     a = ap.parse_args()
-    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
+    R.dev()                             # the BZDEV=1 build (SPEC.md 137.26.6.1)
     if a.check:
         check()
         return

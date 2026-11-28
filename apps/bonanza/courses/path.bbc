@@ -1,6 +1,6 @@
-# The PATHWAY - BONANZA's map between courses (wave 8R, SPEC.md 130.22).  The SHIPPED map: option A of
+# The PATHWAY - BONANZA's map between courses (wave 8R, SPEC.md 137.22).  The SHIPPED map: option A of
 # docs/plans/bonanza-courses/pathway/ (the owner's concept sketch, "Faithful"), page 0 as the owner marked it
-# up (2026-11-19), and since 2026-11-25 THREE pages carrying the owner's ORDER of that day (SPEC.md 130.22.11;
+# up (2026-11-19), and since 2026-11-25 THREE pages carrying the owner's ORDER of that day (SPEC.md 137.22.11;
 # docs/plans/bonanza-courses/pathway/README.md, "The journey"): "kite where mill is currently, with mill moving
 # after it on the path, and loadstone where moon currently is, with caste after it, and keep after that
 # splitting into two; with the treasury allowing a course skip".  THE ORDER IS DECIDED ONLY UP TO DOWNHILL
@@ -27,7 +27,7 @@
 # its exit 0 KITE HILL (KITE) then WINDMILL LANE (MILL); by its exit 1 LODESTONE GORGE (LODE), CASTLE CLIMB
 # (CASTL) and CLOCKWORK KEEP (KEEP), whose two exits split again.  The four old test courses (marked ' above)
 # still stand in on pads of their own, so every course of the default build has a pad (the TEST courses,
-# BZ_TESTCRS, SPEC.md 130.54, have none: the owner, 2026-11-19): SUMMIT RUSH (PEAK) ends the right-hand branch
+# BZ_TESTCRS, SPEC.md 137.54, have none: the owner, 2026-11-19): SUMMIT RUSH (PEAK) ends the right-hand branch
 # after WINDMILL LANE as it did; MOONLIT GREEN (MOON), PLAYGROUND (PLAY) and the OLD First Roll (FIRST, labelled
 # "Bounce Trial" so no two pads read FIRST ROLL) follow CLOCKWORK KEEP's exit 0 (the throne) in the order they
 # had.  CLOCKWORK KEEP's HIDDEN exit 1 (the treasury) is the map's one SECRET route, a SHORTCUT: straight to
@@ -35,7 +35,7 @@
 #
 # PAD NUMBERS: pads 0 - 7 play the courses they played (MILL is still pad 3, PEAK 4, MOON 5, PLAY 6, FIRST 7),
 # on other cells past pad 2; the new courses are pads 8 (KITE), 9 (LODE), 10 (KEEP) and 11 (CASTL).  A route's
-# number is its line's place below (the save's opened and taken bits, SPEC.md 130.22.5).  Every cell is 13
+# number is its line's place below (the save's opened and taken bits, SPEC.md 137.22.5).  Every cell is 13
 # further along both axes than before 2026-11-25 (208 lines down the picture: room for page 2 above), which
 # moves nothing on page 0.
 #
@@ -46,19 +46,19 @@ course PATH "The Pathway"
 width  64
 ball   rubber
 pathway
-version 2                                   # the SAVE's (SPEC.md 130.22.5.1): 2 since 2026-11-25 - the pads past
+version 2                                   # the SAVE's (SPEC.md 137.22.5.1): 2 since 2026-11-25 - the pads past
                                             # DOWNHILL DECISION play other courses and the routes are other routes,
                                             # so a game saved on the old map is emptied (its best times are kept:
                                             # they go by course)
 music  fairway                              # (8b.10 gives the pathway its own)
-rail   crystal                              # the route material (SPEC.md 130.22.8)
+rail   crystal                              # the route material (SPEC.md 137.22.8)
 view   0 540                                # page 0's CGA window: 8 lines up, so the gate on Lodestone Gorge's
                                             # road on and the titles there are wholly on page 0 (the owner's
                                             # mark-up; 332 + 208)
 pages  3
-titles 5x7                                  # the map's titles in the 5 x 7 face (SPEC.md 130.22.2, 2026-11-19)
+titles 5x7                                  # the map's titles in the 5 x 7 face (SPEC.md 137.22.2, 2026-11-19)
 float  rect 0 0 64 64                       # the whole map FLOATS (the owner, 2026-11-16): crystal islands
-                                            # with short icicle faces are the pathway's look (SPEC.md 130.27.2)
+                                            # with short icicle faces are the pathway's look (SPEC.md 137.27.2)
 
 # pad N COURSE WX WY
 pad 0 ROLL  34 41                           # First Roll: where a new game rests
@@ -108,7 +108,7 @@ icon 9 icons/lode32x24.bba         -80 464  title "Lodestone|Gorge"  tdx -26
 icon 10 icons/keep32x24.bba          8 272  title "Clockwork|Keep"  tdx 8
 icon 11 icons/castl32x24.bba      -104 352
 
-# the SCENERY: art FILE SX SY (SPEC.md 130.23.2), px from page 0's CGA window's top-left corner, painted over
+# the SCENERY: art FILE SX SY (SPEC.md 137.23.2), px from page 0's CGA window's top-left corner, painted over
 # the finished picture - so each piece stands in open sky, clear of every route, icon and title.  gen.py --ship
 # writes the three files.  None is KEEP's: its pad is the one most likely to move.
 art path_kites.bba  200 -48                 # Kite Hill's kites, their strings down behind its title to its icon

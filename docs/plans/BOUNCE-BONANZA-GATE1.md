@@ -1,6 +1,6 @@
 # Bounce Bonanza: gate 1 notes for the owner
 
-You play wave 6 at gate 1 (SPEC.md 130.16.11), before the physics freezes.
+You play wave 6 at gate 1 (SPEC.md 137.16.11), before the physics freezes.
 The story list is in [BOUNCE-BONANZA-PLAN.md](BOUNCE-BONANZA-PLAN.md),
 story 6.11. This page says what to try, what each number does and how to
 ask for a change. Every figure here comes from wave 6's final pass
@@ -8,7 +8,7 @@ ask for a change. Every figure here comes from wave 6's final pass
 marked MODEL was computed on the host by `bbcourse.py`, using the same
 physics as the guest, integer for integer.
 
-## Round 3b (SPEC.md 130.17.17): read this first
+## Round 3b (SPEC.md 137.17.17): read this first
 
 Two more changes on top of round 3, as you asked:
 
@@ -40,7 +40,7 @@ then let the bounce carry you onto PEAK's spring (no second boost).
 reach before, can now be reached by falling off the 1.5-unit rung and
 boosting. It is a test course; the tool reports it instead of refusing.
 
-## Round 3 (SPEC.md 130.17.16): read this first
+## Round 3 (SPEC.md 137.17.16): read this first
 
 Round 3 changes rubber's boost three ways, as your round-2 notes asked.
 Nothing else moved: Grip, the camera, the courses and their parts are
@@ -84,7 +84,7 @@ Questions for you (each has a default in this build):
 - if a held Hop boosts too often, the lever is "Space must go down within
   N steps of the landing".
 
-## Round 2 (wave 6b, SPEC.md 130.17.12): read this first
+## Round 2 (wave 6b, SPEC.md 137.17.12): read this first
 
 Wave 6b is the retune your round-1 notes asked for: a boost you can hit,
 also while rolling; no camera back-and-forth at MILL's ramp bottom; pans
@@ -109,7 +109,7 @@ So LATTICE nearly halves MILL's misses on the CGA and cuts its half-rate
 stretches from 16 - 20 to 5 - 10, but in two runs of three ONE stretch is
 longer: B's ramp descent at frames 232 - 309, where the ball rolls down two
 steps a frame, the row pan turns fast (two rows a frame) at the urgent edge,
-and a column joins it every other frame. That is the risk 130.17.6.6 named
+and a column joins it every other frame. That is the risk 137.17.6.6 named
 (the half-rate pass's `MILL` exception). The decision is yours:
 
 - **ship LATTICE as built** (MILL's rate and its number of stretches much
@@ -134,7 +134,7 @@ disk you choose.
   A refused landing makes no sound of its own.
 - **Holding Space through the landing does nothing** in this build. Your
   second suggestion ("holding space when they hit the ground") is a
-  question for you in SPEC.md 130.17.13.
+  question for you in SPEC.md 137.17.13.
 - **Steel and glass** still "hop again" only with Space pressed in the 6
   steps ending at the landing. The tap in flight is rubber's boost.
 - **The Grip chain**: hold Left Shift, then Hop, tap, boost, every second
@@ -161,7 +161,7 @@ disk you choose.
 > bounce with "preprime" works. Grip is better; less overpowered."
 
 LATTICE ships (6b.7's hold released), the in-flight boost and its grace
-stay, Grip 6/3/1 stays (SPEC.md 130.17.15). The freeze waits for the
+stay, Grip 6/3/1 stays (SPEC.md 137.17.15). The freeze waits for the
 owner's OK.
 
 ### Round 2's figures (MEASURED on MartyPC, speaker ON, one run each through `D`)
@@ -359,14 +359,14 @@ Write the change in plain words. For example: "glass `K` 6, rubber `BOOST`
 
 When you are happy, the FREEZE commit marks the material table, `BOOST`
 and the step's rules as binding. It takes the re-baseline (SPEC.md
-130.16.10): 108 runs, six a configuration for MILL and PEAK. It also
+137.16.10): 108 runs, six a configuration for MILL and PEAK. It also
 records your review of O3, O6, O14, O15, O17 and O45. After that, your own
 demo recordings replace the authored ones.
 
 ## Smoothness, MEASURED in this pass
 
 These are missed refreshes per second of play through `D`, speaker ON, from
-one run each. 5b's figures are 130.15.5.4's: six runs, speaker ON, the
+one run each. 5b's figures are 137.15.5.4's: six runs, speaker ON, the
 build that shipped.
 
 | demo | CGA, 5b | CGA, wave 6 | Hercules, 5b | Hercules, wave 6 |
@@ -378,7 +378,7 @@ build that shipped.
 MILL on the CGA now pans 108 columns, so it plays in 5b's HIGH camera mode
 every time. Its rate, 8.90 a second, sits between 5b's two modes and below
 5b's high mode (12.48). PEAK is up 0.69 a second on the CGA and 0.37 on the
-Hercules. Both are within the +1 a second that 130.16.15 set, but they come
+Hercules. Both are within the +1 a second that 137.16.15 set, but they come
 from one run each against 5b's six.
 
 **What changed is how the misses fall.** No frame was held more than two

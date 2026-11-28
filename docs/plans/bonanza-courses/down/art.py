@@ -10,7 +10,7 @@ places a ball meets its material (the stairs' glass-shattering drop, the column 
 glass jumps off, the lift steel rides). DOWN is `palette` 1 (no `palette` line): 1 CYAN, 2 MAGENTA, 3 WHITE on
 black; on the Hercules 1 and 2 are greys, so the black line carries every shape.
 
-Art takes the occlusion of the surface it is painted on (SPEC.md 130.23.2): a decal on a floor IS that floor,
+Art takes the occlusion of the surface it is painted on (SPEC.md 137.23.2): a decal on a floor IS that floor,
 and a sign standing up from a rail block is painted over whatever is behind it (wall or void), so the ball is
 drawn over it there - the reason every standing piece stands on a block at the route's edge.
 
@@ -43,7 +43,7 @@ INTEREST DECALS (`--extras`, comma-separated):
         block, and refuses if sketch.py's ART anchors (which the sketch emits on every re-emit) disagree
     python3 docs/plans/bonanza-courses/down/art.py sheet DIR
         every option into DIR/<variant>/, each compiled and measured (the picture part per SHEET, SPEC.md
-        130.30.12, and the parts packed) and drawn into DIR/signs.png, DIR/decals-*.png, CGA and Hercules"""
+        137.30.12, and the parts packed) and drawn into DIR/signs.png, DIR/decals-*.png, CGA and Hercules"""
 import argparse
 import math
 import os
@@ -80,7 +80,7 @@ HFACE = (62, (25, 27), 11.0, 15.0)                     # H's +x face over the ru
 HFACE_CELLS = {(61, 25), (61, 26)}
 
 
-ZB = [0]                                               # the course's REBASE (SPEC.md 130.48.1), whole units
+ZB = [0]                                               # the course's REBASE (SPEC.md 137.48.1), whole units
 
 
 def fp(c, X, Y, z):

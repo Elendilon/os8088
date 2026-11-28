@@ -13,7 +13,7 @@ the artwork's SOURCE and the `.bba` files it writes are committed:
 
 Palette 2's inks by index: 1 cyan, 2 RED, 3 white.  The castle's faces are red (solid on the left, a red and
 black dither on the right) and on the Hercules both are grey, so every piece is BLACK ON WHITE with a black
-edge: the look the engine gives its own plate and key glyphs (SPEC.md 130.41.5)."""
+edge: the look the engine gives its own plate and key glyphs (SPEC.md 137.41.5)."""
 import math
 import os
 import sys

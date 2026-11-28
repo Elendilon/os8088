@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/fam/magnet.asm - BONANZA's MAGNETS FAMILY (SPEC.md 130.33): one
+; apps/bonanza/fam/magnet.asm - BONANZA's MAGNETS FAMILY (SPEC.md 137.33): one
 ; kind, `magnet`, a magnet on a post.  Its FIELD is the N cells out from the
 ; post along its way (record +18: bit 1 the y axis, bit 0 the negative way;
 ; +20 N).  A SIDE magnet pulls the ball's velocity toward its post, +21 S
@@ -24,7 +24,7 @@
 ; ball's cell, which the same step's STEP sees.
 ; bbcourse.MagnetFamily is the model, step for step.
 ;
-; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss
+; A FAMILY PART (SPEC.md 137.25.6.2), linked against the package's bss
 ; (bzlink.inc: no code label).  Entered by `call far` with DS = ES = the
 ; package, AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -44,7 +44,7 @@ org 0
     db 0
     dw 0, 0, 0, mg_step, mg_pose, 0
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 137.25.6.2)"
 %endif
 
 ; STEP: steel, out of a tube and not holed - the cache refreshed when the ball's
@@ -93,7 +93,7 @@ mg_step:
     xor bh, bh
     call far [bz_fmkp]          ; (bz_fmark: the walk made; BX the element)
 .out:
-    xor ax, ax                  ; (steel: every step, 130.25.6.11)
+    xor ax, ax                  ; (steel: every step, 137.25.6.11)
     call mg_setwk
     retf
 .stop:                          ; (steel in a tube or holed: every step -
@@ -102,7 +102,7 @@ mg_step:
     call mg_setwk
     retf
 .stopf:                         ; (not steel: idle until the material moves,
-    call mg_stop                ; which wakes every STEP, 130.25.6.11)
+    call mg_stop                ; which wakes every STEP, 137.25.6.11)
     mov ax, [bz_nstep]
     add ax, 4000h
     call mg_setwk
@@ -131,7 +131,7 @@ mg_pose:
 ; DH (one at most: the tool's rule) -> its element + 1 in [DI + 6] (0 none) and
 ; its force in +2 - +6 (zeroed by the caller).  Clobbers AX, BX, CX, SI, ES.
 mg_scan:
-    call mg_walk                ; (the family's own records: 130.25.6.10)
+    call mg_walk                ; (the family's own records: 137.25.6.10)
     jcxz .out
 .l:
     call mg_rec

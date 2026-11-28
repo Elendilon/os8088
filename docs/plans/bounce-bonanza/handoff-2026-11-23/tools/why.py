@@ -17,7 +17,7 @@ reach = {(r.wx, r.wy): r for r in c.reach}
 kind = {k: v[2] & 15 for k, v in c.cells.items()}
 print("reach cells", len(reach), "by kind", collections.Counter(r.kind for r in c.reach))
 # --- the flood: orthogonal steps between non-WALL grid cells, never across a railed edge (FL_EDX/FL_EDY, a wall
-# at every height, 130.35.1); tubes carry IN -> OUT; seeded at the start, every flag and every route point
+# at every height, 137.35.1); tubes carry IN -> OUT; seeded at the start, every flag and every route point
 def blocked(a, b):
     (x, y), (x2, y2) = a, b
     if (x2, y2) == (x + 1, y):

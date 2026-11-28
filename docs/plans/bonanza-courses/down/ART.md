@@ -36,7 +36,7 @@ white so it reads on the Hercules, where cyan and magenta are greys.
 
 ## What a piece costs
 
-DOWN is SHEETED (SPEC.md 130.30.12): its picture part is **2 sheets of 89
+DOWN is SHEETED (SPEC.md 137.30.12): its picture part is **2 sheets of 89
 block rows** (rows 0 - 88 and 55 - 143), each **53,150 bytes** in RAM, 11,874
 under 65,024. Measured here, **every sheet carries the whole block table**, so
 an option costs **16 bytes for each new block in EACH sheet, wherever it
@@ -78,7 +78,7 @@ The set costs exactly the sum of its parts (544 + 240 + 784 + 192 + 704 =
   `sink` is legible on the CGA but faint on the Hercules (white on a grey
   panel).
 - **Depth:** every piece takes the occlusion of the surface beneath it
-  (SPEC.md 130.23.2). The signpost and the flags stand up from a block or a
+  (SPEC.md 137.23.2). The signpost and the flags stand up from a block or a
   floor. Their upper pixels are therefore painted over the floor or void
   behind them, and a ball passing behind draws over them, as with HOP's
   banner and pennants. The floor and face paint has no such case.

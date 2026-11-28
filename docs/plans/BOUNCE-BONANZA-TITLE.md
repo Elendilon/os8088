@@ -1,6 +1,6 @@
 # BOUNCE BONANZA — the title screen (plan and stories)
 
-The contract is SPEC.md 130.23; this file is the work list and what has
+The contract is SPEC.md 137.23; this file is the work list and what has
 actually been checked. The game's own plan is
 [BOUNCE-BONANZA-PLAN.md](BOUNCE-BONANZA-PLAN.md), the running diary
 [BOUNCE-BONANZA-DIARY.md](BOUNCE-BONANZA-DIARY.md) (its entries from
@@ -68,7 +68,7 @@ The sketch is [bounce-bonanza/title-sketch.png](bounce-bonanza/title-sketch.png)
 
 ## What the tree already had (read before designing, 2026-11-16)
 
-- **The boxes are clipped to the window** (SPEC.md 130.4, `bz_addbox`), so a
+- **The boxes are clipped to the window** (SPEC.md 137.4, `bz_addbox`), so a
   ball outside a fixed window is simply not drawn: the fixed camera needs no
   clip of its own, only a window that does not follow the ball.
 - **Every course picture is at least 512 px wide** (`width 64|128`), so a
@@ -95,7 +95,7 @@ A box is ticked only for what was built AND checked as its line says.
 
 ### Wave T0: the contract
 
-- [x] **T0.1** SPEC.md 130.23 written: the decisions, the statements, the
+- [x] **T0.1** SPEC.md 137.23 written: the decisions, the statements, the
       demos' format, the loop, the layout, the rows. *Host: `checkdocs`.*
 - [x] **T0.2** This plan, the sketch kept as source, the diary's entry.
 
@@ -120,8 +120,8 @@ A box is ticked only for what was built AND checked as its line says.
       once by a committed script into `title.bba`. *Looked at: the preview
       PNG, CGA and the Hercules translation.* *Built (`tools/bbtitle.py`);
       LOOKED AT on both host previews and on MartyPC's CGA. One line of
-      lettering, not the sketch's two (SPEC.md 130.23.2).*
-- [x] **T1.5** `title.bbc`: the layout of 130.23.5, its two tubes, the
+      lettering, not the sketch's two (SPEC.md 137.23.2).*
+- [x] **T1.5** `title.bbc`: the layout of 137.23.5, its two tubes, the
       windmill, the two springs, the ramp, the label. *Looked at: the
       preview against the sketch; every reach inside the picture.* *Built,
       width 128 (a 64-word picture cannot hold the reach's corners and the
@@ -187,7 +187,7 @@ A box is ticked only for what was built AND checked as its line says.
       CGA) and its in-bracket claims did not know 8R's fanfare (8R's fix,
       b2d47f35); `bonanzamega` - 8R's fanfare claim (8R's fix, 8e372c47);
       `bonanzaring`'s probe and `bonanzawheel`'s leg (6), both failing before
-      this work (SPEC.md 130.19.9); `bonanzasound`'s boost and w7 legs - the
+      this work (SPEC.md 137.19.9); `bonanzasound`'s boost and w7 legs - the
       effects 8R reworked, passed to that session. A first run of the same
       scope was void: the tree was merged under it.*
 
@@ -196,12 +196,12 @@ A box is ticked only for what was built AND checked as its line says.
 - [x] **R2.1** The letters lower, clear of the top (`TOP` 16). *Host:
       `bbtitle.py --check`; 9 px to the nearest scene pixel.*
 - [x] **R2.2** No black flash: no respawn cut on a fixed window; black
-      between plays (SPEC.md 130.23.3). *MEASURED: `bonanzatitle` 4b, one
+      between plays (SPEC.md 137.23.3). *MEASURED: `bonanzatitle` 4b, one
       full write in a demo with a fall, both cards.*
 - [x] **R2.3** The course: the LL-LS step, LS off the glass to the left, the
-      spring at LL's pit edge (130.23.2's waiver), the hidden tube's mouth on
+      spring at LL's pit edge (137.23.2's waiver), the hidden tube's mouth on
       the south rail. *Host: the selfcheck.*
-- [x] **R2.4** The four demos re-authored to the notes (130.23.5). *Host:
+- [x] **R2.4** The four demos re-authored to the notes (137.23.5). *Host:
       every expect met; MEASURED on the guest: the demo `bonanzatitle` drew
       on each card equals the model at its end. How they READ is the
       owner's to judge.*
@@ -230,11 +230,11 @@ never saw, cannot climb the ramp, and tries the spring.
       (12 - 13, 12) taken out. *Host: demos 1, 2 and 4 replay step for
       step identical on the model against the course before.*
 - [x] **R4.2** The GLASS BRIDGE (moved, R4.5): LL's back row over the pit at LL's height,
-      two `glass` tiles (130.25.8); `uses ... glass`. *Looked at: the
+      two `glass` tiles (137.25.8); `uses ... glass`. *Looked at: the
       course preview (the gap, the jagged-edge hint at LL).*
 - [x] **R4.3** Demo 3 re-authored (`tauthor -n 3`): the bridge, a run at
       the ramp that fails, the spring tried, short of UR by its lip, the
-      shatter on the spring (130.23.5). *Host: its expects (spring 1,
+      shatter on the spring (137.23.5). *Host: its expects (spring 1,
       shatter 1) met by the build's replay; a host preview GIF looked at.*
       Breaking ON UR was asked for and is not reachable: the launch cap
       BZ_VZMAX 768 lands glass there at 443, under its 552; the owner chose

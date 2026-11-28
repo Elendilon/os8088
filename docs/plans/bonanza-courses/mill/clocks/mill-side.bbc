@@ -217,24 +217,24 @@ prop bumper 14 19
 prop bumper 16 18
 prop bumper 16 20
 tube drop  17 20  20 20  out +x  height 3
-# the SEE-SAW: F's teeter down to the plaza (SPEC.md 130.42), resting with its near (minus) end down
+# the SEE-SAW: F's teeter down to the plaza (SPEC.md 137.42), resting with its near (minus) end down
 seesaw 22 22 24 24 along y pivot 14.5
-# the FORK: the open tube (the rubber way) and the ARCHWAY over a glass pad (SPEC.md 130.39) before the
+# the FORK: the open tube (the rubber way) and the ARCHWAY over a glass pad (SPEC.md 137.39) before the
 # glass way's tube
 tube keep  26 30  32 33  via 26 32  via 32 32
 archway tile 21 30 along y
 pad glass 21 30
 tube keep  21 31  19 34  via 19 31
-# the rubber way's TURNTABLE (SPEC.md 130.43): the middle column open on every other quarter turn
+# the rubber way's TURNTABLE (SPEC.md 137.43): the middle column open on every other quarter turn
 prop turntable 31 37 size 3 fill ooo/.o./.o. seed 228
 # the second windmill: entered -x off U, out of its house's +y face onto the rejoin
 tube keep  30 41  27 45  via 27 41
 prop windmill 30 41
-# the glass way: a respawning JUMP (SPEC.md 130.25.9, 130.55) on the ledge, the rubber pads past the gap
+# the glass way: a respawning JUMP (SPEC.md 137.25.9, 137.55) on the ledge, the rubber pads past the gap
 prop jump 19 36 for 10 respawn
 pad rubber 21 43
 pad rubber 22 43
-# the finish: the CUP in a sandpit (SPEC.md 130.14.4.3; MOON's ring)
+# the finish: the CUP in a sandpit (SPEC.md 137.14.4.3; MOON's ring)
 surface sand rect 22 51 27 56
 surface normal tile 24 53
 cup 24 53

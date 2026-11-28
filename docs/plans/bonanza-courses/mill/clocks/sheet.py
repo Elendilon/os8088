@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """WINDMILL LANE's clock OPTIONS, compiled and drawn (host only, nothing in `make` runs it).  DOWNHILL DECISION's
 sheet (../../down/clocks/sheet.py) is the precedent; this one reads the course, apps/bonanza/courses/mill.bbc
-(the scratch draft ../mill-draft.bbc until it shipped, 2026-11-21: SPEC.md 130.54.10).
+(the scratch draft ../mill-draft.bbc until it shipped, 2026-11-21: SPEC.md 137.54.10).
 
     python3 docs/plans/bonanza-courses/mill/clocks/sheet.py [CONCEPT ...]
         for each concept (frames.py's CONCEPTS; `crystal` is the draft's default frame, the baseline): writes a

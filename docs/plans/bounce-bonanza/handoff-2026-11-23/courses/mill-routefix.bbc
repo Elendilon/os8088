@@ -25,7 +25,7 @@ floor rect  19  47  32  50  flat 10   # J
 floor rect 23 50 26 51 ramp y 50 51 10 9    # J
 
 # guard rails: every open edge but the design's (the jump's gap, the back door's step, the arch's legs)
-# guard rails ON the floors' edges (SPEC.md 130.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
+# guard rails ON the floors' edges (SPEC.md 137.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
 guard rect  15   5  16   9 side +x
 guard tile  22  43 side +x
 guard rect  12   5  16   6 side -y
@@ -71,24 +71,24 @@ prop windmill 9 9  seed 16
 prop bumper 12 18
 prop bumper 14 17
 prop bumper 14 19
-# the SEE-SAW: F's teeter down to the plaza (SPEC.md 130.42), resting with its near (minus) end down
+# the SEE-SAW: F's teeter down to the plaza (SPEC.md 137.42), resting with its near (minus) end down
 seesaw 22 17 24 21 along y pivot 17
-# the FORK: the open tube (the rubber way) and the ARCHWAY over a glass pad (SPEC.md 130.39) before the
+# the FORK: the open tube (the rubber way) and the ARCHWAY over a glass pad (SPEC.md 137.39) before the
 # glass way's tube
-# the rubber way's TURNTABLE (SPEC.md 130.43): the middle column open on every other quarter turn
+# the rubber way's TURNTABLE (SPEC.md 137.43): the middle column open on every other quarter turn
 prop turntable 26 35 size 3 fill ooo.o..o. seed 228
 # the second windmill: entered -x off U, out of its house's +y face onto the rejoin
 tube drop 15 18 20 15 via 17 18 via 17 15 height 2 body 20
 tube launch 11 35 15 37 via 11 37 speed 336 0 332 body 21.5 column 0.5
 tube keep 29 28 20 34 via 28 28 via 28 31 via 20 31
 tube keep 27 44 21 41 via 27 43 via 25 43 via 25 40 via 21 40
-# the glass way: a respawning JUMP (SPEC.md 130.25.9, 130.55) on the ledge, the rubber pads past the gap
+# the glass way: a respawning JUMP (SPEC.md 137.25.9, 137.55) on the ledge, the rubber pads past the gap
 prop life 10 34 once
 prop windmill 29 28
 prop bumper 27 41
 prop windmill 27 44
 pad glass 20 27
-# the finish: the CUP in a sandpit (SPEC.md 130.14.4.3; MOON's ring)
+# the finish: the CUP in a sandpit (SPEC.md 137.14.4.3; MOON's ring)
 cup 24 52
 
 start 9 12

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedit - THE BOUNCE BONANZA COURSE BUILDER (SPEC.md 130.58).
+"""bbedit - THE BOUNCE BONANZA COURSE BUILDER (SPEC.md 137.58).
 
     python3 tools/bbedit.py [COURSE.bbc]
 
@@ -7,7 +7,7 @@ A window over tools/bbedproj.py's Document: the course is its .bbc text, and
 every edit rewrites only the lines it is about (comments and order are kept).
 Two views of one selection - PLAN, top-down with a height map, and ISO, the
 game's own picture out of tools/bbcourse.py - and the compiler as the only
-judge: its refusals are ERRORS, its visual checks WARNINGS (SPEC.md 130.58.4).
+judge: its refusals are ERRORS, its visual checks WARNINGS (SPEC.md 137.58.4).
 Slow work (the picture, the full check) runs as a process (tools/bbedjob.py)
 that the next edit cancels.
 
@@ -37,7 +37,7 @@ import bbedopts as OPT  # noqa: E402
 TITLE = "Bounce Bonanza course builder"
 CONFIG = os.path.join(os.path.expanduser("~"), ".config", "os8088", "bbedit.json")
 CELL = 24                       # a plan cell at zoom 1, screen px
-INS_W = 380                     # the inspector column's width as the window opens, px (SPEC.md 130.58.54)
+INS_W = 380                     # the inspector column's width as the window opens, px (SPEC.md 137.58.54)
 
 # ----------------------------------------------------------------------------
 # the palette: every part, its group, plain name, what it does, its template
@@ -69,7 +69,7 @@ PALETTE = [
          "longer side (or trace it: Ctrl-click its cells)"),
         ("Pit", "cell", "pit {x} {y} {h} radius 3 depth 16", "A bowl to ride round at speed, centred in the area"),
     ]),
-    ("Diagonals and corners", [        # SPEC.md 130.58.53: the area tools, where a part is looked for
+    ("Diagonals and corners", [        # SPEC.md 137.58.53: the area tools, where a part is looked for
         ("Half tile", "rect", "half", "Cuts each cell of the area along a diagonal and keeps ONE half; the other "
          "half is left empty. Choose the half below (the triangle is the half as the plan shows it). A floor, "
          "wall or goal there keeps its height; an empty cell gets floor. Click a half later to change it, or to "
@@ -140,7 +140,7 @@ PALETTE = [
     ]),
 ]
 
-# SPEC.md 130.58.53: what the Add panel asks before a diagonal part is added - (value, the button's text, its row
+# SPEC.md 137.58.53: what the Add panel asks before a diagonal part is added - (value, the button's text, its row
 # and column: the halves laid out where their triangles are on the plan, the quarters as a compass, the corners
 # where they are)
 DIAG_CHOICES = {
@@ -160,7 +160,7 @@ GLYPH = {"Windmill": "W", "Bumper": "B", "Lift": "L", "Turntable": "T", "Start":
          "Glass path": "g", "Hourglass": "H", "Speed": ">", "Jump": "J", "Life": "♥", "Gate": "G", "Pressure plate": "_",
          "Key": "K", "Bridge": "#", "Seesaw": "/", "Probe": "?"}
 
-# SPEC.md 130.58.53: the Piece row's words. A piece's button shows its triangle AS THE PLAN DRAWS IT
+# SPEC.md 137.58.53: the Piece row's words. A piece's button shows its triangle AS THE PLAN DRAWS IT
 # (bbedproj.PIECE_POLY: x right, y down) beside the grammar's name for it, a half named by the side of the SCREEN
 # (Iso) it is on
 PIECE_HINT = ("Each cell of its shape keeps only this piece; the rest of the cell is left to what an earlier "
@@ -186,7 +186,7 @@ def hcolour(h):
 
 
 def _elide(font, text, room):
-    """TEXT cut to ROOM px of FONT, an ellipsis ending what was cut (SPEC.md 130.58.54)"""
+    """TEXT cut to ROOM px of FONT, an ellipsis ending what was cut (SPEC.md 137.58.54)"""
     if not text or font.measure(text) <= room:
         return text
     lo, hi = 0, len(text)
@@ -223,7 +223,7 @@ def _wrap_px(font, text, room):
 
 
 def wrap_to(label, box, pad=0, least=120):
-    """SPEC.md 130.58.54: LABEL's wraplength follows BOX's width (less PAD) as the window is sized, so a hint
+    """SPEC.md 137.58.54: LABEL's wraplength follows BOX's width (less PAD) as the window is sized, so a hint
     wraps to the room it has instead of running off the side"""
     def fit(e=None):
         w = box.winfo_width()
@@ -257,7 +257,7 @@ def save_config(cfg):
 # jobs: a tools/bbedjob.py process, its JSON lines, a kill that takes the group
 # ----------------------------------------------------------------------------
 
-ALL_BRANCHES, MAIN_ROUTE, NEW_BRANCH = "All branches", "Main route", "New branch..."   # SPEC.md 130.58.43
+ALL_BRANCHES, MAIN_ROUTE, NEW_BRANCH = "All branches", "Main route", "New branch..."   # SPEC.md 137.58.43
 
 
 class Job(object):
@@ -328,7 +328,7 @@ class App(object):
         self.root = tk.Tk()
         self.root.title(TITLE)
         self.cfg = load_config()
-        # (SPEC.md 130.58.54: the first size 1400 x 860, or the screen less a margin when it is smaller)
+        # (SPEC.md 137.58.54: the first size 1400 x 860, or the screen less a margin when it is smaller)
         self.root.geometry(self.cfg.get("geometry", "%dx%d" % (min(1400, self.root.winfo_screenwidth() - 24),
                                                                min(860, self.root.winfo_screenheight() - 72))))
         self.doc = E.Document("")
@@ -339,18 +339,18 @@ class App(object):
         self.height = tk.StringVar(value="4")
         self.show_heights = tk.BooleanVar(value=True)
         self.show_route = tk.BooleanVar(value=True)
-        self.route_branch = tk.StringVar(value=ALL_BRANCHES)   # SPEC.md 130.58.43: the route shown and edited
+        self.route_branch = tk.StringVar(value=ALL_BRANCHES)   # SPEC.md 137.58.43: the route shown and edited
         self.show_hard = tk.BooleanVar(value=True)
         self.xray = tk.BooleanVar(value=True)
-        self.show_gaps = tk.BooleanVar(value=False)   # the gap band's candidates on the Iso view (130.58.21)
+        self.show_gaps = tk.BooleanVar(value=False)   # the gap band's candidates on the Iso view (137.58.21)
         self.gap_min = tk.IntVar(value=4)             # ... with at least this many feet (or marked)
         self.adapter = tk.StringVar(value="cga")
         self.strict = tk.BooleanVar(value=False)
         self.part = None                # the palette entry chosen: (name, mode, template, hint)
         self.area = None                # the selected AREA, cells (x0, y0, x1, y1) inclusive
-        self.path_pick = []             # the cells Ctrl-clicked for a Tube or Chute (SPEC.md 130.58.27)
+        self.path_pick = []             # the cells Ctrl-clicked for a Tube or Chute (SPEC.md 137.58.27)
         self.sels = []                  # Ctrl-click's MULTI-selection: lines (self.sel the last one)
-        self.clip = None                # Copy's course text (SPEC.md 130.58.57), beside the system clipboard
+        self.clip = None                # Copy's course text (SPEC.md 137.58.57), beside the system clipboard
         self.drag = None
         self.good = None                # the last analysis that laid out (shown while one does not)
         self.keep = None                # the edit "Keep it anyway" re-does
@@ -395,7 +395,7 @@ class App(object):
         em.add_command(label="Undo", command=self.undo, accelerator="Ctrl+Z")
         em.add_command(label="Redo", command=self.redo, accelerator="Ctrl+Y")
         em.add_separator()
-        em.add_command(label="Cut", command=self.cut_sel, accelerator="Ctrl+X")       # SPEC.md 130.58.57
+        em.add_command(label="Cut", command=self.cut_sel, accelerator="Ctrl+X")       # SPEC.md 137.58.57
         em.add_command(label="Copy", command=self.copy_sel, accelerator="Ctrl+C")
         em.add_command(label="Paste", command=self.paste, accelerator="Ctrl+V")
         em.add_command(label="Duplicate", command=self.duplicate, accelerator="Ctrl+D")
@@ -428,7 +428,7 @@ class App(object):
                 r.bind_all(k, lambda e, fn=fn: (fn(), "break")[1])
             except tk.TclError:
                 pass
-        # SPEC.md 130.58.57: Cut, Copy and Paste are the COURSE's on the Build tab, and a field's own anywhere else
+        # SPEC.md 137.58.57: Cut, Copy and Paste are the COURSE's on the Build tab, and a field's own anywhere else
         # (a text field's class binding has already copied its text when this runs: it is left to it)
         for k, fn in (("<Control-c>", self.copy_sel), ("<Control-v>", self.paste), ("<Control-x>", self.cut_sel)) + (
                 (("<Command-c>", self.copy_sel), ("<Command-v>", self.paste), ("<Command-x>", self.cut_sel))
@@ -446,16 +446,16 @@ class App(object):
         ttk.Button(tb, text="Undo", command=self.undo).pack(side="left")
         ttk.Button(tb, text="Redo", command=self.redo).pack(side="left", padx=(2, 8))
         ttk.Button(tb, text="Test Roll", command=self.test_roll).pack(side="left")
-        self.roll_l = ttk.Label(tb, text="from the start", foreground="#555")   # (where it will start: 130.58.25)
+        self.roll_l = ttk.Label(tb, text="from the start", foreground="#555")   # (where it will start: 137.58.25)
         self.roll_l.pack(side="left", padx=(4, 8))
-        ttk.Button(tb, text="Autopilot", command=self.autopilot_roll).pack(side="left", padx=(0, 8))  # 130.58.50
+        ttk.Button(tb, text="Autopilot", command=self.autopilot_roll).pack(side="left", padx=(0, 8))  # 137.58.50
         self.badge_err = ttk.Label(tb, text="", foreground="#b3261e")
         self.badge_err.pack(side="right", padx=4)
         self.badge_warn = ttk.Label(tb, text="", foreground="#8a6d00")
         self.badge_warn.pack(side="right", padx=4)
 
         # status bar
-        # (SPEC.md 130.58.54: Cancel and the bar packed FIRST, so a long message never pushes them off the
+        # (SPEC.md 137.58.54: Cancel and the bar packed FIRST, so a long message never pushes them off the
         #  window; the two messages are cut to the room left, with an ellipsis, and a click shows the whole)
         sb = self.sbar = ttk.Frame(r, padding=(6, 2))
         sb.pack(side="bottom", fill="x")
@@ -478,9 +478,9 @@ class App(object):
         self._build_build_tab()
         self._build_course_tab()
         self._build_source_tab()
-        self.shapes = bbedshape.ShapeEditor(self, self.tk, self.ttk, Job, hcolour)   # SPEC.md 130.58.29: in place
-        self.map = bbedmap.MapTab(self, self.nb, self.tk, self.ttk, _photo)                  # SPEC.md 130.58.20
-        self.kittab = bbedkit.KitTab(self, self.nb, Job, _photo)                             # SPEC.md 130.58.52
+        self.shapes = bbedshape.ShapeEditor(self, self.tk, self.ttk, Job, hcolour)   # SPEC.md 137.58.29: in place
+        self.map = bbedmap.MapTab(self, self.nb, self.tk, self.ttk, _photo)                  # SPEC.md 137.58.20
+        self.kittab = bbedkit.KitTab(self, self.nb, Job, _photo)                             # SPEC.md 137.58.52
         self.nb.bind("<<NotebookTabChanged>>", lambda e: self._tab_changed())
 
     def _build_build_tab(self):
@@ -508,15 +508,15 @@ class App(object):
         self.add_name.pack(anchor="w")
         self.add_desc = ttk.Label(addf, text="", wraplength=220, foreground="#444")
         self.add_desc.pack(anchor="w")
-        wrap_to(self.add_desc, addf, 24)                     # (the panel's width: 130.58.54)
-        self.add_opts = ttk.Frame(addf)         # a diagonal part's choice (SPEC.md 130.58.53), shown for one
+        wrap_to(self.add_desc, addf, 24)                     # (the panel's width: 137.58.54)
+        self.add_opts = ttk.Frame(addf)         # a diagonal part's choice (SPEC.md 137.58.53), shown for one
         self.add_choice = tk.StringVar()
         self.add_opts_for = None
         self.add_btn = ttk.Button(addf, text="Add to the selection", command=self.add_part)
         self.add_btn.pack(fill="x", pady=(6, 2))
         self.add_where = ttk.Label(addf, text="", wraplength=220, foreground="#666")
         self.add_where.pack(anchor="w")
-        wrap_to(self.add_where, addf, 24)                     # (the panel's width: 130.58.54)
+        wrap_to(self.add_where, addf, 24)                     # (the panel's width: 137.58.54)
         pw.add(left, weight=0)
 
         # view
@@ -533,7 +533,7 @@ class App(object):
                         command=self._tool_changed).pack(side="left")
         ttk.Label(vb, text="   New floor height").pack(side="left")
         ttk.Spinbox(vb, from_=-20, to=60, increment=0.5, width=5, textvariable=self.height).pack(side="left")
-        # the view's own options: a row of their own under the tools (SPEC.md 130.58.54 - beside them they ran
+        # the view's own options: a row of their own under the tools (SPEC.md 137.58.54 - beside them they ran
         # off the right of the view at the window's first size)
         vb2 = self.vb2 = ttk.Frame(mid, padding=(4, 0, 4, 4))
         vb2.pack(side="top", fill="x")
@@ -541,14 +541,14 @@ class App(object):
         self.plan_opts.pack(side="left")
         for txt, v in (("Height map", self.show_heights), ("Route", self.show_route), ("Hard to see", self.show_hard)):
             ttk.Checkbutton(self.plan_opts, text=txt, variable=v, command=self._redraw).pack(side="left")
-            if v is self.show_route:            # SPEC.md 130.58.43: which branch of the route to show and edit
+            if v is self.show_route:            # SPEC.md 137.58.43: which branch of the route to show and edit
                 self.br_cb = ttk.Combobox(self.plan_opts, textvariable=self.route_branch, state="readonly",
                                           width=14, values=(ALL_BRANCHES, MAIN_ROUTE, NEW_BRANCH))
                 self.br_cb.pack(side="left", padx=(0, 6))
                 self.br_cb.bind("<<ComboboxSelected>>", self._branch_chosen)
         self.iso_opts = ttk.Frame(vb2)
         # (two lines: the card and X-ray, then the occluder overlays - on one they ran 61 px off the view at the
-        #  window's first size, SPEC.md 130.58.54)
+        #  window's first size, SPEC.md 137.58.54)
         iso1 = ttk.Frame(self.iso_opts)
         iso1.pack(side="top", anchor="w")
         self.iso_occ_row = ttk.Frame(self.iso_opts)
@@ -558,7 +558,7 @@ class App(object):
                             command=self._redraw).pack(side="left")
         ttk.Checkbutton(iso1, text="X-ray the selection", variable=self.xray,
                         command=self._redraw).pack(side="left", padx=6)
-        # the gap band's row (SPEC.md 130.58.21): the Iso view's alone, under the toolbar
+        # the gap band's row (SPEC.md 137.58.21): the Iso view's alone, under the toolbar
         self.gap_row = ttk.Frame(mid, padding=(4, 0, 4, 4))
         ttk.Checkbutton(self.gap_row, text="Gap bands", variable=self.show_gaps,
                         command=self._gaps_toggled).pack(side="left")
@@ -568,19 +568,19 @@ class App(object):
         ttk.Label(self.gap_row, text="px wide").pack(side="left")
         self.gap_l = ttk.Label(self.gap_row, text="", foreground="#0b6b80", justify="left")   # (a line of its
         wrap_to(self.gap_l, self.gap_row, 40)                           # own under the row while it says something)
-        self.occ = bbedocc.OccView(self, self.iso_occ_row)  # SPEC.md 130.58.32: the Occluders and Shade overlays (beside
-        #                                                  X-ray since 130.58.54: beside Gap bands they ran off the view)
-        self.kit_row = ttk.Frame(mid, padding=(4, 0, 4, 4))     # SPEC.md 130.58.52: the Kit overlay, a row of its own
+        self.occ = bbedocc.OccView(self, self.iso_occ_row)  # SPEC.md 137.58.32: the Occluders and Shade overlays (beside
+        #                                                  X-ray since 137.58.54: beside Gap bands they ran off the view)
+        self.kit_row = ttk.Frame(mid, padding=(4, 0, 4, 4))     # SPEC.md 137.58.52: the Kit overlay, a row of its own
         self.kitv = bbedkit.KitView(self, self.kit_row)
         self.gap_row_after = vb2
-        # SPEC.md 130.58.56: the banner is the WINDOW's, over the notebook - an edit refused, or an error, from any
+        # SPEC.md 137.58.56: the banner is the WINDOW's, over the notebook - an edit refused, or an error, from any
         # tab shows in the tab it was made in (it was the Build tab's, so the Course, Source, Map and Kit tabs'
         # errors were a cut line in the status bar)
         self.banner = tk.Frame(self.root, background="#fde2df", padx=8, pady=6)
         self.banner_l = tk.Label(self.banner, text="", background="#fde2df", foreground="#5c1510",
                                  justify="left", anchor="w", wraplength=700)
         # (the buttons packed FIRST and the text wrapped to what they leave, so a long refusal never pushes them
-        #  off the view: SPEC.md 130.58.54)
+        #  off the view: SPEC.md 137.58.54)
         self.banner_dismiss = tk.Button(self.banner, text="Dismiss", command=lambda: self._banner(None))
         self.banner_dismiss.pack(side="right")
         self.banner_keep = tk.Button(self.banner, text="Keep it anyway", command=self._keep_anyway)
@@ -595,7 +595,7 @@ class App(object):
         self.cv = tk.Canvas(cf, background="#2b2f36", highlightthickness=0)
         xs = ttk.Scrollbar(cf, orient="horizontal", command=self.cv.xview)
         ys = ttk.Scrollbar(cf, orient="vertical", command=self.cv.yview)
-        self.cv.configure(xscrollcommand=lambda *a: (xs.set(*a), self._pin_rulers()),     # 130.58.42: the
+        self.cv.configure(xscrollcommand=lambda *a: (xs.set(*a), self._pin_rulers()),     # 137.58.42: the
                           yscrollcommand=lambda *a: (ys.set(*a), self._pin_rulers()))     # grid numbers stay put
         self._rul_at = (0.0, 0.0)
         self.cv.grid(row=0, column=0, sticky="nsew")
@@ -613,7 +613,7 @@ class App(object):
         self.fix_l.pack(side="left", fill="x", expand=True)
         self.fix_b = ttk.Button(self.fixbar, text="", command=self.do_fix)
         self.fix = None
-        self.fixbar.bind("<Configure>", lambda e: self._fit_fix())       # (130.58.54: wrapped to the view)
+        self.fixbar.bind("<Configure>", lambda e: self._fit_fix())       # (137.58.54: wrapped to the view)
         self.probs = ttk.Treeview(pf, show="tree", height=4, selectmode="browse")
         self.probs.column("#0", width=600, stretch=True)
         self.probs.pack(fill="x")
@@ -646,7 +646,7 @@ class App(object):
         r.bind("<equal>", lambda e: self.set_zoom(self.zoom * 1.25))
         r.bind("<minus>", lambda e: self.set_zoom(self.zoom / 1.25))
 
-        # inspector: a column of its own width that SCROLLS (SPEC.md 130.58.54) - a tube's or a chute's rows are
+        # inspector: a column of its own width that SCROLLS (SPEC.md 137.58.54) - a tube's or a chute's rows are
         # taller than the window, and the text in it wraps to whatever width the sash gives it
         outer, right, self.ins_cv = self.scroll_column(pw, INS_W, padding=8, on_width=self._ins_resized)
         self.ins_outer, self.ins_right = outer, right
@@ -656,7 +656,7 @@ class App(object):
         self.ins_line = ttk.Label(right, text="", foreground="#555", wraplength=310)
         wrap_to(self.ins_line, right, 24)
         self.ins_line.pack(anchor="w", pady=(0, 6))
-        self.ins_also = ttk.Frame(right)        # every other part on the clicked cell (SPEC.md 130.58.28)
+        self.ins_also = ttk.Frame(right)        # every other part on the clicked cell (SPEC.md 137.58.28)
         self.ins_also.pack(fill="x", pady=(0, 6))
         self.ins_body = ttk.Frame(right)
         self.ins_body.pack(fill="x")
@@ -681,7 +681,7 @@ class App(object):
         self._fill_add()
 
     def _fit_ins(self):
-        """SPEC.md 130.58.54: the inspector's own wrapping - each wrapped hint narrowed to the room left of it in
+        """SPEC.md 137.58.54: the inspector's own wrapping - each wrapped hint narrowed to the room left of it in
         the column, and a long check box's words broken onto lines of their own - so a row written for one width
         never runs off the side of another. Narrows only from each control's own width, so it re-fits both ways"""
         import tkinter.font as tkfont
@@ -734,7 +734,7 @@ class App(object):
         self._ins_fit_after = self.root.after(30, self._fit_ins)
 
     def scroll_column(self, parent, width, padding=0, on_width=None):
-        """SPEC.md 130.58.54: a column WIDTH px wide (as it opens) whose content scrolls up and down and is laid
+        """SPEC.md 137.58.54: a column WIDTH px wide (as it opens) whose content scrolls up and down and is laid
         out to the column's width - the inspector's, and the Kit tab's list. -> (outer, the frame to fill, canvas)"""
         tk, ttk = self.tk, self.ttk
         outer = ttk.Frame(parent)
@@ -789,11 +789,11 @@ class App(object):
         self.cv_gstyle = tk.StringVar()
         self.cv_cstrict = tk.BooleanVar()
         self.cv_mbanded = tk.BooleanVar()
-        self.cv_lock = tk.BooleanVar()              # SPEC.md 130.45: `lock across`
-        self.cv_stops = {e: tk.BooleanVar() for e in B.STOP_EDGES}     # SPEC.md 130.45.4, 130.45.5: `stop`
-        self.cv_over = tk.BooleanVar()              # SPEC.md 130.45.6: `stop ... over [wx0 wy0 wx1 wy1]`
+        self.cv_lock = tk.BooleanVar()              # SPEC.md 137.45: `lock across`
+        self.cv_stops = {e: tk.BooleanVar() for e in B.STOP_EDGES}     # SPEC.md 137.45.4, 137.45.5: `stop`
+        self.cv_over = tk.BooleanVar()              # SPEC.md 137.45.6: `stop ... over [wx0 wy0 wx1 wy1]`
         self.cv_overc = tk.StringVar()
-        # SPEC.md 130.58.55: what the author TYPES on the Course tab is theirs until it is applied - a refill from
+        # SPEC.md 137.58.55: what the author TYPES on the Course tab is theirs until it is applied - a refill from
         # the course (any edit, an undo, a save) never throws it away, Save applies it first, and only opening
         # or starting another course drops it (as the Source tab's working copy, src_dirty)
         self.cv_dirty = False
@@ -831,8 +831,8 @@ class App(object):
                         variable=self.cv_cstrict).grid(row=len(rows), column=0, columnspan=3, sticky="w", pady=4)
         ttk.Checkbutton(g, text="Give each band its own mask table (`masks banded`):\nup to 256 occluder masks a "
                         "band of 16 block rows, not 256 in all", variable=self.cv_mbanded
-                        ).grid(row=len(rows) + 1, column=0, columnspan=3, sticky="w")      # SPEC.md 130.52, 130.58.45
-        cam = ttk.Frame(g)                          # SPEC.md 130.58: the camera's course flags (130.45)
+                        ).grid(row=len(rows) + 1, column=0, columnspan=3, sticky="w")      # SPEC.md 137.52, 137.58.45
+        cam = ttk.Frame(g)                          # SPEC.md 137.58: the camera's course flags (137.45)
         cam.grid(row=len(rows) + 2, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Checkbutton(cam, text="Hold the camera across (`lock across`)", variable=self.cv_lock
                         ).grid(row=0, column=0, columnspan=5, sticky="w")
@@ -849,7 +849,7 @@ class App(object):
                   "finish's own)", foreground="#666", wraplength=640, justify="left").grid(row=3, column=0,
                                                                                          columnspan=5, sticky="w")
         ttk.Button(g, text="Apply", command=self.apply_course).grid(row=len(rows) + 3, column=0, sticky="w", pady=4)
-        self.cv_note = ttk.Label(g, text="", foreground="#a40")    # SPEC.md 130.58.55: "not applied yet"
+        self.cv_note = ttk.Label(g, text="", foreground="#a40")    # SPEC.md 137.58.55: "not applied yet"
         self.cv_note.grid(row=len(rows) + 3, column=1, columnspan=4, sticky="w", pady=4)
         ttk.Label(g, text="Extras the course loads (`uses`) are added for you as you place parts.",
                   foreground="#666").grid(row=len(rows) + 4, column=0, columnspan=3, sticky="w", pady=(4, 0))
@@ -858,7 +858,7 @@ class App(object):
         c.grid(row=0, column=1, sticky="nsew")
         f.columnconfigure(1, weight=1)
         f.rowconfigure(0, weight=1)
-        top = ttk.Frame(c)                          # (two lines: on one they ran off the tab, 130.58.54)
+        top = ttk.Frame(c)                          # (two lines: on one they ran off the tab, 137.58.54)
         top.pack(fill="x")
         ttk.Button(top, text="Check now", command=self.run_check).pack(side="left")
         ttk.Button(top, text="Put this course in the game...", command=self.put_in_game).pack(side="right")
@@ -869,7 +869,7 @@ class App(object):
         wrap_to(self.check_l, c, 24)
         self.checks = ttk.Treeview(c, show="tree", height=7)
         self.checks.column("#0", width=600, stretch=True)
-        self.checks.pack(fill="x")             # (fixed: the stats box below takes the rest, 130.58.51)
+        self.checks.pack(fill="x")             # (fixed: the stats box below takes the rest, 137.58.51)
         self.checks.tag_configure("err", foreground="#b3261e")
         self.checks.tag_configure("warn", foreground="#8a6d00")
         self.checks.tag_configure("ok", foreground="#2e7d32")
@@ -877,11 +877,11 @@ class App(object):
         self.checks.bind("<<TreeviewSelect>>", lambda e: self._pick_check())
         self.check_hint = (ttk.Label(c, text="Errors stop a build. Warnings never do; mark an element `hidden` "
                                      "(its inspector) or "
-                  "`accept` a warning to keep it under --strict (SPEC.md 130.58.5).", wraplength=520,
+                  "`accept` a warning to keep it under --strict (SPEC.md 137.58.5).", wraplength=520,
                   foreground="#444"))
         self.check_hint.pack(anchor="w", pady=(6, 0))
         wrap_to(self.check_hint, c, 24)
-        # SPEC.md 130.58.51: the course's STATS, off the last full check's compile (bbedjob.course_stats)
+        # SPEC.md 137.58.51: the course's STATS, off the last full check's compile (bbedjob.course_stats)
         sf = ttk.LabelFrame(c, text="Course stats", padding=6)
         sf.pack(fill="both", expand=True, pady=(8, 0))
         self.stats = tk.Text(sf, height=16, width=70, wrap="word", borderwidth=0, takefocus=0,
@@ -900,7 +900,7 @@ class App(object):
         self.stats.config(state="disabled")
 
     def put_in_game(self):
-        """ADD TO THE GAME (SPEC.md 130.58.17): tools/bbgame.py as a process - BONANZA.O88 with the shipped
+        """ADD TO THE GAME (SPEC.md 137.58.17): tools/bbgame.py as a process - BONANZA.O88 with the shipped
         courses and this one on the pathway's pad 0, or a floppy holding it (an .img name)"""
         import shutil
         from tkinter import filedialog, messagebox
@@ -957,7 +957,7 @@ class App(object):
         self.root.after(500, wait)
 
     def _build_source_tab(self):
-        """SPEC.md 130.58.38: the course's text, EDITABLE - typing changes a working copy; Apply (Ctrl+Enter, or
+        """SPEC.md 137.58.38: the course's text, EDITABLE - typing changes a working copy; Apply (Ctrl+Enter, or
         leaving the tab) puts it in the course as ONE undo step through the checked edit (never refused: it is
         the author's own text, and a refusal shows in the problems list), Revert throws it away. The gutter's
         line numbers are read-only: a double-click there (or a Ctrl-double-click in the text) selects that
@@ -1030,7 +1030,7 @@ class App(object):
         self._edit(self.doc.set_text, text, label="edit the source", _allow=True)
         self._fill_source()
         err = self.doc.analysis()["error"]
-        if err:                         # SPEC.md 130.58.56: an error shows where it was made, over this tab
+        if err:                         # SPEC.md 137.58.56: an error shows where it was made, over this tab
             self._error("Applied the text. It does not build: %s" % explain(err).split("\n")[0])
         else:
             self._msg("Applied the text (one undo step)")
@@ -1046,7 +1046,7 @@ class App(object):
             return
         text = ('course NEW "New course"\nwidth 64\nball rubber\nmusic fairway\n\n'
                 "floor rect 4 4 14 12 flat 4\nstart 5 5\ngoal rect 12 10 14 12 flat 4\nclock 13 9\n"
-                "target 30\nway 5 5\nway 13 11\n")     # (what the game build asks of every course: SPEC.md 130.58.23)
+                "target 30\nway 5 5\nway 13 11\n")     # (what the game build asks of every course: SPEC.md 137.58.23)
         self._set_doc(E.Document(text))
 
     def open_dialog(self):
@@ -1080,16 +1080,16 @@ class App(object):
         self.good = None
         self.pic = None
         self.check = None
-        self.cv_dirty = False                   # SPEC.md 130.58.55: another course: its own settings, not these
+        self.cv_dirty = False                   # SPEC.md 137.58.55: another course: its own settings, not these
         self._banner(None)
         self._fill_recent()
         self._changed("open")
         self.root.after(50, self._fit)
-        if bbedmap.is_map(d.text()):            # a pathway opens on its Map tab (SPEC.md 130.58.20)
+        if bbedmap.is_map(d.text()):            # a pathway opens on its Map tab (SPEC.md 137.58.20)
             self.nb.select(self.map.frame)
 
     def save(self):
-        if self.cv_dirty:                       # SPEC.md 130.58.55: the Course tab's typed fields go in first
+        if self.cv_dirty:                       # SPEC.md 137.58.55: the Course tab's typed fields go in first
             self.apply_course()
         if self.doc.path is None:
             return self.save_as()
@@ -1105,7 +1105,7 @@ class App(object):
         self._title()
 
     def save_as(self):
-        if self.cv_dirty:                       # SPEC.md 130.58.55
+        if self.cv_dirty:                       # SPEC.md 137.58.55
             self.apply_course()
         from tkinter import filedialog
         p = filedialog.asksaveasfilename(title="Save the course", defaultextension=".bbc",
@@ -1188,7 +1188,7 @@ class App(object):
     def _edit(self, fn, *a, _allow=False, **kw):
         """every edit the window makes: done, `uses` added for it, and UNDONE AGAIN when it leaves the course
         refused where it was not before - the course never ends up broken by a click; the banner says why
-        in plain words and offers to keep it anyway. SPEC.md 130.58.38: "where it was not before" is by the
+        in plain words and offers to keep it anyway. SPEC.md 137.58.38: "where it was not before" is by the
         error's IDENTITY (its statement and words, not its line number) against every error the course was
         already refused for - so a course opened broken, or broken by its text, still takes unrelated edits -
         and what only made sense on ground the edit removed (a float floating nothing, its paint) goes with it"""
@@ -1202,7 +1202,7 @@ class App(object):
             self._error(str(e))
             return None
         added = self.doc.auto_uses()
-        # SPEC.md 130.58.57: a part past the grid's edge moves the WHOLE course back inside, when there is room
+        # SPEC.md 137.58.57: a part past the grid's edge moves the WHOLE course back inside, when there is room
         shift = self.doc.auto_shift() if len(self.doc.undo_stack) > n0 and not E._GRID_ERR.search(before or "") \
             else None
         self.doc.last_shift = shift.get("moved") if shift else None
@@ -1224,7 +1224,7 @@ class App(object):
         def new(err):
             return err and self.doc.err_key(err) not in known
         if new(after) and E.Document.WAY_ERR.search(after) and len(self.doc.undo_stack) > n0:
-            moved = self.doc.relocate_ways()        # SPEC.md 130.58.22: a route point the edit stranded moves
+            moved = self.doc.relocate_ways()        # SPEC.md 137.58.22: a route point the edit stranded moves
             if moved:                               # to the nearest floor, in the same undo step
                 self.doc.merge_since(n0)
                 self._note += "Route point%s moved to stay on the floor: %s. " % (
@@ -1260,7 +1260,7 @@ class App(object):
         return r
 
     def _fit_mouth(self, e, text):
-        """SPEC.md 130.58.41: a job refused TEXT because a tube's exit mouth is not wholly on its last wall's face,
+        """SPEC.md 137.58.41: a job refused TEXT because a tube's exit mouth is not wholly on its last wall's face,
         naming the largest height that is - and that tube's height is one the BUILDER wrote (the palette's, the
         kind switch's, a trace's: Document.auto_mouth), never one the author typed: the height is set to the one
         that fits, folded into the edit that made TEXT (one undo step), and the status line says so. -> True when
@@ -1303,7 +1303,7 @@ class App(object):
             self.banner_shown = True
 
     def _error(self, text):
-        """SPEC.md 130.58.56: an error from any tab - the window's banner (over every tab) and the status bar"""
+        """SPEC.md 137.58.56: an error from any tab - the window's banner (over every tab) and the status bar"""
         self._msg(text)
         self._banner(text)
 
@@ -1335,7 +1335,7 @@ class App(object):
                 for ln in lines:
                     self.doc.remove(ln)
             return True
-        # SPEC.md 130.58.38: deleting the very part the course is refused for is never refused itself
+        # SPEC.md 137.58.38: deleting the very part the course is refused for is never refused itself
         self._edit(rm, _allow=self.doc.analysis()["error_line"] in lines)
 
     def duplicate(self):
@@ -1348,7 +1348,7 @@ class App(object):
             if E.coord_slots(st.toks):
                 self._edit(self.doc.move, n, 1, 1, label="duplicate %s" % st.subkind)
 
-    # -- SPEC.md 130.58.57: several parts moved together; copy, cut and paste ---------------------------------
+    # -- SPEC.md 137.58.57: several parts moved together; copy, cut and paste ---------------------------------
     def _selected(self):
         return sorted(set(self.sels) | ({self.sel} if self.sel else set()))
 
@@ -1370,7 +1370,7 @@ class App(object):
     def move_multi(self, dx, dy):
         """several selected parts dragged (or nudged) together by (DX, DY) whole cells: each keeps its own
         shape and height; a floor's, wall's or goal's own paint and hang and what stands wholly on it ride along
-        (130.58.34); the ground they land on is cut away under them; ONE checked edit"""
+        (137.58.34); the ground they land on is cut away under them; ONE checked edit"""
         sel = [ln for ln in self._selected() if E.coord_slots(self.doc.statement(ln).toks)]
         if not sel:
             return None
@@ -1457,9 +1457,9 @@ class App(object):
             return None
 
     def paste(self, text=None, at=False):
-        """SPEC.md 130.58.57: the clipboard's statements (this builder's copy, or course text copied from anywhere)
+        """SPEC.md 137.58.57: the clipboard's statements (this builder's copy, or course text copied from anywhere)
         added as new parts - the first of them in the selected area's top-left cell, else at the pointer's cell
-        when it is over the plan (130.58.60), else one cell over (diagonally) from
+        when it is over the plan (137.58.60), else one cell over (diagonally) from
         where they were, as far as it takes not to lie exactly on a copy - then selected, so they can be dragged.
         AT: a cell (a test's pointer); False asks the pointer"""
         if text is None:
@@ -1472,7 +1472,7 @@ class App(object):
         if not text or not text.strip():
             self._msg("Nothing to paste: copy a part first (select it, Ctrl+C)")
             return None
-        # SPEC.md 130.58.60: into the selected AREA when there is one (its top-left cell, wherever the pointer
+        # SPEC.md 137.58.60: into the selected AREA when there is one (its top-left cell, wherever the pointer
         # is - a menu's Paste has it off the plan), else at the pointer's cell, else one cell over
         cell = ((self.area[0], self.area[1]) if self.area else self._pointer_cell()) if at is False else at
         codes, (dx, dy), notes = self.doc.paste_plan(text, at=cell)
@@ -1528,7 +1528,7 @@ class App(object):
                                                                          for x, y in cs))
 
     def select_area(self, whole=True):
-        """SPEC.md 130.58.59: the area's parts made the selection - wholly inside it, or every one touching it -
+        """SPEC.md 137.58.59: the area's parts made the selection - wholly inside it, or every one touching it -
         so a drag moves them together, Ctrl+C copies them and Delete removes them"""
         if not self.area:
             return
@@ -1560,7 +1560,7 @@ class App(object):
         if isinstance(e.widget, (self.tk.Entry, self.ttk.Entry, self.tk.Text, self.ttk.Spinbox,
                                  self.ttk.Treeview)) or not self.sel:
             return
-        if len(self._selected()) > 1:           # SPEC.md 130.58.57: several selected move together
+        if len(self._selected()) > 1:           # SPEC.md 137.58.57: several selected move together
             self.move_multi(dx, dy)
         elif E.coord_slots(self.doc.statement(self.sel).toks):
             self.move_sel(dx, dy)
@@ -1585,7 +1585,7 @@ class App(object):
             n.config(text="Changed - not applied yet (Apply, or Save applies it)" if self.cv_dirty else "")
 
     def apply_course(self):
-        """SPEC.md 130.58.55: the fields read, the course edited, the tab clean again - unless the edit was
+        """SPEC.md 137.58.55: the fields read, the course edited, the tab clean again - unless the edit was
         refused and undone, when what was typed is put back, still not applied"""
         typed = [v.get() for v in self._cv_vars()]
         text0 = self.doc.text()
@@ -1608,7 +1608,7 @@ class App(object):
                                                   "cv_gstyle", "cv_target", "cv_limit", "cv_gold", "cv_silver",
                                                   "cv_cstrict", "cv_mbanded", "cv_lock")}
         stops = [e for e in B.STOP_EDGES if self.cv_stops[e].get()]
-        if stops and self.cv_over.get():            # SPEC.md 130.45.6: the span, after the edges
+        if stops and self.cv_over.get():            # SPEC.md 137.45.6: the span, after the edges
             stops += ["over"] + self.cv_overc.get().split()
         # (read EVERY field first: an edit below refills the Course tab from the course, which wiped what was typed
         # into the fields not yet read - the medals vanished after a `limit` was written)
@@ -1644,8 +1644,8 @@ class App(object):
             put("medals", "medals %s %s" % (gd, sv) if gd and sv else None)
             put("strict", "strict" if cv["cv_cstrict"] else None)
             put("masks", "masks banded" if cv["cv_mbanded"] else None)
-            put("lock", "lock across" if cv["cv_lock"] else None)          # SPEC.md 130.45
-            put("stop", "stop " + " ".join(stops) if stops else None)      # SPEC.md 130.45.4 - 130.45.6
+            put("lock", "lock across" if cv["cv_lock"] else None)          # SPEC.md 137.45
+            put("stop", "stop " + " ".join(stops) if stops else None)      # SPEC.md 137.45.4 - 137.45.6
         except E.EditError as e:
             self._error(str(e))
         return True
@@ -1674,7 +1674,7 @@ class App(object):
         self._fill_add()
         self._redraw()
 
-    # -- a path traced on the plan (SPEC.md 130.58.27) -----------------------------
+    # -- a path traced on the plan (SPEC.md 137.58.27) -----------------------------
     @staticmethod
     def _is_path_part(it):
         return bool(it) and it[0].split()[0] in ("Tube", "Chute")
@@ -1693,7 +1693,7 @@ class App(object):
     def _add_traced(self, it):
         """the chosen Tube or Chute laid along the traced path: its turns found (each leg along an axis), the
         tube's body its own (the compiler lays it), an end off the floor given a floor tile at the height of
-        the nearest floor - then shown on the Shapes tab to draft further. SPEC.md 130.58.41: ground goes only on
+        the nearest floor - then shown on the Shapes tab to draft further. SPEC.md 137.58.41: ground goes only on
         an EMPTY cell, never over one the course has (a wall stays a wall); a tube traced onto a wall with a floor
         next along its last leg comes out on that floor, the wall its last body cell (a DROP's mouth on its face)"""
         pts = bbedshape.axis_path([[x, y, None] for (x, y) in self.path_pick])
@@ -1741,7 +1741,7 @@ class App(object):
         code = bbedshape.code(sh)
         n_ = self._edit(self.doc.replace_area, None, ground=ground, then=[code], kinds=(),
                         label="add a %s along a path" % kind.lower())
-        if n_ and E.mouth_height(code) is not None:     # (SPEC.md 130.58.41: the builder's height)
+        if n_ and E.mouth_height(code) is not None:     # (SPEC.md 137.58.41: the builder's height)
             self.doc.auto_mouth.add(code)
         if n_:
             self.path_pick = []
@@ -1753,7 +1753,7 @@ class App(object):
                          ", out onto the floor past the wall (%d, %d)" % onto if onto else ""))
 
     def _fit_shape(self, kind, area, h):
-        """a hump, pit or chute fitted INSIDE the selected area (SPEC.md 130.58.30) - a hump's and a pit's position is
+        """a hump, pit or chute fitted INSIDE the selected area (SPEC.md 137.58.30) - a hump's and a pit's position is
         a cell CORNER (a dome lays the 2 x 2 cells round it, a pit the cells within its radius), so the area's
         corner would put the shape half outside it: a hump a dome centred in a square area or a ridge the length
         of a long one, a pit centred at the largest radius it holds (2 - 4), a chute along the area's longer
@@ -1775,7 +1775,7 @@ class App(object):
         return "chute 1 round depth 5 way %d %d %s way %d %d" % (x0 + w // 2, y0, f(h), x0 + w // 2, y1)
 
     def _show_shape(self, line):
-        """the shape on LINE, selected for editing in place on the plan (SPEC.md 130.58.29)"""
+        """the shape on LINE, selected for editing in place on the plan (SPEC.md 137.58.29)"""
         self.nb.select(0)
         self.select(line)
 
@@ -1784,7 +1784,7 @@ class App(object):
                   "Select: click a part to edit it, or drag across the course to choose an area")
 
     def _right_release(self, e):
-        """a right-click that did not pan: on the selected shape's point, removes it (SPEC.md 130.58.29)"""
+        """a right-click that did not pan: on the selected shape's point, removes it (SPEC.md 137.58.29)"""
         rp = getattr(self, "rpress", None)
         if not rp or abs(rp[0] - e.x) + abs(rp[1] - e.y) > 3:
             return
@@ -1811,7 +1811,7 @@ class App(object):
         return None
 
     def _fill_add_opts(self, it):
-        """the Add panel's choice for a diagonal part (SPEC.md 130.58.53): which half, quarter, corner, way or
+        """the Add panel's choice for a diagonal part (SPEC.md 137.58.53): which half, quarter, corner, way or
         kind - kept while the same part stays chosen"""
         name = it[0] if it else None
         if name == self.add_opts_for:
@@ -1904,7 +1904,7 @@ class App(object):
         return best[1:] if best else None
 
     def cut_corner(self, corner):
-        """SPEC.md 130.58.15: cut the area's CORNER off along a diagonal - the cells before the line dropped,
+        """SPEC.md 137.58.15: cut the area's CORNER off along a diagonal - the cells before the line dropped,
         the cells ON it halved (the half away from the corner kept), every piece keeping its own statement's
         kind, height and ramp. The cut is as deep as the area's shorter side"""
         if not self.area:
@@ -1959,7 +1959,7 @@ class App(object):
                 "; %d already diagonal or shaped, left alone" % skipped) if skipped else ""))
 
     def diagonal_strip(self, how):
-        """SPEC.md 130.58.15: a STRAIGHT strip of the screen (`floor box`), one diamond (32 px) wide, from the
+        """SPEC.md 137.58.15: a STRAIGHT strip of the screen (`floor box`), one diamond (32 px) wide, from the
         area's first cell to its last - down the screen along the plan's x = y diagonal, or across it along
         x + y - at the height of the floor there. Laid over what is there (a box is never cut)"""
         if not self.area:
@@ -1993,7 +1993,7 @@ class App(object):
                 "down" if how == "down" else "across", hs, code))
 
     def add_diagonal(self, name, choice, area):
-        """SPEC.md 130.58.53: a part of the palette's Diagonals and corners on AREA (cells, inclusive) with the
+        """SPEC.md 137.58.53: a part of the palette's Diagonals and corners on AREA (cells, inclusive) with the
         Add panel's CHOICE - a half or quarter of each cell, a corner cut, a strip, a box"""
         self.area = tuple(area)
         if name in ("Half tile", "Quarter tile"):
@@ -2005,7 +2005,7 @@ class App(object):
         return self.add_box(choice)
 
     def piece_area(self, piece):
-        """SPEC.md 130.58.53: each cell of the area cut to PIECE ("half left", "quarter n", ...): a cell laid by a
+        """SPEC.md 137.58.53: each cell of the area cut to PIECE ("half left", "quarter n", ...): a cell laid by a
         floor, wall or goal `tile` or `rect` keeps that statement's kind, height and clauses for the piece; an
         empty cell gets floor at the height there; the rest of the cell is left empty. Cells already split,
         laid by a band or a box, or under a shaped floor are left. One undo step"""
@@ -2067,7 +2067,7 @@ class App(object):
                 ("; %d already diagonal or shaped, left alone" % skipped) if skipped else ""))
 
     def add_box(self, kind):
-        """SPEC.md 130.58.53: `<kind> box A0 A1 S0 S1`, the screen rectangle through the centres of the area's
+        """SPEC.md 137.58.53: `<kind> box A0 A1 S0 S1`, the screen rectangle through the centres of the area's
         four corner cells (a cell's centre is at a = wx - wy, s = wx + wy + 1), at least one column and row
         across; at the floor's height there, laid over what is there (a box is never cut)"""
         if not self.area or kind not in ("floor", "wall", "hole", "goal"):
@@ -2124,7 +2124,7 @@ class App(object):
         return (max(inside) if inside else None), (max(around) if around else None)
 
     def _lowest_beside(self, t):
-        """the height a wall laid over the empty area T needs to wall off what is below it (SPEC.md 130.10.3: each
+        """the height a wall laid over the empty area T needs to wall off what is below it (SPEC.md 137.10.3: each
         wall cell above at least one floor it shares an edge with): for every cell of T the lowest floor point on
         its four sides, the highest of those - in units, or None when no cell of T touches a floor"""
         a = self.doc.analysis()
@@ -2147,18 +2147,18 @@ class App(object):
                  "Gate", "Pressure plate", "Key", "Pit", "Chute", "Hump", "Life"}
 
     def add_part(self, name=None):
-        """the chosen part on the selected area (SPEC.md 130.58.12, 130.58.13): the GROUND is one layer of
+        """the chosen part on the selected area (SPEC.md 137.58.12, 137.58.13): the GROUND is one layer of
         cells, so Floor, Ramp, Wall, Hole and Goal REPLACE the area's cells (the statements round it are cut,
         keeping their own heights and ramps), the surfaces repaint it, a part that stands on the ground brings
         a floor tile to an empty cell, and an archway goes OVER the area with its legs made for it"""
         it = self.part if name is None else next((i for _g, its in PALETTE for i in its if i[0] == name), None)
-        if self._is_path_part(it) and len(self.path_pick) >= 2:     # a path traced on the plan (130.58.27)
+        if self._is_path_part(it) and len(self.path_pick) >= 2:     # a path traced on the plan (137.58.27)
             return self._add_traced(it)
         t = self._target()
         if not it or not t:
             self._fill_add()
             return
-        if it[0] in DIAG_CHOICES:               # SPEC.md 130.58.53: the area tools, from the palette
+        if it[0] in DIAG_CHOICES:               # SPEC.md 137.58.53: the area tools, from the palette
             return self.add_diagonal(it[0], self.add_choice.get() or DIAG_CHOICES[it[0]][0][0], t)
         name, mode, tpl, _hint = it
         x0, y0, x1, y1 = t
@@ -2171,7 +2171,7 @@ class App(object):
         if name in ("Floor", "Goal"):           # level with the FLAT floor here, or round it (not a ramp's top)
             flat_in, flat_out = self._flat_heights(t)
             base = flat_in if flat_in is not None else flat_out if flat_out is not None else base
-        if name == "Wall":                      # (SPEC.md 130.10.3: a wall need only stand above what it walls off)
+        if name == "Wall":                      # (SPEC.md 137.10.3: a wall need only stand above what it walls off)
             h = (inside if inside is not None else self._lowest_beside(t) if self._lowest_beside(t) is not None
                  else typed) + 1
         else:
@@ -2264,9 +2264,9 @@ class App(object):
         code = tpl.format(x=x0, y=y0, x0=x0, y0=y0, x1=x1 + 1, y1=y1 + 1, h=f(h), x3=x0 + 3, x4=x0 + 4,
                           y1b=y0 + 1, y3=y0 + 3)
         fitted = code.split()[0] in ("hump", "pit", "chute") and (x1 > x0 or y1 > y0)
-        if fitted:                              # fitted INSIDE the area (SPEC.md 130.58.30)
+        if fitted:                              # fitted INSIDE the area (SPEC.md 137.58.30)
             code = self._fit_shape(code.split()[0], (x0, y0, x1, y1), base)
-        if code.startswith("seesaw "):          # a plate is 2, 4 or 6 along and 1 or 2 across (130.42.2): the
+        if code.startswith("seesaw "):          # a plate is 2, 4 or 6 along and 1 or 2 across (137.42.2): the
             t_ = code.split()                   # largest that fits the area, along its longer side
             ax = "y" if (y1 - y0) > (x1 - x0) else "x"
             n_along, n_across = (y1 - y0 + 1, x1 - x0 + 1) if ax == "y" else (x1 - x0 + 1, y1 - y0 + 1)
@@ -2287,7 +2287,7 @@ class App(object):
             t_[4] = str(x1)
             code = " ".join(t_)
         elif code.startswith("tube ") and (x0, y0) == (x1, y1):   # one cell: the exit on the nearest floor in a
-            t_ = code.split()                                   # straight line, 2 - 8 cells off (SPEC.md 130.58.27)
+            t_ = code.split()                                   # straight line, 2 - 8 cells off (SPEC.md 137.58.27)
             dirs = ((1, 0), (0, 1)) if t_[1] == "drop" else ((1, 0), (0, 1), (-1, 0), (0, -1))
             best = None
             for n in range(2, 9):
@@ -2323,7 +2323,7 @@ class App(object):
                 return
         n_ = self._edit(self.doc.replace_area, None, ground=ground, then=[code], kinds=(),
                         label="add %s" % name.lower())
-        if n_ and E.mouth_height(code) is not None:     # SPEC.md 130.58.41: the template's height, not the author's
+        if n_ and E.mouth_height(code) is not None:     # SPEC.md 137.58.41: the template's height, not the author's
             self.doc.auto_mouth.add(code)
         if n_:
             ln = next((s_.line for s_ in reversed(self.doc.statements()) if s_.code == code), n_)
@@ -2362,7 +2362,7 @@ class App(object):
         for it in a["items"]:
             if it["line"] in want:
                 cells.update(it["cells"])
-        src = a["src"]                          # SPEC.md 130.58.38: a float's or paint's own shape, so an error
+        src = a["src"]                          # SPEC.md 137.58.38: a float's or paint's own shape, so an error
         if src is not None:                     # naming one shows where it is even over the void
             for cs, ln in [(f[0], f[1]) for f in src.floats] + [(s_[1], s_[2]) for s_ in src.surfaces] + [
                     (h_[0], h_[1]) for h_ in src.holes]:     # (a hole's cells too: a drag shows where it goes)
@@ -2431,7 +2431,7 @@ class App(object):
         for w in self.ins_body.winfo_children():
             w.destroy()
         self.ins_cv.yview_moveto(0)
-        if self.occ.fill_inspector():           # an occluder record or a noocclude cell (130.58.32)
+        if self.occ.fill_inspector():           # an occluder record or a noocclude cell (137.58.32)
             return
         a = self.doc.analysis()
         if not self.sel:
@@ -2480,7 +2480,7 @@ class App(object):
                 ttk.Button(xf_, text="Straight-sided floor", command=lambda: self.add_box("floor")).grid(
                     row=0, column=0, padx=1)
                 ttk.Label(self.ins_body, text="Select:").grid(row=7, column=0, sticky="w")
-                sf_ = ttk.Frame(self.ins_body)                  # SPEC.md 130.58.59: the outline's parts selected
+                sf_ = ttk.Frame(self.ins_body)                  # SPEC.md 137.58.59: the outline's parts selected
                 sf_.grid(row=7, column=1, sticky="w")
                 ttk.Button(sf_, text="Parts inside", command=lambda: self.select_area(True)).grid(
                     row=0, column=0, padx=1)
@@ -2491,7 +2491,7 @@ class App(object):
                 pf_.grid(row=1, column=1, sticky="w")
                 for k, nm in enumerate(("Ice", "Sand", "Bounce mat", "Normal")):     # (three a row, as Make it's:
                     ttk.Button(pf_, text=nm.split()[0], width=6, command=lambda nm=nm: self.add_part(nm)).grid(
-                        row=k // 3, column=k % 3, padx=1, pady=1)                 # four ran off: 130.58.54)
+                        row=k // 3, column=k % 3, padx=1, pady=1)                 # four ran off: 137.58.54)
                 self.ins_title.config(text="An area, %d x %d" % (x1 - x0 + 1, y1 - y0 + 1))
                 self.ins_line.config(text="from (%d, %d) to (%d, %d)" % (x0, y0, x1, y1))
                 self.ins_help.config(text="%s\n\nMake it replaces just these cells (the floor around keeps "
@@ -2525,7 +2525,7 @@ class App(object):
         self.raw.set(st.code)
         ttk, tk = self.ttk, self.tk
         body = self.ins_body
-        if st.kind in bbedshape.ShapeEditor.KINDS and self.shapes.load(st.line):   # edited in place (130.58.29)
+        if st.kind in bbedshape.ShapeEditor.KINDS and self.shapes.load(st.line):   # edited in place (137.58.29)
             self.shapes.fill(body)
             self.ins_help.config(text="Drag its numbered points on the plan; Ctrl-click adds one, right-click "
                                  "removes one - a draft (dashed orange) until Try it.")
@@ -2564,7 +2564,7 @@ class App(object):
             row = self._route_rows(st, body, row)
         if st.kind == "prop" and st.toks[1:2] == ["crack"]:
             row = self._crack_rows(st, body, row)
-        row = self._option_rows(st, body, row)      # every clause it may take, written or not (130.58.37)
+        row = self._option_rows(st, body, row)      # every clause it may take, written or not (137.58.37)
         covered = OPT.covered_words(st.toks)
         for word, n, label in (("flat", 1, "Height"), ("top", 1, "Water top"), ("bed", 1, "Water bed"),
                                ("period", 1, "Period (steps)"), ("on", 1, "On for (steps)"),
@@ -2902,7 +2902,7 @@ class App(object):
         fl = self._float_of(st) if st.kind in ("floor", "wall", "goal") else None
         return ([cur[1]] if cur else []) + ([fl[1]] if fl else [])
 
-    # -- the route (SPEC.md 130.58.22) ---------------------------------------------
+    # -- the route (SPEC.md 137.58.22) ---------------------------------------------
     def _ways(self):
         """every `way` statement in file order: [(line, x, y, branch or None)]"""
         out = []
@@ -2918,7 +2918,7 @@ class App(object):
     def _route_rows(self, st, body, row):
         """a route point's panel: the whole route listed (a click selects a point), and its edits"""
         tk, ttk = self.tk, self.ttk
-        ways = [w for w in self._ways() if self._br_shown(w[3]) or w[0] == st.line]   # 130.58.43: the branch shown
+        ways = [w for w in self._ways() if self._br_shown(w[3]) or w[0] == st.line]   # 137.58.43: the branch shown
         mine = next((w for w in ways if w[0] == st.line), None)
         same = [w for w in ways if mine and w[3] == mine[3]]
         k = same.index(mine) if mine in same else 0
@@ -2926,7 +2926,7 @@ class App(object):
                                                           mine[3] else ""), font=("TkDefaultFont", 9, "bold")).grid(
             row=row, column=0, columnspan=2, sticky="w", pady=(6, 0))
         row += 1
-        bf = ttk.Frame(body)                    # SPEC.md 130.58.43: the branch picker here too (the plan's twin)
+        bf = ttk.Frame(body)                    # SPEC.md 137.58.43: the branch picker here too (the plan's twin)
         bf.grid(row=row, column=0, columnspan=2, sticky="w")
         ttk.Label(bf, text="Show and edit").pack(side="left")
         bcb = ttk.Combobox(bf, textvariable=self.route_branch, state="readonly", width=16,
@@ -2954,10 +2954,10 @@ class App(object):
         fr = ttk.Frame(body)
         fr.grid(row=row, column=0, columnspan=2, sticky="w", pady=2)
         ttk.Button(fr, text="Insert one after", command=lambda: self.route_insert(st.line)).pack(side="left")
-        if mine and not mine[3]:                # 130.58.43: a main point - fork a new branch from it
+        if mine and not mine[3]:                # 137.58.43: a main point - fork a new branch from it
             ttk.Button(fr, text="Branch from here", command=lambda: self.route_fork(st.line)).pack(side="left")
         row += 1
-        fr = ttk.Frame(body)                    # (a second line: five buttons ran off the inspector, 130.58.54)
+        fr = ttk.Frame(body)                    # (a second line: five buttons ran off the inspector, 137.58.54)
         fr.grid(row=row, column=0, columnspan=2, sticky="w", pady=(0, 2))
         ttk.Button(fr, text="Earlier", width=7, command=lambda: self.route_shift(st.line, -1)).pack(side="left")
         ttk.Button(fr, text="Later", width=6, command=lambda: self.route_shift(st.line, 1)).pack(side="left")
@@ -2998,7 +2998,7 @@ class App(object):
         if self._edit(self.doc.set_many, {line: b_, other: a_}, label="reorder the route"):
             self.select(other)
 
-    # -- drag resizing (SPEC.md 130.58.22) -----------------------------------------
+    # -- drag resizing (SPEC.md 137.58.22) -----------------------------------------
     def _resizable(self):
         """the one selected floor, wall, goal or hole laid by `tile` or `rect`: (statement, shape, rect), or None"""
         if not self.sel or len(self.sels) > 1 or self.view.get() != "plan":
@@ -3085,7 +3085,7 @@ class App(object):
             self._msg("Resized to %d x %d" % (x1 - x0, y1 - y0))
 
     def _route_ctrl(self):
-        """does a Ctrl-click on the plan lay a route point (130.58.43)?  With Route on, when a branch is chosen
+        """does a Ctrl-click on the plan lay a route point (137.58.43)?  With Route on, when a branch is chosen
         above the plan or a route point is selected - otherwise Ctrl-click still adds to the selection"""
         if not self.show_route.get() or self.view.get() != "plan":
             return False
@@ -3094,7 +3094,7 @@ class App(object):
         return any(w[0] == self.sel for w in self._ways())
 
     def _br_shown(self, br):
-        """SPEC.md 130.58.43: is a route point of branch BR (None: the main route) shown and editable?"""
+        """SPEC.md 137.58.43: is a route point of branch BR (None: the main route) shown and editable?"""
         v = self.route_branch.get()
         return v in (ALL_BRANCHES, NEW_BRANCH, "") or (br is None if v == MAIN_ROUTE else br == v)
 
@@ -3129,7 +3129,7 @@ class App(object):
         self._redraw()
 
     def route_fork(self, line, name=None):
-        """SPEC.md 130.58.43: a NEW branch forking from main route point LINE - its first point on that very cell
+        """SPEC.md 137.58.43: a NEW branch forking from main route point LINE - its first point on that very cell
         (so branch_route forks exactly there), the picker set to it and the point selected, so Ctrl-clicks lay
         the rest"""
         me = next((w for w in self._ways() if w[0] == line), None)
@@ -3155,7 +3155,7 @@ class App(object):
             self._redraw()
 
     def route_add(self, cell):
-        """SPEC.md 130.58.43: Ctrl-click lays a route point on CELL, in the chosen branch: after the selected
+        """SPEC.md 137.58.43: Ctrl-click lays a route point on CELL, in the chosen branch: after the selected
         point when it is that branch's, else after that branch's last point - then selects it, so the next
         Ctrl-click follows it"""
         br = self._br_target()
@@ -3217,7 +3217,7 @@ class App(object):
         self._edit(go)
 
     def _crack_float(self, cell):
-        """SPEC.md 130.58.61: the `float` statements whose cells take in CELL -> [(line, tile only)]"""
+        """SPEC.md 137.58.61: the `float` statements whose cells take in CELL -> [(line, tile only)]"""
         a = self.doc.analysis()
         src = a["src"]
         out = []
@@ -3228,7 +3228,7 @@ class App(object):
         return out
 
     def _crack_rows(self, st, body, row):
-        """SPEC.md 130.58.61: a crack FALLS AWAY with its column when its cell floats (130.25.18.1) - a tick
+        """SPEC.md 137.58.61: a crack FALLS AWAY with its column when its cell floats (137.25.18.1) - a tick
         that writes or takes out a one-tile `float` under it"""
         tk, ttk = self.tk, self.ttk
         try:
@@ -3253,7 +3253,7 @@ class App(object):
         return row + 1
 
     def set_crack_falls(self, cell, on):
-        """SPEC.md 130.58.61: a one-tile `float` under a crack written (ON) or taken out"""
+        """SPEC.md 137.58.61: a one-tile `float` under a crack written (ON) or taken out"""
         x, y = cell
         sel = self.sel
 
@@ -3275,7 +3275,7 @@ class App(object):
             self._fill_inspector()
 
     def _option_rows(self, st, body, row):
-        """SPEC.md 130.58.37: a control for every clause the statement may take (tools/bbedopts.py's table),
+        """SPEC.md 137.58.37: a control for every clause the statement may take (tools/bbedopts.py's table),
         written or not - setting one writes its clause, clearing it (blank, unticked, the "none" choice) takes it
         out; a choice offers only its legal values"""
         tk, ttk = self.tk, self.ttk
@@ -3293,7 +3293,7 @@ class App(object):
             fr = ttk.Frame(body)
             fr.grid(row=row, column=1, sticky="w")
             row += 1
-            if k == "piece":                                # SPEC.md 130.58.53: whole, a half or a quarter
+            if k == "piece":                                # SPEC.md 137.58.53: whole, a half or a quarter
                 v = tk.StringVar(value=cur or "")
                 ttk.Radiobutton(fr, text="Whole cell", value="", variable=v,
                                 command=lambda o=o, v=v: self.set_option(ln, o, v.get())).grid(
@@ -3412,7 +3412,7 @@ class App(object):
             self._edit(self.doc.set_tokens, self.sel, t, label=o["label"].lower())
 
     def _seesaw_rows(self, st, body, row):
-        """SPEC.md 130.42.2: a plate is 2, 4 or 6 cells along its axis and 1 or 2 across - its size picked from
+        """SPEC.md 137.42.2: a plate is 2, 4 or 6 cells along its axis and 1 or 2 across - its size picked from
         those, never stepped a cell at a time into one the compiler refuses"""
         t = st.toks
         try:
@@ -3445,7 +3445,7 @@ class App(object):
         ttk.Label(body, text="A see-saw is 2, 4 or 6 cells long (its pivot on a cell edge) and 1 or 2 wide.",
                   foreground="#666", wraplength=280).grid(row=row, column=0, columnspan=2, sticky="w")
         row += 1
-        # SPEC.md 130.42.11: tipped by the ball's WEIGHT, or TIMED (`period P [flat F] [seed S]`)
+        # SPEC.md 137.42.11: tipped by the ball's WEIGHT, or TIMED (`period P [flat F] [seed S]`)
         timed = "period" in t
 
         def mode(m):
@@ -3518,7 +3518,7 @@ class App(object):
         """move the selection. GROUND (a floor, wall, goal or hole laid by tile or rect) moves as one layer:
         its old cells are left empty, it cuts its way into the cells it lands on, a flat floor or goal takes
         the height of the floor it lands on, its own surface and hang go with it, and the floor round it is
-        rejoined (SPEC.md 130.58.14)"""
+        rejoined (SPEC.md 137.58.14)"""
         st = self.doc.statement(self.sel)
         sh = self._shape(st) if st.kind in ("floor", "wall", "goal", "hole") else None
         if not sh:
@@ -3536,13 +3536,13 @@ class App(object):
             toks[toks.index("flat") + 1] = ("%d" % h) if h == int(h) else ("%g" % h)
         code = E.join_tokens(toks)
         own = self._companions(self.sel)
-        if st.kind != "hole":           # (SPEC.md 130.58.38: its other paint and hang inside it go along too)
+        if st.kind != "hole":           # (SPEC.md 137.58.38: its other paint and hang inside it go along too)
             own += [ln for ln in self.doc.paint_in(sh[2], skip=[self.sel] + own)]
         comp = [(ln, self.doc.moved_code(ln, dx, dy)) for ln in sorted(own)]
         whole, split = self.doc.riders(sh[2], skip=[self.sel] + [c for c, _ in comp]) \
             if st.kind != "hole" else ([], [])
         # (what stands on it rides along: its rails, route points, the start, flags, props, pads, clocks -
-        # SPEC.md 130.58.22, 130.58.34; a rail reaching past it is split, its part on the ground going along)
+        # SPEC.md 137.58.22, 137.58.34; a rail reaching past it is split, its part on the ground going along)
 
         old_code = {ln0: self.doc.statement(ln0).code for ln0, _i, _o in split}
 
@@ -3632,7 +3632,7 @@ class App(object):
 
     # -- the course tab and the source --------------------------------------------
     def _fill_course(self):
-        if self.cv_dirty:               # SPEC.md 130.58.55: what was typed is never thrown away by a refill
+        if self.cv_dirty:               # SPEC.md 137.58.55: what was typed is never thrown away by a refill
             self._cv_mark()
             return
         self.cv_filling = True
@@ -3666,7 +3666,7 @@ class App(object):
         st = sts.get("stop")
         for e in B.STOP_EDGES:
             self.cv_stops[e].set(bool(st) and e in st.toks[1:])
-        ov = st.toks.index("over") if st and "over" in st.toks else None    # SPEC.md 130.45.6
+        ov = st.toks.index("over") if st and "over" in st.toks else None    # SPEC.md 137.45.6
         self.cv_over.set(ov is not None)
         self.cv_overc.set(" ".join(st.toks[ov + 1:]) if ov is not None else "")
 
@@ -3712,7 +3712,7 @@ class App(object):
     def _tab_changed(self):
         cur = self.nb.index("current")
         if getattr(self, "src_tab_was", None) == self._src_tab() and cur != self._src_tab():
-            self.src_apply()            # (leaving the Source tab applies its working copy, SPEC.md 130.58.38)
+            self.src_apply()            # (leaving the Source tab applies its working copy, SPEC.md 137.58.38)
         self.src_tab_was = cur
         if getattr(self, "map", None) and self.map.shown():
             self.map.refresh()
@@ -3741,7 +3741,7 @@ class App(object):
             for m in self.pic["meta"]["marks"]:
                 if m["below"] or m["pct"] < 100:
                     cov = ", ".join("(%d, %d)" % (c[0], c[1]) for c in m["cover"][:3])
-                    tag = "warn" if m["below"] and not m.get("accepted") else "acc"   # (`accept mark`, 130.58.5)
+                    tag = "warn" if m["below"] and not m.get("accepted") else "acc"   # (`accept mark`, 137.58.5)
                     out.append((tag, "%s%s at (%d, %d) is %d%% visible (needs %d%%)%s" % (
                         "accepted: " if m["below"] and m.get("accepted") else "",
                         m["what"], m["cell"][0], m["cell"][1], m["pct"], m["need"],
@@ -3793,7 +3793,7 @@ class App(object):
         self._fill_stats()
 
     def _fill_stats(self):
-        """SPEC.md 130.58.51: the Course stats box - the last full check's stats while the text is the one it
+        """SPEC.md 137.58.51: the Course stats box - the last full check's stats while the text is the one it
         checked: each figure against its bound (near one at 90%: amber and a warning sign; over the size
         budget: red), then each option the course uses to go past a usual bound, named with its section"""
         t = getattr(self, "stats", None)
@@ -3823,7 +3823,7 @@ class App(object):
         t.config(state="disabled")
 
     def _keep_fix(self, tree, rows):
-        """SPEC.md 130.58.59: after a refill the bar under the problems list still describes a SELECTED row or
+        """SPEC.md 137.58.59: after a refill the bar under the problems list still describes a SELECTED row or
         it goes - the same problem picked again where it is still listed (quietly: no jump), else hidden"""
         src, raw = getattr(self, "fix_src", (None, None))
         if src is not tree:
@@ -3857,7 +3857,7 @@ class App(object):
         if iid:
             s = [iid]
             line, cell, raw = self.prob_rows[s[0]]
-            if line:                            # SPEC.md 130.58.38: the part on the plan and in the inspector
+            if line:                            # SPEC.md 137.58.38: the part on the plan and in the inspector
                 self.nb.select(0)
                 self.hilite = cell
                 self.select(line, scroll=True)
@@ -3875,14 +3875,14 @@ class App(object):
             self._show_fix(raw, line, self.checks)
 
     def _show_fix(self, err, line, src=None):
-        """SPEC.md 130.58.38: under the problems list, a picked ERROR's explanation in full and - where FIXES knows
+        """SPEC.md 137.58.38: under the problems list, a picked ERROR's explanation in full and - where FIXES knows
         the obvious way out - a button that takes it, as one checked edit"""
         fix = fix_for(err, line, self.doc) if err else None
         if not err:
             self._hide_fix()
             return
         self.fix_src = (src, err)
-        # SPEC.md 130.58.58: ANY picked row's whole text, wrapped - the list keeps one line a problem, and a long
+        # SPEC.md 137.58.58: ANY picked row's whole text, wrapped - the list keeps one line a problem, and a long
         # one ran off the view with no way to read it (an explained error: its explanation in full, then the
         # tool's own words when they differ)
         ex = explain(err)
@@ -3920,7 +3920,7 @@ class App(object):
             if getattr(self, attr):
                 self.root.after_cancel(getattr(self, attr))
                 setattr(self, attr, None)
-        if self.check_job:                  # an edit makes a running check stale: cancelled (130.58.8)
+        if self.check_job:                  # an edit makes a running check stale: cancelled (137.58.8)
             self.check_job.kill()
             self.check_job = None
         a = self.doc.analysis()
@@ -3951,7 +3951,7 @@ class App(object):
                 if e.get("ok"):
                     self.shapes.picture_ok()
                     self._load_picture(out, text)
-                elif self._fit_mouth(e, text):       # SPEC.md 130.58.41: the builder's own mouth height, fitted
+                elif self._fit_mouth(e, text):       # SPEC.md 137.58.41: the builder's own mouth height, fitted
                     self.pic_err = (text, e.get("error"))
                     return
                 elif self.shapes.picture_refused(e.get("error"), text):   # a shape's Try it the full rules refuse
@@ -3966,7 +3966,7 @@ class App(object):
                            (["--kit"] if self.kitv.wanted() else []), ev).start()
 
     def run_check(self, trap=False):
-        """the full check; TRAP: NO TRAP too (SPEC.md 130.58.24 - the softlock search, off unless asked)"""
+        """the full check; TRAP: NO TRAP too (SPEC.md 137.58.24 - the softlock search, off unless asked)"""
         self.check_after = None
         if self.check_job:
             self.check_job.kill()
@@ -3979,11 +3979,11 @@ class App(object):
 
         def ev(job, e):
             if e["stage"] == "done":
-                if not e.get("ok") and self._fit_mouth(e, text):    # (SPEC.md 130.58.41: the check saw it first)
+                if not e.get("ok") and self._fit_mouth(e, text):    # (SPEC.md 137.58.41: the check saw it first)
                     return
                 self.check = {"text": text, "strict": strict, "result": e}
                 self._fill_problems()
-                st = e.get("stats")             # (SPEC.md 130.58.51: its one line)
+                st = e.get("stats")             # (SPEC.md 137.58.51: its one line)
                 self._msg("Full check: %s in %.1f s%s" % ("builds" if e.get("ok") else "refused", time.time() - t0,
                                                           " - " + st["summary"] if st else ""))
             elif e["stage"] == "exit":            # (the process ends after its "done": the box's "Checking..."
@@ -3995,7 +3995,7 @@ class App(object):
         self._fill_checks(self._problems())
 
     def _roll_cell(self):
-        """where Test Roll starts (SPEC.md 130.58.25): the selected one-cell part's cell, or the selected area's
+        """where Test Roll starts (SPEC.md 137.58.25): the selected one-cell part's cell, or the selected area's
         centre, when that is a floor the ball can rest on - else None, the course's start"""
         cells = self._sel_cells() if self.sel else None
         if not (cells and len(cells) == 1) and self.area:
@@ -4008,7 +4008,7 @@ class App(object):
         return cell if d and d["kind"] in ("floor", "goal", "field") else None
 
     def test_roll(self):
-        """TEST ROLL (SPEC.md 130.58.16, 130.58.25): tools/bbplay.py on the text as it stands, as a process of
+        """TEST ROLL (SPEC.md 137.58.16, 137.58.25): tools/bbplay.py on the text as it stands, as a process of
         its own - from the selected floor cell when there is one (the note beside the button says which), else
         from the course's start"""
         cell = self._roll_cell()
@@ -4022,7 +4022,7 @@ class App(object):
         self._msg("Test Roll: %s" % ("from cell %s, %s" % tuple(argv[-2:]) if "--start" in argv else "from the start"))
 
     def autopilot_argv(self, path):
-        """SPEC.md 130.58.50: Test Roll's AUTOPILOT on the text in PATH - the route the plan's branch picker
+        """SPEC.md 137.58.50: Test Roll's AUTOPILOT on the text in PATH - the route the plan's branch picker
         chooses (a branch's whole route, branch_route), else the main route"""
         argv = [sys.executable, os.path.join(HERE, "bbplay.py"), path, "--name", self._name(), "--autopilot"]
         br = self.route_branch.get()
@@ -4031,7 +4031,7 @@ class App(object):
         return argv
 
     def autopilot_roll(self):
-        """AUTOPILOT (SPEC.md 130.58.50): Test Roll replaying the route the planner finds (route_plan, or
+        """AUTOPILOT (SPEC.md 137.58.50): Test Roll replaying the route the planner finds (route_plan, or
         branch_plan for the branch the picker chooses) - or, when it finds none, its furthest progress and the
         arrows on from there, ending where the ball gets stuck. The planning runs in Test Roll's own job"""
         p = os.path.join(self.tmp, "auto-%d.bbc" % int(time.time() * 1000))
@@ -4085,7 +4085,7 @@ class App(object):
         drawn = [i for i in range(0, len(ow), 7) if ow[i] >= 0]
         meta["centre"] = ((sum(i % W for i in drawn) / float(len(drawn)), sum(i // W for i in drawn) / float(len(drawn)))
                           if drawn else (W / 2.0, meta["lines"] / 2.0))
-        if meta.get("dropped_gaps") and self.doc.text() == text:   # SPEC.md 130.58.21: marks that no longer fit
+        if meta.get("dropped_gaps") and self.doc.text() == text:   # SPEC.md 137.58.21: marks that no longer fit
             self.root.after(10, lambda: self._drop_gaps(meta["dropped_gaps"], text))
         if self.show_gaps.get() and meta.get("gaps") is None and not self.pic_after:
             self.root.after(10, self.run_picture)   # (drawn before the overlay was turned on: again, with them)
@@ -4159,7 +4159,7 @@ class App(object):
             self._draw_iso()
 
     def _pin_rulers(self):
-        """SPEC.md 130.58.42: keep the plan's grid numbers at the view's top and left edges however it is
+        """SPEC.md 137.58.42: keep the plan's grid numbers at the view's top and left edges however it is
         scrolled or zoomed, above everything else on the plan"""
         c = getattr(self, "cv", None)
         if c is None or not c.find_withtag("rulx"):
@@ -4210,7 +4210,7 @@ class App(object):
         for gy in range(by0, by1 + 1):
             _, y = self._cpx(0, gy)
             c.create_line(0, y, (bx1 - bx0) * s, y, fill="#3a3f48" if gy % 4 else "#4a505b")
-        rstep = next((k for k in (1, 2, 4, 8, 16, 32) if k * s >= 26), 64)   # SPEC.md 130.58.42: the RULERS,
+        rstep = next((k for k in (1, 2, 4, 8, 16, 32) if k * s >= 26), 64)   # SPEC.md 137.58.42: the RULERS,
         rxs = [g for g in range(bx0, bx1) if g % rstep == 0]                # at every zoom, pinned to the
         rys = [g for g in range(by0, by1) if g % rstep == 0]                # view's top and left edges
         self._ruler_items = [c.create_rectangle(0, 0, (bx1 - bx0) * s, 13, fill="#23262c", outline="",
@@ -4298,7 +4298,7 @@ class App(object):
                 txt = ("%g" % lo) if lo == hi else "%g-%g" % (lo, hi)
                 c.create_text(cx_, cy_, text=txt, fill="#111", font=("TkDefaultFont", max(7, min(11, int(s / 2.4))),
                                                                    "bold"))
-        # the guard rails, on the floors' edges (SPEC.md 130.35.1): a yellow line along each railed edge
+        # the guard rails, on the floors' edges (SPEC.md 137.35.1): a yellow line along each railed edge
         for ((rx, ry), ax) in sorted(getattr(a["src"], "rails", {}) or {}) if a["src"] else ():
             p0 = (rx + 1, ry) if ax == "x" else (rx, ry + 1)
             p1 = (rx + 1, ry + 1)
@@ -4314,7 +4314,7 @@ class App(object):
                     c.create_line(*pts, fill="#111", width=max(3, s / 3), capstyle="round", joinstyle="round")
                     c.create_line(*pts, fill="#9fd3ff", width=max(2, s / 5), capstyle="round", joinstyle="round")
         ways_ = self._ways()
-        try:                                    # SPEC.md 130.58.43: the picker lists the course's branches
+        try:                                    # SPEC.md 137.58.43: the picker lists the course's branches
             self.br_cb.configure(values=(ALL_BRANCHES, MAIN_ROUTE) + tuple(self._branches()) + (NEW_BRANCH,))
         except Exception:
             pass
@@ -4326,14 +4326,14 @@ class App(object):
             if self._br_shown(None):
                 if len(pts) >= 4:
                     c.create_line(*pts, fill="#ffffff", width=2, dash=(6, 5))
-            else:                               # 130.58.43: a branch chosen - the main route FADED, for reference
+            else:                               # 137.58.43: a branch chosen - the main route FADED, for reference
                 if len(pts) >= 4:               # (where to fork from and rejoin at), not pickable
                     c.create_line(*pts, fill="#6b7280", width=1, dash=(4, 6))
                 for (x, y), _l in src.ways:
                     px, py = self._cpx(x + .5, y + .5)
                     r0 = max(2.0, s * .12)
                     c.create_oval(px - r0, py - r0, px + r0, py + r0, outline="#9aa3b2", width=1)
-            for b in self._branches():          # each branch its own line, in file order (130.58.43)
+            for b in self._branches():          # each branch its own line, in file order (137.58.43)
                 if not self._br_shown(b):
                     continue
                 pts = []
@@ -4387,7 +4387,7 @@ class App(object):
                     c.create_rectangle(qx + 2, qy + 2, qx + s - 2, qy + s - 2, outline="#ffb020", width=3)
         paint = [l_ for l_ in set(self.sels) | {self.sel} if l_ and l_ <= len(self.doc.lines)
                  and E.Statement(l_, self.doc.lines[l_ - 1]).kind in ("float", "surface")]
-        if paint:                               # a float's or paint's own cells, over the void too (130.58.38)
+        if paint:                               # a float's or paint's own cells, over the void too (137.58.38)
             selcells.update(self._sel_cells(paint))
         for (x, y) in selcells:
             px, py = self._cpx(x, y)
@@ -4402,9 +4402,9 @@ class App(object):
             bx, by = self._cpx(x1 + 1, y1 + 1)
             c.create_rectangle(ax - 1, ay - 1, bx + 1, by + 1, outline="#111", width=4)
             c.create_rectangle(ax, ay, bx, by, outline="#ffd54f", width=2, dash=(6, 3))
-        if self.shapes.active():                 # the selected shape's handles (SPEC.md 130.58.29)
+        if self.shapes.active():                 # the selected shape's handles (SPEC.md 137.58.29)
             self.shapes.draw(c)
-        if self.path_pick:                       # a path traced for a Tube or Chute (SPEC.md 130.58.27)
+        if self.path_pick:                       # a path traced for a Tube or Chute (SPEC.md 137.58.27)
             fin = bbedshape.axis_path([[x, y, None] for (x, y) in self.path_pick])
             pts = [v for w in fin for v in self._cpx(w[0] + .5, w[1] + .5)]
             if len(pts) >= 4:
@@ -4484,7 +4484,7 @@ class App(object):
         self.kitv.draw(c)
         self._draw_blends(c, "iso")
 
-    # -- the gap band (SPEC.md 130.58.21, 130.57) --------------------------------
+    # -- the gap band (SPEC.md 137.58.21, 137.57) --------------------------------
     def _gaps_toggled(self):
         """the detector costs every picture compile time, so it runs only while the overlay shows: turned on
         with a picture that has no candidates, the picture is drawn again with them"""
@@ -4539,7 +4539,7 @@ class App(object):
                       if self.pic["meta"].get("gaps") is not None else "finding them...")
 
     def _gap_say(self, text):
-        """the gap bands' count, on a line of its own under the row (SPEC.md 130.58.54), as the occluders' is"""
+        """the gap bands' count, on a line of its own under the row (SPEC.md 137.58.54), as the occluders' is"""
         self.gap_l.config(text=text)
         if text and not self.gap_l.winfo_manager():
             self.gap_l.pack(side="bottom", anchor="w", padx=8, before=self.gap_row.winfo_children()[0])
@@ -4569,7 +4569,7 @@ class App(object):
                 "Marked" if g["marked"] else "Unmarked", g["side"].upper(), g["cell"][0], g["cell"][1], g["feet"]))
 
     def _draw_blends(self, c, view):
-        """SPEC.md 130.58.18: the last full check's BLEND warnings, while "Hard to see" is on - in Plan both
+        """SPEC.md 137.58.18: the last full check's BLEND warnings, while "Hard to see" is on - in Plan both
         floors hatched (one green, one magenta), in Iso the seam's pixels where the checker runs on.  A check
         refused (under strict) carries none, so the picture job's warnings stand in for it"""
         if not self.show_hard.get():
@@ -4665,7 +4665,7 @@ class App(object):
         if g:                                            # the gap overlay: a click marks or unmarks that face
             self.toggle_gap(g)
             return
-        if self.view.get() == "iso" and self.occ.press(e):   # the occluder overlay's click (130.58.32)
+        if self.view.get() == "iso" and self.occ.press(e):   # the occluder overlay's click (137.58.32)
             return
         cell = self._cell_at(e)
         self.hilite = None
@@ -4678,7 +4678,7 @@ class App(object):
                 self._edit(self.doc.remove, lines[0], label="erase")
             return
         if self.view.get() != "plan":                    # Iso: a click selects what drew that pixel
-            lines = E.at_cell(a, cell, getattr(self, "frac", None))     # (in a split cell, the piece: 130.58.53)
+            lines = E.at_cell(a, cell, getattr(self, "frac", None))     # (in a split cell, the piece: 137.58.53)
             self.area = (cell[0], cell[1], cell[0], cell[1])
             if lines and self.sel in lines and cell == getattr(self, "last_click", None):
                 self.here = (cell, lines)               # (the same cell again: the next part there)
@@ -4693,10 +4693,10 @@ class App(object):
         if ctrl_ and self._is_path_part(self.part):     # Ctrl-click with a Tube or Chute chosen: trace its path
             self._trace(cell)
             return
-        if ctrl_ and self._route_ctrl():                 # SPEC.md 130.58.43: Ctrl-click lays a route point
+        if ctrl_ and self._route_ctrl():                 # SPEC.md 137.58.43: Ctrl-click lays a route point
             self.route_add(cell)
             return
-        if self.shapes.active():                         # the selected shape, edited in place (130.58.29)
+        if self.shapes.active():                         # the selected shape, edited in place (137.58.29)
             if ctrl_:
                 self.shapes.add_point(e)
                 return
@@ -4717,14 +4717,14 @@ class App(object):
                 self.select(w)
             self.drag = {"from": cell, "to": cell, "move": True, "shift": False, "ctrl": False}
             return
-        movable = self.sel and cell in self._sel_cells() and any(    # (several: any of them, SPEC.md 130.58.57)
+        movable = self.sel and cell in self._sel_cells() and any(    # (several: any of them, SPEC.md 137.58.57)
             E.coord_slots(self.doc.statement(ln).toks) for ln in self._selected())
         ctrl = bool(e.state & 0x0004) or (sys.platform == "darwin" and bool(e.state & 0x0008))
         self.drag = {"from": cell, "to": cell, "move": bool(movable) and not ctrl, "shift": bool(e.state & 0x0001),
                      "ctrl": ctrl}
 
     def _motion(self, e):
-        if self.occ.dragging():                 # the occluder overlay's rectangle (SPEC.md 130.58.47)
+        if self.occ.dragging():                 # the occluder overlay's rectangle (SPEC.md 137.58.47)
             return self.occ.motion(e)
         d = self.drag
         if not d:
@@ -4746,7 +4746,7 @@ class App(object):
         self._draw_plan()
 
     def _release(self, e):
-        if self.occ.dragging():                 # the occluder overlay's click or rectangle (SPEC.md 130.58.47)
+        if self.occ.dragging():                 # the occluder overlay's click or rectangle (SPEC.md 137.58.47)
             return self.occ.release(e)
         d, self.drag = self.drag, None
         if not d:
@@ -4760,7 +4760,7 @@ class App(object):
             if d["rect"] != d["orig"]:
                 self.resize_sel(d["rect"])
                 return
-        if d["move"] and d["to"] != d["from"] and len(self._selected()) > 1:     # SPEC.md 130.58.57
+        if d["move"] and d["to"] != d["from"] and len(self._selected()) > 1:     # SPEC.md 137.58.57
             self.move_multi(d["to"][0] - d["from"][0], d["to"][1] - d["from"][1])
         elif d["move"] and d["to"] != d["from"]:
             self.move_sel(d["to"][0] - d["from"][0], d["to"][1] - d["from"][1])
@@ -4804,7 +4804,7 @@ class App(object):
             return
         if self.view.get() == "iso" and self.occ.hover(e):
             return
-        kw = self._kit_words(e)                 # (SPEC.md 130.58.52: the block under the pointer, kit's or own)
+        kw = self._kit_words(e)                 # (SPEC.md 137.58.52: the block under the pointer, kit's or own)
         cell = self._cell_at(e)
         if cell is None:
             self.readout.config(text=kw or "")
@@ -4831,7 +4831,7 @@ class App(object):
         self.readout.config(text="    ".join(parts))
 
     def _kit_words(self, e):
-        """the Kit overlay's words for the picture pixel under the pointer (SPEC.md 130.58.52), or None"""
+        """the Kit overlay's words for the picture pixel under the pointer (SPEC.md 137.58.52), or None"""
         if self.view.get() != "iso" or not self.pic or not getattr(self, "iso_scale", None):
             return None
         kx, ky = self.iso_scale
@@ -4847,7 +4847,7 @@ class App(object):
         self._fit_bar()
 
     def _fit_bar(self):
-        """SPEC.md 130.58.54: the status bar's two messages, each cut with an ellipsis to the room the bar has
+        """SPEC.md 137.58.54: the status bar's two messages, each cut with an ellipsis to the room the bar has
         (the running job's at most two fifths of it)"""
         import tkinter.font as tkfont
         f = tkfont.nametofont("TkDefaultFont")
@@ -4910,7 +4910,7 @@ EXPLAIN = [
      "on one flat floor."),
     (r"HALF filled", "a turntable needs exactly half of its cells filled; change its fill on the right."),
     (r"is empty", "the area is empty (zero cells across)."),
-    # SPEC.md 130.58.45: the 256 masks - one table for the course, and then one a band (130.52)
+    # SPEC.md 137.58.45: the 256 masks - one table for the course, and then one a band (137.52)
     (r"(\d+) occluder masks, over the 256 a 4-byte record's mask byte names", "the course's occluders need {0} "
      "different masks (the 8 x 8 cut-outs that lay a ball behind what stands in front of it), and one table holds "
      "256. Give each band of 16 block rows its own table (masks banded, the button below or the Course tab), or "
@@ -4939,7 +4939,7 @@ EXPLAIN = [
      "give that flag or pad a ball that can make it. If a player really can (a trick the check does not try), "
      "the check is a helper, not a rule of the game: say No when asked to check for softlocks."),
     (r"way \(\d+, \d+\) is on a", "a route point must be on floor."),
-    # SPEC.md 130.58.49: the route's warnings (the builder's, never a refusal) - what the autopilot does with a way
+    # SPEC.md 137.58.49: the route's warnings (the builder's, never a refusal) - what the autopilot does with a way
     (r"route: way \((-?\d+), (-?\d+)\) is (on|next to) the see-saw", "the autopilot (the route demo's and the "
      "limit's driver) slows the ball as it comes to a route point and counts the point reached about a cell "
      "before it, so a point {2} a see-saw leaves the ball creeping on the plate: the plate tips under it, and the "
@@ -4979,24 +4979,24 @@ EXPLAIN = [
     (r"a (DROP|raised LAUNCH)'s mouth must be on the face of the body's last wall", "a {0}'s mouth stands on the "
      "face of the pipe's last block, so the exit cell must be right in front of it along 'Comes out': set Comes "
      "out to the way the last leg runs (or leave it 'along its last leg')."),
-    (r"the tube's column hangs nothing", "the tube's Column reaches a depth only over the void (SPEC.md 130.12.3.5): "
+    (r"the tube's column hangs nothing", "the tube's Column reaches a depth only over the void (SPEC.md 137.12.3.5): "
      "every cell of this tube's body stands on floor or beside it, so its column already stops there. Set Column "
      "reaches back to the ground, run the tube out over a gap, or raise the Pipe height so the column stops 2 "
-     "units over the floor and the ball can pass under it (130.12.3.6)."),
+     "units over the floor and the ball can pass under it (137.12.3.6)."),
     (r"the tube's `top` makes its body a floor", "the tube's Walkable top makes its pipe a floor the ball lands "
-     "and rolls on, which the archway extra does (SPEC.md 130.12.3.7): add `archway` to the course's extras (the "
+     "and rolls on, which the archway extra does (SPEC.md 137.12.3.7): add `archway` to the course's extras (the "
      "builder does when you tick it), or untick Walkable top."),
     (r"the cell \((\d+), (\d+)\) under a walkable top is not a flat WALL", "a walkable top lies on the tube's "
      "body, and ({0}, {1}) is part of it but is not a flat wall the tube laid - a ramp or a sloped wall the tube "
-     "runs through (SPEC.md 130.12.3.7). Move the tube off it, or untick Walkable top."),
+     "runs through (SPEC.md 137.12.3.7). Move the tube off it, or untick Walkable top."),
     (r"the tube's column stops (\S+) units over the floor at \((\d+), (\d+)\): a ball needs (\d+) units",
      "the tube's column stops {0} units over the floor at ({1}, {2}): too low for the ball to pass under the pipe "
-     "(it needs {3}), and a gap it cannot use is not allowed (SPEC.md 130.12.3.6). Raise the Pipe height (or that "
+     "(it needs {3}), and a gap it cannot use is not allowed (SPEC.md 137.12.3.6). Raise the Pipe height (or that "
      "leg's) so the gap is {3} units, or make Column reaches deeper - to the floor, or the ground - so it stands "
      "on it."),
     (r"the tube's column stops (\d+) px over the cell \((\d+), (\d+)\), which is not a whole FLAT FLOOR",
      "the tube's column stops short over ({1}, {2}), and the ball could only pass under the pipe there if the cell "
-     "were a plain flat floor - it is a ramp, a goal, water or a split cell (SPEC.md 130.12.3.6). Make Column "
+     "were a plain flat floor - it is a ramp, a goal, water or a split cell (SPEC.md 137.12.3.6). Make Column "
      "reaches deep enough to stand on it, or make the cell under the pipe a flat floor."),
     (r"a tube's body takes one height, or one a leg: (\d+) heights for (\d+) legs", "a tube's pipe height is one "
      "for the whole tube, or one for each leg - this one has {1} legs and {0} heights. Set them on the Shapes "
@@ -5030,7 +5030,7 @@ EXPLAIN = [
     (r"already belongs to the prop", "only one part can stand on a cell. Choose another cell."),
     (r"an archway .* at most 2 cells", "an archway is at most 2 cells each way: select the path's width, "
      "not its length."),
-    # the LANE bounds that remain (SPEC.md 130.19.10 item 14, 130.32): what the game's drawing can really not do
+    # the LANE bounds that remain (SPEC.md 137.19.10 item 14, 137.32): what the game's drawing can really not do
     (r"lanes on their own clocks meet", "too many things that keep changing by themselves (windmills, fans, "
      "and the clock's digits) are on one screen together with a clock. At the finish the clock's digits are "
      "drawn all at once, which needs room for all of them in one frame. Move the clock, or a windmill or fan, "
@@ -5078,7 +5078,7 @@ def cell_rects(cells):
 
 
 def iso_frac(a, cell, px, py, meta):
-    """SPEC.md 130.58.53: the point (u, v), 0 - 1 each way, of a SPLIT cell under the Iso picture's pixel (PX, PY)
+    """SPEC.md 137.58.53: the point (u, v), 0 - 1 each way, of a SPLIT cell under the Iso picture's pixel (PX, PY)
     - the top's projection inverted (bbcourse._top_world: gx - gy = x + 0.5 - X0, gx + gy = 2 (y - Y0 + 0.5 + z))
     at each piece's own height, the first piece the point then falls in; a face pixel (below every top) clamped
     to the cell. None for a cell that is not split"""
@@ -5100,7 +5100,7 @@ def iso_frac(a, cell, px, py, meta):
 
 
 def shift_words(dx, dy):
-    """SPEC.md 130.58.57: a whole-course shift in the plan's words: '2 cells right and 1 down (x +2, y +1)'"""
+    """SPEC.md 137.58.57: a whole-course shift in the plan's words: '2 cells right and 1 down (x +2, y +1)'"""
     parts = []
     if dx:
         parts.append("%d %s" % (abs(dx), "right" if dx > 0 else "left"))
@@ -5121,16 +5121,16 @@ def explain(err):
     return err
 
 
-# SPEC.md 130.58.38: a refusal with an obvious way out - (pattern, the button's words, fix(doc, line, match)
+# SPEC.md 137.58.38: a refusal with an obvious way out - (pattern, the button's words, fix(doc, line, match)
 # making the edit, through the window's checked edit) - offered under the problems list when its row is picked
 FIXES = [
     (r"float floats nothing", "Remove this overhang (the float)",
      lambda d, ln, m: d.remove(ln, label="remove a float")),
     (r"gap bands nothing", "Remove this gap line", lambda d, ln, m: d.remove(ln, label="remove a gap line")),
-    # SPEC.md 130.58.41: a mouth the wall's face does not hold - the height the compiler names that it does
+    # SPEC.md 137.58.41: a mouth the wall's face does not hold - the height the compiler names that it does
     (r"the tube on line \d+: its exit mouth .*: height (\S+) fits;", "Use height {0}",
      lambda d, ln, m: d.set_clause(ln, "height", [m.group(1)], label="lower a tube's mouth")),
-    # SPEC.md 130.58.49: the route's warnings - the way named, removed, or a way added after it (in its branch)
+    # SPEC.md 137.58.49: the route's warnings - the way named, removed, or a way added after it (in its branch)
     (r"route: way \(-?\d+, -?\d+\) is (on|next to) the see-saw", "Remove this route point",
      lambda d, ln, m: d.remove(ln, label="remove a route point")),
     (r"route: the .* never goes in - put a way on \((-?\d+), (-?\d+)\)", "Add a route point on ({0}, {1})",
@@ -5141,14 +5141,14 @@ FIXES = [
 
 
 def way_after(d, line, x, y):
-    """SPEC.md 130.58.49: `way X Y` right after the way on LINE, in that way's branch (a fix's edit)"""
+    """SPEC.md 137.58.49: `way X Y` right after the way on LINE, in that way's branch (a fix's edit)"""
     st = next(s for s in d.statements() if s.line == line)
     br = st.toks[st.toks.index("branch") + 1] if "branch" in st.toks[:-1] else None
     return d.insert("way %d %d%s" % (x, y, " branch %s" % br if br else ""), after=line, label="add a route point")
 
 
 def masks_banded(d):
-    """SPEC.md 130.58.45: `masks banded` written once, after the course's settings (as the Course tab writes it)"""
+    """SPEC.md 137.58.45: `masks banded` written once, after the course's settings (as the Course tab writes it)"""
     sts = d.statements()
     if any(s.kind == "masks" for s in sts):
         return False
@@ -5157,7 +5157,7 @@ def masks_banded(d):
     return True
 
 
-# SPEC.md 130.58.45: a refusal of the COURSE (no line of its own) with an obvious way out
+# SPEC.md 137.58.45: a refusal of the COURSE (no line of its own) with an obvious way out
 WHOLE_FIXES = [
     (r"occluder masks, over the 256 a 4-byte record's mask byte names", "Give each band its own mask table "
      "(masks banded)", lambda d, ln, m: masks_banded(d)),

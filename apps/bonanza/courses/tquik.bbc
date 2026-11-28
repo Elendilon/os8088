@@ -1,4 +1,4 @@
-# Quick Test - TQUIK (the plan's TQUICK: a NAME is five characters), a TEST course (SPEC.md 130.54.2): the
+# Quick Test - TQUIK (the plan's TQUICK: a NAME is five characters), a TEST course (SPEC.md 137.54.2): the
 # BZDEV=1 build's alone, after the shipped courses (the Makefile's BZ_TESTCRS), on no pad, with no shipped
 # demo.  "Exits and the save" (docs/plans/BOUNCE-BONANZA-SOAK.md): the GOAL course the rows' launches end on,
 # as small as a course can be and still carry what their legs need -
@@ -10,10 +10,10 @@
 #  - `palette 0` (10h, not the BIOS's 30h: the CGA's colour select is seen) and a short `limit` (a TIMEOUT is
 #    waited out in 8 s); the finish clock beside C.
 #  - C's front goal cell (14, 7) a HIDDEN exit 1 (2026-11-20): the key of the test map's SECRET route
-#    (pathdev.bbc, SPEC.md 130.54.6), so the secret leg plays a shipped tree's course with no patch.
+#    (pathdev.bbc, SPEC.md 137.54.6), so the secret leg plays a shipped tree's course with no patch.
 course TQUIK "Quick Test"
-test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
-music fairway    # SPEC.md 130.50.3: every course names its song
+test             # SPEC.md 137.54: a test course - no pad, no shipped demo, no target owed
+music fairway    # SPEC.md 137.50.3: every course names its song
 width 64
 ball rubber
 uses tube
@@ -25,7 +25,7 @@ floor rect   7 4 11 8  ramp x 7 11 4 2    # B, down along +x
 floor rect  11 4 15 8  flat 2             # C, the foot
 goal  rect  14 4 15 7  flat 2             # C's last column is the goal (exit 0) ...
 goal  rect  14 7 15 8  flat 2 exit 1 hidden   # ... but its front cell, a HIDDEN exit 1 (the test map's
-                                          # secret route, SPEC.md 130.54.6; off the route, a row pokes it)
+                                          # secret route, SPEC.md 137.54.6; off the route, a row pokes it)
 hole  tile  12 7                          # a pit in C, off the route
 checkpoint 12 5 ball rubber               # flag 0, on the route (its ball NAMED: the record as before
                                           # 2026-11-23, when a flag with no `ball` became AS TOUCHED)
@@ -35,4 +35,4 @@ start 4 5
 way 4 5
 way 14 5
 limit 8
-clock 11 7                                # the finish clock (SPEC.md 130.22.6)
+clock 11 7                                # the finish clock (SPEC.md 137.22.6)

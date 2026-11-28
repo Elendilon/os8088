@@ -26,7 +26,7 @@ PXL_IMAGE and PXL_BSS; the part compares them with the header of the package
 it is called from (DS:8 and DS:10) before it touches a variable, so a part
 from another build answers PXD_LINK rather than writing the wrong bytes.
 
-ANOTHER PACKAGE (BONANZA's shell part, SPEC.md 130.19.2) names its source,
+ANOTHER PACKAGE (BONANZA's shell part, SPEC.md 137.19.2) names its source,
 its include directories and its prefix:
 
     python3 tools/pxlink.py build/bonanza.bin --src apps/bonanza/bonanza.asm \

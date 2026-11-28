@@ -1,5 +1,5 @@
-# Summit Rush - BONANZA's course 5 (SPEC.md 130.14.6; its NAME is PEAK,
-# 130.14.17 item 1): the long DEMO course, a descent with every prop on it and
+# Summit Rush - BONANZA's course 5 (SPEC.md 137.14.6; its NAME is PEAK,
+# 137.14.17 item 1): the long DEMO course, a descent with every prop on it and
 # all three balls.  Built for the RUBBER ball; four flags, each naming its
 # ball (NO TRAP, `bbcourse.py --selfcheck` item 7).  In order:
 #  1. the summit: three steep ramps (r -4, two units a tile) with their
@@ -22,10 +22,10 @@
 #  7. the RUBBER pad, the short climb to the sand green and the CUP
 #     (capture 160).
 course PEAK "Summit Rush"
-music summit     # SPEC.md 130.50.3: every course names its song (the song it had by position)
+music summit     # SPEC.md 137.50.3: every course names its song (the song it had by position)
 width 64
 ball rubber
-# story 9.8 (SPEC.md 130.25.20): today's props' families, home RESIDENT (130.25.6.9)
+# story 9.8 (SPEC.md 137.25.20): today's props' families, home RESIDENT (137.25.6.9)
 uses rotor spring tube
 # 1 the summit: three steep ramps (r -4) and their landings, the ice chute
 floor rect  11  7 14 10  flat 36
@@ -107,7 +107,7 @@ wall rect 39 49 43 50 flat 20
 # 5 the glass pad and the moat bridge
 pad glass 40 47
 # (the flag at the bridge's head, in the open: inside the moat its pennant and
-# pole were behind the moat's front wall - SPEC.md 130.14.25 item 1)
+# pole were behind the moat's front wall - SPEC.md 137.14.25 item 1)
 checkpoint 42 48 ball glass
 floor rect 43 48 47 49 flat 19
 floor rect 47 47 53 50 flat 19
@@ -137,7 +137,7 @@ wall rect 53 62 57 63 flat 23
 
 start 12 8
 
-# The autopilot's route (the route demo's and bonanzaperf's leg, 130.14.6):
+# The autopilot's route (the route demo's and bonanzaperf's leg, 137.14.6):
 # the summit's ramps and the chute, flag 0, straight up into the windmill's
 # doorway, B, the chute, flag 1, spring 1, the steel pad, the coast, the
 # cannon, flag 2, the glass pad, the bridge, flag 3, spring 2, the descent,
@@ -181,18 +181,18 @@ way 23 30 branch GLASS
 way 23 32 branch GLASS
 way 25 32 branch GLASS
 
-# par: the autopilot's time on the route and a third (130.14.3.1, PROVISIONAL)
-# wave 7 (SPEC.md 130.18.3): `par` is refused; the tool's limit from the route applies
-# Wave 5b (SPEC.md 130.15.8): the design time (CD3), the middle class until its retrofit; the
+# par: the autopilot's time on the route and a third (137.14.3.1, PROVISIONAL)
+# wave 7 (SPEC.md 137.18.3): `par` is refused; the tool's limit from the route applies
+# Wave 5b (SPEC.md 137.15.8): the design time (CD3), the middle class until its retrofit; the
 # course budget reads it (12550 bytes packed, refused past 1.5 times).  Tool-only:
 # it writes nothing into the part, so no identity moves.
 target 60
 
-# wave 7 (SPEC.md 130.18.5, story 7.7): the course CLOCKS - a crystal ball on a stick, its digits the
+# wave 7 (SPEC.md 137.18.5, story 7.7): the course CLOCKS - a crystal ball on a stick, its digits the
 # seconds left of the limit; placed beside the route for the clock's measurement
 clock 11 7
 
-# the FINISH clock (wave 8R, SPEC.md 130.22.6: every finish has a clock in the CGA window centred on it,
+# the FINISH clock (wave 8R, SPEC.md 137.22.6: every finish has a clock in the CGA window centred on it,
 # which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
 # are the same with it and without it, so the build re-stamps the demo's identity
 clock 53 55

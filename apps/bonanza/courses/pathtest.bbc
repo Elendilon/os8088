@@ -2,10 +2,10 @@
 # pad-0 test-course knobs (BZSHAPES, BZMAGNET, ... BZTURN: apps/bonanza/courses/path<knob>.sed) edit,
 # each putting its course on pad 0 in FIRST's place.  Not shipped as the map: apps/bonanza/courses/path.bbc
 # is (option A of docs/plans/bonanza-courses/pathway/).  First Roll and Little Hop have no pad here.
-# Pad 1 is DOWN since 2026-11-21 (TRIAL's pad until TRIAL became a test course, SPEC.md 130.54; DOWN has its
+# Pad 1 is DOWN since 2026-11-21 (TRIAL's pad until TRIAL became a test course, SPEC.md 137.54; DOWN has its
 # two exits), its icon still TRIAL's placeholder.
 #
-# The PATHWAY - BONANZA's map between courses (wave 8R, SPEC.md 130.22).
+# The PATHWAY - BONANZA's map between courses (wave 8R, SPEC.md 137.22).
 # A PROTOTYPE of today's six courses on two pages (the owner, 2026-11-16: a
 # path screen; the map's final shape, 14 - 20 courses, is a later wave's).
 # The marble AUTO-ROLLS along a route between glowing pads: finishing course
@@ -26,11 +26,11 @@ width  64
 ball   rubber
 pathway
 music  fairway                              # (8b.10 gives the pathway its own)
-rail   crystal                              # the route material (SPEC.md 130.22.8)
+rail   crystal                              # the route material (SPEC.md 137.22.8)
 view   0 340                                # page 0's CGA window, centred at projection (0, 340)
 pages  2
 float  rect 0 0 64 64                       # the whole map FLOATS (the owner, 2026-11-16): crystal islands
-                                            # with short icicle faces are the pathway's look (SPEC.md 130.27.2)
+                                            # with short icicle faces are the pathway's look (SPEC.md 137.27.2)
 
 # pad N COURSE WX WY
 pad 0 FIRST  22 26

@@ -8,7 +8,7 @@ A section is laid ONCE and feeds three things: the plan, the picture in the game
 `.bbc` text - so the sheet's pictures and the pen-in course cannot disagree about where a floor is.
 
 The cells are the ENGINE's cells (no offset): +wx runs down-right on the screen, +wy down-left, a height unit
-is 8 px (SPEC.md 130.10.2).  A prop the engine has is laid by its own method (the `.bbc` line and its glyph
+is 8 px (SPEC.md 137.10.2).  A prop the engine has is laid by its own method (the `.bbc` line and its glyph
 together); `raw()` is a `.bbc` line the pen draws nothing for; `note()` is a label on the pictures alone.
 """
 import math
@@ -22,7 +22,7 @@ DIRV = {"+x": (1, 0), "-x": (-1, 0), "+y": (0, 1), "-y": (0, -1)}
 
 
 def P(wx, wy, z):
-    """the game's projection (SPEC.md 130.10.2), before the origin"""
+    """the game's projection (SPEC.md 137.10.2), before the origin"""
     return 16 * (wx - wy), 8 * (wx + wy) - 8 * z
 
 
@@ -97,20 +97,20 @@ class Pen:
                     self.wallcol[(x, y)] = col or (210, 70, 170)
 
     def float(self, x0, y0, x1, y1, thick=None):
-        """the cells FLOAT (SPEC.md 130.27.2): short icicle faces, not faces down to the ground"""
+        """the cells FLOAT (SPEC.md 137.27.2): short icicle faces, not faces down to the ground"""
         self.floats.append("float rect %3d %3d %3d %3d%s" % (x0, y0, x1, y1, " thick %g" % thick if thick else ""))
         for x in range(x0, x1):
             for y in range(y0, y1):
                 self.thick[(x, y)] = thick or 3
 
     def float_all(self, x0, y0, x1, y1):
-        """the whole course floats (the pathway's look, SPEC.md 130.27.2): laid FIRST, so a bridge's or a
+        """the whole course floats (the pathway's look, SPEC.md 137.27.2): laid FIRST, so a bridge's or a
         plate's own `thick` after it still holds"""
         self.floats.insert(0, "float rect %3d %3d %3d %3d" % (x0, y0, x1, y1))
         self.allfloat = 3
 
     def cut(self, x, y, side):
-        """a DIAGONAL corner (SPEC.md 130.24.4): the cell's half on that side of the SCREEN is cut away"""
+        """a DIAGONAL corner (SPEC.md 137.24.4): the cell's half on that side of the SCREEN is cut away"""
         self.rooms.append("hole  half %s tile %d %d          # a diagonal corner" % (side, x, y))
         self.cutc[(x, y)] = side
 
@@ -128,7 +128,7 @@ class Pen:
                 self.tint[(x, y)] = rgb
 
     def guard(self, x0, y0, x1, y1, sides=None, height=None):
-        """a see-through GUARD RAIL on the floor's edges (SPEC.md 130.35.1): `sides` None rails every OPEN
+        """a see-through GUARD RAIL on the floor's edges (SPEC.md 137.35.1): `sides` None rails every OPEN
         edge of the rect's outline"""
         self.rails.append((x0, y0, x1, y1, sides))
         self.rooms.append(("guard rect %3d %3d %3d %3d" % (x0, y0, x1, y1)) +
@@ -171,7 +171,7 @@ class Pen:
 
     def magnet(self, x, y, face, rng=1, strength=None, down=None):
         """a SIDE magnet (its field `rng` cells out along `face`, pulling toward the post) or, with `down`
-        the arm's way, a HANGING one over the next cell that way (SPEC.md 130.33)"""
+        the arm's way, a HANGING one over the next cell that way (SPEC.md 137.33)"""
         if down:
             s = "prop magnet %d %d face down %s" % (x, y, down)
         else:
@@ -211,7 +211,7 @@ class Pen:
         self.g("gate", at=(x, y), ch=ch, along=along, art=art)
 
     def bridge(self, x0, y0, x1, y1, ch=None, period=None, on=None, seed=None, style=None, thick=0.5):
-        """a DRAWBRIDGE (SPEC.md 130.41): switched by a channel, or timed"""
+        """a DRAWBRIDGE (SPEC.md 137.41): switched by a channel, or timed"""
         self.floats.append("float rect %3d %3d %3d %3d thick %g" % (x0, y0, x1, y1, thick))
         s = "prop bridge %d %d %d %d " % (x0, y0, x1, y1)
         s += "channel %s" % ch if ch else "period %d on %d" % (period, on) + (" seed %d" % seed if seed else "")
@@ -223,7 +223,7 @@ class Pen:
                 self.g("bridge", at=(x, y), ch=ch)
 
     def popspikes(self, cells, period, on, seed=0, step=1):
-        """a row of POP-UP SPIKES (SPEC.md 130.38), each cell `step` after the last"""
+        """a row of POP-UP SPIKES (SPEC.md 137.38), each cell `step` after the last"""
         for i, (x, y) in enumerate(cells):
             self.lines.append("prop popspikes %d %d period %d on %d seed %d" % (x, y, period, on, (seed + i * step) % period))
             self.g("spikes", at=(x, y), pop=True)
@@ -235,7 +235,7 @@ class Pen:
                 self.g("spikes", at=(x, y), pop=False)
 
     def seesaw(self, x0, y0, x1, y1, along, pivot, rest=None, period=None, flat=None, seed=None, sec="W"):
-        """a SEE-SAW (SPEC.md 130.42), a weight plate or (with `period`) a TIMED one; drawn at rest"""
+        """a SEE-SAW (SPEC.md 137.42), a weight plate or (with `period`) a TIMED one; drawn at rest"""
         s = "seesaw %d %d %d %d along %s pivot %g" % (x0, y0, x1, y1, along, pivot)
         s += (" rest %s" % rest if rest else "") + (" period %d" % period if period else "")
         s += (" flat %d" % flat if flat else "") + (" seed %d" % seed if seed else "")
@@ -274,7 +274,7 @@ class Pen:
         self.g("pit", at=(x, y), z=z, r=radius, hole=1 if hole is None else hole)
 
     def chute(self, width, prof, depth, ways, sec="U"):
-        """ways: (x, y, z) points on the crease (SPEC.md 130.28.3); the pen lays its cells flat at the lip,
+        """ways: (x, y, z) points on the crease (SPEC.md 137.28.3); the pen lays its cells flat at the lip,
         a leg's slope along it, so the pictures show where the channel runs"""
         self.lines.append("chute %d %s depth %d " % (width, prof, depth) +
                           " ".join("way %d %d %g" % w for w in ways))

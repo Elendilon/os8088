@@ -3,8 +3,8 @@
 The owner, after the see-saw's timed mode had no control: *"Want to do a check if any other props are missing
 options they have available? I'd run into them as I tried to use them, but catching them ahead of time is
 better."* This is that check: every statement the course grammar accepts (tools/bbcourse.py's statement dispatch
-and its `_parse_*`, SPEC.md 130's grammar blocks), every optional clause, flag or mode it takes and every value
-with a fixed choice set, and whether the builder (tools/bbedit.py, SPEC.md 130.58) could set it without typing
+and its `_parse_*`, SPEC.md 137's grammar blocks), every optional clause, flag or mode it takes and every value
+with a fixed choice set, and whether the builder (tools/bbedit.py, SPEC.md 137.58) could set it without typing
 the statement by hand.
 
 **Before** is the builder as it stood at `7ddb743cb`. Its inspector was GENERIC for most statements: coordinate
@@ -12,7 +12,7 @@ spinboxes, and a spinbox or combobox for a fixed list of clause words (`flat`, `
 `strength`, `range`, `for`, `face`, `along`, `channel`, `style`, ...) **only if that word was already written**.
 An optional clause the author had not typed had no control. **Now** is this change: `tools/bbedopts.py`, one
 row per clause (word, kind of value, legal values or range, default, label, hint), drawn by `_option_rows` for
-every statement whether the clause is written or not (SPEC.md 130.58.37).
+every statement whether the clause is written or not (SPEC.md 137.58.37).
 
 Key: *missing* = no control unless typed; *if written* = a control only when the word was already there;
 *bespoke* = a section of its own (left as it was).
@@ -23,7 +23,7 @@ Key: *missing* = no control unless typed; *if written* = a control only when the
 |---|---|---|---|---|
 | `floor` `wall` `goal` | `flat H` / `ramp AX P0 P1 H0 H1` | heights, rate whole half units | bespoke (Slope) | unchanged |
 | | surface, hang (`surface`, `float`) | normal ice sand bounce; hang depths | bespoke | unchanged |
-| | `half SIDE`, `quarter N`, `box ... chamfer N` | pieces | missing | **left** at first; since SPEC.md 130.58.53 (2026-11-24) a **Piece** row (Whole cell, four halves, four quarters; `floor` `wall` `goal` `hole`, not on a box) and a **Cut corners** row on a box, and the palette's *Diagonals and corners* group adds halves, quarters, corner cuts, strips and boxes |
+| | `half SIDE`, `quarter N`, `box ... chamfer N` | pieces | missing | **left** at first; since SPEC.md 137.58.53 (2026-11-24) a **Piece** row (Whole cell, four halves, four quarters; `floor` `wall` `goal` `hole`, not on a box) and a **Cut corners** row on a box, and the palette's *Diagonals and corners* group adds halves, quarters, corner cuts, strips and boxes |
 | `goal` | `exit E` | 0 - 3 | missing | row |
 | | `hidden` (a secret finish) | flag | missing | tick box |
 | `hole` | - | | | |
@@ -38,12 +38,12 @@ Key: *missing* = no control unless typed; *if written* = a control only when the
 | `gap` | `sw` / `se` | one side, or both | missing | radio (both faces / sw / se) |
 | `guard` | `side +x -x +y -y \| all` | any of four | missing | four tick boxes (none: the floor's open edges) |
 | | `height H` | 1.5 - 3 units | if written | row |
-| `seesaw` | size, axis, `period [flat] [seed]` | 130.42.2, 130.42.11 | bespoke (the lead, 130.58.35) | unchanged |
+| `seesaw` | size, axis, `period [flat] [seed]` | 137.42.2, 137.42.11 | bespoke (the lead, 137.58.35) | unchanged |
 | | `rest -\|+` | after `pivot` | missing | radio |
 | | `pivot H` | units | if written (always is) | unchanged |
 | `archway` | `along x\|y` | | combobox | row |
 | | `under U` | 2 - 4 units | if written | row |
-| `chute` `pit` `hump` `tube` | every clause | | bespoke (shape editor, 130.58.29 / 33) | unchanged: the shape editor's forms cover all of them |
+| `chute` `pit` `hump` `tube` | every clause | | bespoke (shape editor, 137.58.29 / 33) | unchanged: the shape editor's forms cover all of them |
 | `cup` | `capture V` | 64 - 384, right after the cell | missing | row |
 | | `exit E`, `hidden` | 0 - 3; flag | missing | row, tick box |
 | `checkpoint` | `ball M` | rubber steel glass | missing | combobox |
@@ -84,7 +84,7 @@ Key: *missing* = no control unless typed; *if written* = a control only when the
 
 Not the inspector's: the Course tab sets `course`, `width`, `ball`, `music`, `palette`, `gatestyle`, `target`,
 `limit`, `medals` and `strict`; `uses` is kept by the builder itself; `noocclude` by the occluder view
-(130.58.32); `accept` from the Checks list. `view [drop]`, `origin`, `lock`, `stop`, `fshow`, `masks`, `art`,
+(137.58.32); `accept` from the Checks list. `view [drop]`, `origin`, `lock`, `stop`, `fshow`, `masks`, `art`,
 `title`, `version`, `trap`, `guide`, `test` and `pathway` are written by hand (they belong to the picture and the
 pathway rather than to a part) and were outside this audit.
 
@@ -96,7 +96,7 @@ compile except
 - **Windmill, Lift, Seesaw**: refused there and explained in plain words (a windmill on a KEEP tube's mouth, a
   lift in an empty shaft, a see-saw over empty space) - the template is right, the place is not.
 - **Gate, Pressure plate, Key**: each is refused ALONE in every placement, because a gate and its opener are a
-  pair (130.41.7) and the palette adds one at a time. Now explained (EXPLAIN in bbedit.py): *Keep it anyway*,
+  pair (137.41.7) and the palette adds one at a time. Now explained (EXPLAIN in bbedit.py): *Keep it anyway*,
   then add the other half on the same channel - which then compiles (checked). A later change could add both
   halves at once.
 

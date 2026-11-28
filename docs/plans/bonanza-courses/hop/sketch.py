@@ -18,8 +18,8 @@ RAILS = []           # (x0, y0, x1, y1) a guard rail along a tile edge
 WALLS = []           # (x0, y0, x1, y1, z) a solid block
 HOLES = set()
 FLOATS = set()     # the FLOATING cells: their faces hang 3 units, not to the ground (`float`)
-SPRINGS = []       # (wx, wy, gvz): SPEC.md 130.14's springs, drawn as a coil
-ARCHES = []                                                  # (x0, y0, x1, y1, along, under): SPEC.md 130.39
+SPRINGS = []       # (wx, wy, gvz): SPEC.md 137.14's springs, drawn as a coil
+ARCHES = []                                                  # (x0, y0, x1, y1, along, under): SPEC.md 137.39
 # revision 8 (the owner's edit of the diagonal variant): half cells made VOID - (wx, wy, side): the start
 # plateau's corners and its front corner on a diagonal, and the hill landings' outer corners
 HALVES = []
@@ -99,13 +99,13 @@ def chute(sec, ways, depth):
 
 
 def rail(x0, y0, x1, y1, style="block"):
-    """a rail along a tile edge: a BLOCK rail (a wall tile) or a see-through GUARD rail (SPEC.md 130.35), the
+    """a rail along a tile edge: a BLOCK rail (a wall tile) or a see-through GUARD rail (SPEC.md 137.35), the
     style a choice per rail (the course guide's G24); either takes the tile on the void side of the edge"""
     RAILS.append((x0, y0, x1, y1, style))
 
 
 Z = 24                                   # the start's height, units
-THICK = float(os.environ.get("HOP_THICK", "1"))   # an island's faces over the void, units (130.27.2.1; 3 = plain float)
+THICK = float(os.environ.get("HOP_THICK", "1"))   # an island's faces over the void, units (137.27.2.1; 3 = plain float)
 THICKS = "" if THICK == 3 else " thick %g" % THICK
 # Every island FLOATS (faces 3 units deep): void between the levels, a gap you can see.  Teach, then test:
 #   A  the start island        T1 a 1-tile gap, LEVEL: the first Hop (a wide window, 549 ms)
@@ -121,7 +121,7 @@ THICKS = "" if THICK == 3 else " thick %g" % THICK
 # jumps "MUCH too hard", the path unclear where islands sat a tile apart): every Hop is a 1-TILE gap, every
 # "and again" a 1-UNIT step with rails at its sides, no 2-tile gap but the bounce's, and parts of the course that
 # do not connect stand at least three void tiles apart.  GROUNDED: every island a column to the ground.
-# LEG 1, -x (revision 7, the owner, with QUARTER heights, SPEC.md 130.48): the start FLIPPED to the east, and the
+# LEG 1, -x (revision 7, the owner, with QUARTER heights, SPEC.md 137.48): the start FLIPPED to the east, and the
 # two void gaps replaced by 3/4-UNIT STEPS UP ("lips"), which no ball rolls up and every ball's Hop climbs.  Climbed
 # moving -x, each riser faces the player.  The spawn's view is far east of U1's sign ("HOLD JUMP")
 floor("A", 28, 6, 31, 10, Z + 0.5)                           # the start island, three tiles (the owner: roll room)
@@ -184,14 +184,14 @@ FLAGS = [(15.5, 20.5, "flag 0"), (8.5, 20.5, "flag 1"), (8.5, 31.5, "flag 2")]
 CLOCKS = [(30.5, 5.5, Z + 2, "start", "block"), (5.5, 19.5, Z + 5.25, "middle", "block"),
           (25.5, 28.5, Z - 1.25, "finish", "block")]
 # each clock's frame (the owner, 2026-11-19: the FROG, "adorable"; then "could the front change slightly between
-# uses, so it sits a little better on its block?"): SPEC.md 130.18.5.2's per-use frog variants - the start's foot
+# uses, so it sits a little better on its block?"): SPEC.md 137.18.5.2's per-use frog variants - the start's foot
 # over A's edge toward the path below-left, the middle's over its front-right edge toward H's floor, the finish's
 # over the drop on its right, looking back over its shoulder at the goal
 FRAMES = {"start": "frogl", "middle": "frogr", "finish": "frogb"}
 PLACED = {}
 # "JUMP!" on T1's north rail, "HOLD JUMP" on U1's (was "JUMP TWICE!", read by a player as "jump over both
 # steps"; the owner, 2026-11-21: HOLD JUMP, no exclamation mark - the Hop's press held through its landing is
-# the "and again", SPEC.md 130.17.16.4).  Then HOLD JUMP TO BOUNCE (the owner, 2026-11-21: "it tells them both
+# the "and again", SPEC.md 137.17.16.4).  Then HOLD JUMP TO BOUNCE (the owner, 2026-11-21: "it tells them both
 # what, and why, and it stays above the fence line"), at the floor paint's smaller size (art.py u1_scale)
 SIGNS = [(26.5, 5.5, "JUMP!"), (18.5, 11.5, "HOLD\nJUMP TO\nBOUNCE")]
 
@@ -376,7 +376,7 @@ def route_len():
 
 # --- the first draft of the engine's course ---------------------------------
 # python3 sketch.py --bbc OUT.bbc writes the course as BONANZA's text course
-# (SPEC.md 130.10.3) ONCE, to start the engine work from the paper design;
+# (SPEC.md 137.10.3) ONCE, to start the engine work from the paper design;
 # after that the .bbc is the source and is edited by hand.  Every tile moves
 # by OFF so walls and clock pillars stay inside 3 .. 252.  A rail becomes a
 # WALL tile on the void side of its edge, 2 units over the floor it guards.
@@ -406,7 +406,7 @@ def bbc(out):
     L.append("# rooms (the sketch's sections)")
     rooms_at = len(L)
     L.append("")
-    L.append("# the chute (SPEC.md 130.28): unfenced, its shape guides")
+    L.append("# the chute (SPEC.md 137.28): unfenced, its shape guides")
     L += CHUTE_TXT
     L.append("")
     L.append("# rails: block rails (wall tiles) on the void side of each railed edge")
@@ -460,9 +460,9 @@ def bbc(out):
     for x, y, side in HALVES:
         L.append("hole  half %s tile %d %d          # a diagonal corner" % (side, x + OFF, y + OFF))
     for x, y, gvz in SPRINGS:
-        L.append("spring %d %d %d                      # SPEC.md 130.14: thrown up, away from the camera" % (x + OFF, y + OFF, gvz))
+        L.append("spring %d %d %d                      # SPEC.md 137.14: thrown up, away from the camera" % (x + OFF, y + OFF, gvz))
     for x0, y0, x1, y1, along, under in ARCHES:
-        L.append("archway rect %d %d %d %d along %s under %g   # SPEC.md 130.39: a Hop passes under it"
+        L.append("archway rect %d %d %d %d along %s under %g   # SPEC.md 137.39: a Hop passes under it"
                  % (x0 + OFF, y0 + OFF, x1 + OFF, y1 + OFF, along, under))
     L.append("goal  rect %d %d %d %d  flat %g" % (min(g[0] for g in GOAL) + OFF, min(g[1] for g in GOAL) + OFF,
                                                max(g[0] for g in GOAL) + 1 + OFF, max(g[1] for g in GOAL) + 1 + OFF,

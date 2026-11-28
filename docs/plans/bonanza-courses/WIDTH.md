@@ -6,8 +6,8 @@ is set by the glass leg's west reach, and [LIFT2.md](LIFT2.md) section 4
 needs steel's lift at `wx - wy >= 45`. Its footprint is then
 `16 x 45 + 288 +- 24` = px 984 - 1,032, which is past the last pixel.
 
-**BUILT (2026-11-20): option A, `width` up to 160.** SPEC.md 130.10.4.2's
-amendment is the contract and 130.54.8's TWIDE the test course; the sections
+**BUILT (2026-11-20): option A, `width` up to 160.** SPEC.md 137.10.4.2's
+amendment is the contract and 137.54.8's TWIDE the test course; the sections
 below are the study as it was written, and the measured cost of what was built
 is in that amendment's commit. What changed from the plan: `width` takes any
 multiple of 8 from 64 to 160 (not only 160), `BROWS` is bounded at
@@ -75,19 +75,19 @@ or depends on it:
 | # | where | what it holds | the bound it sets | at 160 (1,280) | at 192 (1,536) | at 256 (2,048) |
 |---|---|---|---|---|---|---|
 | 1 | the grammar, `tools/bbcourse.py` `width` | 64 or 128 | the limit itself | widen | widen | widen |
-| 2 | `COLS_MAX` (tool), ROWPLANES' scratch (`bz_cxmap`, SPEC.md 130.15.4.4) | `COLS / 4` high bytes in `bz_boxbuf` (1,024 bytes), the count in `DL`/`CH` | 128 by the constant; really `bz_boxbuf` and a byte, so 1,020; `COLS` a multiple of 4 | OK, a constant | OK | OK |
+| 2 | `COLS_MAX` (tool), ROWPLANES' scratch (`bz_cxmap`, SPEC.md 137.15.4.4) | `COLS / 4` high bytes in `bz_boxbuf` (1,024 bytes), the count in `DL`/`CH` | 128 by the constant; really `bz_boxbuf` and a byte, so 1,020; `COLS` a multiple of 4 | OK, a constant | OK | OK |
 | 3 | `MAPSH` and `(L & ~7) << MAPSH`: **11 guest sites** (`bzvideo.inc` 4, `bzvga.asm` 3, `bzwheel.inc` 4) and the tool's header and `read_part` | a power-of-two map row | `COLS` a power of two; at 256, `L < 1,024` before the shift overflows 16 bits | **breaks**: option A's table | breaks: the table | works with `MAPSH` 6; rows < 128 |
 | 4 | the column writers, the box fill, the wheel's commit (`add bx, [BZC_ROWB]`, `bz_rowb`) | the stride, read at run time | none: generic in `ROWB` already | OK | OK | OK |
 | 5 | the VGA column writer, `mov bp, 8 / shl bp, cl` | the stride from `MAPSH` | power of two | `mov bp, [bz_rowb]` (in A) | same | same |
-| 6 | the dense map, `M` = `2 COLS BROWS` bytes in the PICTURE part (SPEC.md 130.30) | every block cell | the part's 65,024 bytes | +64 a block row | +128 | +256 |
-| 7 | the 4-byte occluder record +0 (130.15.5.1), `bz_occ`'s `DL`/`DH` and `bz_olay`'s byte compare (`bzvideo.inc` "x0 under 128") | a word column in a BYTE | **256 columns (2,048 px)**; the "under 128" comments are a stronger claim than the code needs (`c - x0` mod 256 stays past any `w` while `COLS <= 252`) | OK; re-prove the comments | OK | OK at 256 exactly; past it RECB grows |
+| 6 | the dense map, `M` = `2 COLS BROWS` bytes in the PICTURE part (SPEC.md 137.30) | every block cell | the part's 65,024 bytes | +64 a block row | +128 | +256 |
+| 7 | the 4-byte occluder record +0 (137.15.5.1), `bz_occ`'s `DL`/`DH` and `bz_olay`'s byte compare (`bzvideo.inc` "x0 under 128") | a word column in a BYTE | **256 columns (2,048 px)**; the "under 128" comments are a stronger claim than the code needs (`c - x0` mod 256 stays past any `w` while `COLS <= 252`) | OK; re-prove the comments | OK | OK at 256 exactly; past it RECB grows |
 | 8 | a lane's `BZP_LCOL` (record +10, a byte) | its first word column | 256 columns | OK | OK | OK |
-| 9 | `BZ_CRS_LOCKS` (130.45) and `bz_vinit`'s `cbw` | the locked `c0`, a byte | `c0 < 128` | OK (`cmax` 120 CGA, 115 Hercules) | a lock at `c0 >= 128` misreads: **the tool refuses it** (0 guest bytes; a lock only suits a course one window wide) | same |
-| 10 | `KW_MAX` 33 and `BZ_CXRW` 36 (`bz_cxcel`, 130.15.6) | the grid row's cells: the `a = wx - wy` span / 2 | about 1,024 px of reach | KW about 41: `BZ_CXRW` 44 (an equate) | 49: 52 | 65: 68, past disp8 at `2 BZ_CXRW + 1`, so about +10 bytes of launch code |
+| 9 | `BZ_CRS_LOCKS` (137.45) and `bz_vinit`'s `cbw` | the locked `c0`, a byte | `c0 < 128` | OK (`cmax` 120 CGA, 115 Hercules) | a lock at `c0 >= 128` misreads: **the tool refuses it** (0 guest bytes; a lock only suits a course one window wide) | same |
+| 10 | `KW_MAX` 33 and `BZ_CXRW` 36 (`bz_cxcel`, 137.15.6) | the grid row's cells: the `a = wx - wy` span / 2 | about 1,024 px of reach | KW about 41: `BZ_CXRW` 44 (an equate) | 49: 52 | 65: 68, past disp8 at `2 BZ_CXRW + 1`, so about +10 bytes of launch code |
 | 11 | the grid `C`, `4 KW NROWS` in the WORLD part | dense across the row | the world part (DOWN: 46,620 bytes free) | about +3.4KB if the width is used (86 rows) | +6.9KB | +13.8KB |
-| 12 | the world: tiles `0 - 255`, `gx`, `gy < 4,096` (130.10.2, 130.10.7.1), ways in two bytes | the `a` span, at most about 250 diagonals | about 4,000 px | OK | OK | OK |
+| 12 | the world: tiles `0 - 255`, `gx`, `gy < 4,096` (137.10.2, 137.10.7.1), ways in two bytes | the `a` span, at most about 250 diagonals | about 4,000 px | OK | OK | OK |
 | 13 | the camera (`bz_c0`, `bz_cmax` = `COLS - W`, LATTICE, GLIDE, `bz_px`) | words | none | OK | OK | OK |
-| 14 | the rings: the CGA's and Hercules' `(W R0 + c0) mod 4096` (130.2), the VGA's `(P L + b) mod 65536` (130.46.3) | the world sheared into a ring | none: a cell's address never depends on the world's width | OK | OK | OK |
+| 14 | the rings: the CGA's and Hercules' `(W R0 + c0) mod 4096` (137.2), the VGA's `(P L + b) mod 65536` (137.46.3) | the world sheared into a ring | none: a cell's address never depends on the world's width | OK | OK | OK |
 | 15 | the route (`W`, pairs of px words), the demos and replays (key runs, no positions) | | none | OK | OK | OK |
 | 16 | the tool: the render, the reach, the occluder cut, `foot_x` against `width` | per-pixel buffers `8 COLS` wide | runtime grows with width (DOWN 2 m 44 s at 1,024, MEASURED) | widen | widen | widen |
 | 17 | kern_mega | one LDT selector a part, offsets under 65,024 | nothing width-specific | OK | OK | OK |
@@ -188,7 +188,7 @@ row-prep, a lane. They run about 10 - 20 times a frame, so the net is
 `2 COLS` as now. Keep writing `MAPSH` 4 or 5 for 64 and 128, so every
 shipped part stays byte for byte the same, with the same identity and the
 same demos. Write 0 for the other widths; the guest no longer reads it.
-SPEC.md 130.10.4.2, 130.10.5.1 and 130.15.4.2 are amended to say so.
+SPEC.md 137.10.4.2, 137.10.5.1 and 137.15.4.2 are amended to say so.
 
 **The tool** (about 2 - 3 days, with the SPEC.md amendment and a test
 course; PREDICTED):
@@ -222,7 +222,7 @@ be 64,512 bytes.
 
 A map in a part of its own is no help either. The writers read a map word
 and then its block through one DS, so a map in another segment puts a
-segment switch in every block of every column. That is the cost 130.30.3
+segment switch in every block of every column. That is the cost 137.30.3
 refused for the occluders.
 
 So 2,048 px dense is only for short courses (under about 670 lines at
@@ -255,7 +255,7 @@ single span per row saves nothing there, and it needs runs instead.
 **What it costs** (PREDICTED):
 
 - **A new map form.** The ROWPLANES successor and its in-place proof
-  (130.15.4.4), the row table, and the tool's model, `read_part`,
+  (137.15.4.4), the row table, and the tool's model, `read_part`,
   `decode_part` and `expand`.
 - **Every map reader:**
   - the CGA, Hercules and VGA column writers (`bzvideo.inc`, `bzvga.asm`);
@@ -279,7 +279,7 @@ single span per row saves nothing there, and it needs runs instead.
   through CS in the loop. That is about the same total, moved to the
   column's start.
 
-The risk is real. SPEC.md 130.16's MILL CGA figures put the column frames at
+The risk is real. SPEC.md 137.16's MILL CGA figures put the column frames at
 the miss threshold already, "some 1.4 misses per column a second". The +15
 clk a block that `ROWB` cost in wave 1 was priced at +0.4k a column.
 **Effort: about 1.5 - 2 weeks**, plus a MartyPC measurement of MILL's CGA
@@ -287,10 +287,10 @@ column frames before deciding.
 
 ## 6. Option E: occluders out of the picture part (a third part)
 
-130.30.3's option (e): `I R K O Y` move to a third part. At 1,536, DOWN's
+137.30.3's option (e): `I R K O Y` move to a third part. At 1,536, DOWN's
 picture part would lose 9,352 bytes (MEASURED sizes) and fit at about
 60,760. That is about 4,260 bytes of headroom (PREDICTED). The cost is
-130.30.3's (b): two DS switches for each laid group, **about 100 - 150 clk a
+137.30.3's (b): two DS switches for each laid group, **about 100 - 150 clk a
 laid group**, at most 9 a frame. The owner's constraint ("must not hurt frame
 performance") refused exactly this split for the two-part form. It does not
 reach 2,048 for DOWN, because the map and blocks alone are about 76KB there.

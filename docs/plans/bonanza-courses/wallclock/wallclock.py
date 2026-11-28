@@ -8,14 +8,14 @@ compiles the scratch course wall.bbc (three 2 x 2 blocks, 3, 2 and 1 units proud
 as it is (tools/bbcourse.py, unchanged), then paints clock digits onto block FACES the way a lane's poses would
 ink them, and for each variant:
   - checks the placement (every ink pixel, at every pose, on the host face's own visible pixels and clear of its
-    edge lines and seams - so its occluder key is the face's whatever the pose, SPEC.md 130.12.4.5);
+    edge lines and seams - so its occluder key is the face's whatever the pose, SPEC.md 137.12.4.5);
   - finds each digit place's LANE (the 8 x 8 blocks any pose inks: words x block rows) and whether two places
-    share a block (a shared block's poses would be the PRODUCT of two digits', SPEC.md 130.18.5.5);
+    share a block (a shared block's poses would be the PRODUCT of two digits', SPEC.md 137.18.5.5);
   - counts the NEW blocks the poses add to the picture's pool (CGA 16 bytes each; the Hercules and the VGA
-    translate the same blocks at load, SPEC.md 130.11.3 / 130.46.5, so they store none), the static art's
-    blocks (a plaque), and the lane records and pose maps (130.12.3.1: 32 bytes a record, poses x h x w words);
+    translate the same blocks at load, SPEC.md 137.11.3 / 137.46.5, so they store none), the static art's
+    blocks (a plaque), and the lane records and pose maps (137.12.3.1: 32 bytes a record, poses x h x w words);
   - draws the crop on the CGA (palette 1), the Hercules (herc_pair, card pixels) and the VGA (mode 0Dh with the
-    CGA's four colours, 130.46.1 D6: the same pixels as the CGA) with "47" and "08" on it.
+    CGA's four colours, 137.46.1 D6: the same pixels as the CGA) with "47" and "08" on it.
 Writes wallclock/*.png and wallclock/numbers.txt.  About 10 s."""
 import os
 import sys
@@ -185,7 +185,7 @@ def panels(pic, box, title):
                 data.append((255, 255, 255) if b else (0, 0, 0))
     herc.putdata(data)
     herc = herc.resize((w * Z, h * Z), Image.NEAREST)
-    vga = cga.copy()                       # 130.46.1 D6: the CGA's four colours, the same blocks (130.46.5)
+    vga = cga.copy()                       # 137.46.1 D6: the CGA's four colours, the same blocks (137.46.5)
     cap = 14
     sheet = Image.new("RGB", (3 * w * Z + 16, h * Z + cap), (60, 60, 60))
     d = ImageDraw.Draw(sheet)

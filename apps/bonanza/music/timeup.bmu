@@ -1,4 +1,4 @@
-; BOUNCE BONANZA - TIME'S UP (SPEC.md 130.22.9.1): the timeout's tune, played
+; BOUNCE BONANZA - TIME'S UP (SPEC.md 137.22.9.1): the timeout's tune, played
 ; over the finish sequence's 2 s (BZ_FIN_STEPS = 110 sub-ticks) in the course
 ; song's place, as the VICTORY fanfare is on a goal.  A minor at 164 BPM - a
 ; 16th is a row of FIVE sub-ticks - two patterns of 11 rows, exactly 110

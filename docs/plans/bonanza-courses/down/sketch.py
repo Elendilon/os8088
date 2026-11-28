@@ -18,8 +18,8 @@ RAILS = []           # (x0, y0, x1, y1) a guard rail along a tile edge
 WALLS = []           # (x0, y0, x1, y1, z) a solid block
 HOLES = set()
 FLOATS = set()     # the FLOATING cells: their faces hang 3 units, not to the ground (`float`)
-SPRINGS = []       # (wx, wy, gvz): SPEC.md 130.14's springs, drawn as a coil
-ARCHES = []                                                  # (x0, y0, x1, y1, along, under): SPEC.md 130.39
+SPRINGS = []       # (wx, wy, gvz): SPEC.md 137.14's springs, drawn as a coil
+ARCHES = []                                                  # (x0, y0, x1, y1, along, under): SPEC.md 137.39
 # revision 8 (the owner's edit of the diagonal variant): half cells made VOID - (wx, wy, side): the start
 # plateau's corners and its front corner on a diagonal, and the hill landings' outer corners
 HALVES = []
@@ -65,7 +65,7 @@ CHUTE = {}          # (wx, wy) -> the height function of the chute it is part of
 
 
 def chute(sec, ways, depth, wide=2):
-    """a shaped channel, WIDE cells across (SPEC.md 130.28.4): 2-wide, its crease
+    """a shaped channel, WIDE cells across (SPEC.md 137.28.4): 2-wide, its crease
     through the cell CORNERS `ways` [(x, y, lip z)]; 3-wide, through the CELLS
     `ways` (their centres), each inner way the middle of a 3 x 3 corner block.
     Its bottom `depth` units under the lip on the crease, rising as a parabola
@@ -135,7 +135,7 @@ def _chute3(sec, ways, depth):
 
 
 def rail(x0, y0, x1, y1, style="block"):
-    """a rail along a tile edge: a BLOCK rail (a wall tile) or a see-through GUARD rail (SPEC.md 130.35), the
+    """a rail along a tile edge: a BLOCK rail (a wall tile) or a see-through GUARD rail (SPEC.md 137.35), the
     style a choice per rail (the course guide's G24); either takes the tile on the void side of the edge"""
     RAILS.append((x0, y0, x1, y1, style))
 
@@ -191,7 +191,7 @@ floor("L", 34, 10, 39, 15, Z - 23, float_=True)              # (rev 17, STRUCT A
                                                              # cross on); rubber BOUNCES on over a second gap
 floor("X", 42, 10, 48, 17, Z - 26)                           # (rev 17: its 2 north rows gone) the HUB, large and safe (x 39 - 41 the gap; 6 wide: the width)
 rail(42, 10, 48, 10); rail(48, 10, 48, 14); rail(48, 15, 48, 17)  # (rev 4: the front rails gone, to see it)
-# rev 17 (the owner's pick of STRUCT.md's D): CHAMFERED corners, half holes (SPEC.md 130.24.4) cut on the diagonal
+# rev 17 (the owner's pick of STRUCT.md's D): CHAMFERED corners, half holes (SPEC.md 137.24.4) cut on the diagonal
 # on L's four corners (an octagonal floating island, with A) and the hub's free front-left corner - corners no
 # route and no way goes near (the demo lands mid-L and leaves along y 12.5; the hub's cut is 3 tiles from the pad)
 HALVES += [(34, 10, "up"), (38, 10, "right"), (34, 14, "left"), (38, 14, "down")]   # (rev 18: the hub stays square)
@@ -205,7 +205,7 @@ floor("S", 48, 13, 52, 16, Z - 26)
 for y in range(13, 16):
     for x in range(49, 51):
         mark(x + 0.5, y + 0.5, "spike", "")
-rail(48, 13, 52, 13); rail(52, 13, 53, 13, "guard"); rail(48, 16, 52, 16, "guard")   # (rev 7: the FRONT a guard, the spikes seen through it) (over the water a GUARD: it seals and shows it) (rev 8: its last tile a guard too - beside S and the lower T, a two-height guard, SPEC.md 130.35.9)
+rail(48, 13, 52, 13); rail(52, 13, 53, 13, "guard"); rail(48, 16, 52, 16, "guard")   # (rev 7: the FRONT a guard, the spikes seen through it) (over the water a GUARD: it seals and shows it) (rev 8: its last tile a guard too - beside S and the lower T, a two-height guard, SPEC.md 137.35.9)
 floor("W", 52, 13, 53, 16, Z - 26)                           # the WATER column (3 units deep) across the path
 for y in range(13, 16):
     mark(52.5, y + 0.5, "water", "")
@@ -259,7 +259,7 @@ for lx, ly in LINKS:                                         # the maze's LINKS:
     floor("K", lx, ly, lx + 1, ly + 1, Z - 26)
     mark(lx + 0.5, ly + 0.5, "crack", "")
 # rev 17 (the owner's pick of STRUCT.md's C): the islands and the bridge's landing FLOAT, the one-cell membrane
-# links do not (a `thick` on a crack would re-lane it, SPEC.md 130.27.2.1), so each link reads as a bridge
+# links do not (a `thick` on a crack would re-lane it, SPEC.md 137.27.2.1), so each link reads as a bridge
 # rev 12 (the owner): every island 3 x 3, and the way through WINDS - north off island 1, west, south, west to
 # the junction - with two islands that lead nowhere
 floor("Q", 39, 22, 42, 25, Z - 26, float_=True)              # island 1 (a flag): north to N1, south to D1
@@ -294,24 +294,24 @@ GOAL = {(x, y) for x in range(53, 62) for y in range(37, 39)} | {(x, y) for x in
 def _w(x):
     return x + OFF
 EXTRA = [
-    "# the funnel's diagonal guides: split cells, the floor's half inside, a wall's half outside (SPEC.md 130.24.4)",
+    "# the funnel's diagonal guides: split cells, the floor's half inside, a wall's half outside (SPEC.md 137.24.4)",
     "floor half left tile %d %d  flat %g" % (_w(27), _w(11), Z - 18.5),
     "wall  half right tile %d %d  flat %g" % (_w(27), _w(11), Z - 16.5),
     "floor half up tile %d %d  flat %g" % (_w(27), _w(13), Z - 18.5),
     "wall  half down tile %d %d  flat %g" % (_w(27), _w(13), Z - 16.5),
-    "# the hump run's two humps: ridges across its 3 rows (the hump course's back hump's kind, SPEC.md 130.44)",
+    "# the hump run's two humps: ridges across its 3 rows (the hump course's back hump's kind, SPEC.md 137.44)",
     "hump %d %d %g along y 3 open height 8" % (_w(11), _w(11), Z - 11),
     "hump %d %d %g along y 3 open height 8" % (_w(17), _w(11), Z - 11),
-    "# the BOOSTER chute's pads (SPEC.md 130.40)",
+    "# the BOOSTER chute's pads (SPEC.md 137.40)",
 ] + ["prop boost %d %d face +x strength 40" % (_w(x), _w(12)) for x in range(29, 32)] + [   # (three: the first tile's block hid a fourth)
     "# the split: a pad at each exit (no archways: a rubber ball that hops one dies on what follows)",
     "pad steel %d %d" % (_w(47), _w(14)),        # (off the arrival line; rev 4: one pad again, the owner)
     "pad glass %d %d" % (_w(45), _w(15)),        # (rev 4: one north)
-    "# steel: SPIKES across the only path (SPEC.md 130.38), a WATER column 3 deep, out of its front ARCH",
+    "# steel: SPIKES across the only path (SPEC.md 137.38), a WATER column 3 deep, out of its front ARCH",
     "prop spikes %d %d %d %d" % (_w(49), _w(13), _w(51), _w(16)),      # (two rows: a spiked cell never touches water)
     "water rect %d %d %d %d top %g bed %g" % (_w(52), _w(13), _w(53), _w(16), Z - 26, Z - 29),
-    "arch %d %d +y guard" % (_w(52), _w(15)),     # (rev 8: the FRONT edge guarded - rubber and glass stay on the water; steel sinks under the rail and out, SPEC.md 130.35.10)
-    "# glass: the MEMBRANE bridge, thin (glass-only, SPEC.md 130.38), and the LIFT (SPEC.md 130.12.6.4)",
+    "arch %d %d +y guard" % (_w(52), _w(15)),     # (rev 8: the FRONT edge guarded - rubber and glass stay on the water; steel sinks under the rail and out, SPEC.md 137.35.10)
+    "# glass: the MEMBRANE bridge, thin (glass-only, SPEC.md 137.38), and the LIFT (SPEC.md 137.12.6.4)",
     "prop membrane %d %d %d %d" % (_w(45), _w(17), _w(46), _w(22)),
     "# glass's maze (rev 10): one-cell membrane LINKS, the FLOAT pool (water, no arch), the far bank's BOOST",
 ] + ["prop membrane %d %d %d %d" % (_w(lx), _w(ly), _w(lx + 1), _w(ly + 1)) for lx, ly in LINKS] + [
@@ -322,7 +322,7 @@ EXTRA = [
     "prop platform %d %d 4" % (_w(58), _w(23)),
     "water rect %d %d %d %d top %g bed %g" % (_w(57), _w(34), _w(58), _w(35), Z - 25, Z - 31),
     "arch %d %d +y" % (_w(57), _w(34)),
-] + ["spring %d %d 384" % (_w(sx), _w(sy)) for sx, sy in ((56, 26), (56, 29))] + [   # (SPEC.md 130.14: 384 clears 1 tile, no stun)
+] + ["spring %d %d 384" % (_w(sx), _w(sy)) for sx, sy in ((56, 26), (56, 29))] + [   # (SPEC.md 137.14: 384 clears 1 tile, no stun)
 ]
 GOAL_RECTS = [(53, 37, 62, 39, Z - 31, 1, "steel"), (31, 27, 33, 33, Z - 34, 0, "glass")]   # (rev 19: glass, the easier, exit 0 to WINDMILL LANE; steel exit 1)
 
@@ -337,7 +337,7 @@ CLOCKS = [(6.5, 4.5 - N, Z, "start", "block"), (46.5, 9.5, Z - 24.5, "hub", "blo
 FRAMES = {"start": "orbr", "hub": "orbh", "steel finish": "orbs", "glass finish": "orbg"}   # rev 17 (the owner's
 # pick of CLOCKS.md's concepts): the ORB, the course's balls - RUBBER at the start, the hub's SPLIT orb (steel
 # left, glass right: the two ways out), STEEL and GLASS at their finishes ("something on the clock represents
-# where this is in the course"); SPEC.md 130.18.5.2
+# where this is in the course"); SPEC.md 137.18.5.2
 PLACED = {}
 SIGNS = []
 # rev 17 (the owner's picks of ART.md's options): the SIGN `wall` ("STEEL >" painted on the steel corridor's north
@@ -568,7 +568,7 @@ def route_len():
 
 # --- the first draft of the engine's course ---------------------------------
 # python3 sketch.py --bbc OUT.bbc writes the course as BONANZA's text course
-# (SPEC.md 130.10.3) ONCE, to start the engine work from the paper design;
+# (SPEC.md 137.10.3) ONCE, to start the engine work from the paper design;
 # after that the .bbc is the source and is edited by hand.  Every tile moves
 # by OFF so walls and clock pillars stay inside 3 .. 252.  A rail becomes a
 # WALL tile on the void side of its edge, 2 units over the floor it guards.
@@ -581,7 +581,7 @@ HEAD_TXT = """
 course DOWN "Downhill Decision"
 guide                     # a REAL course: held to the course guide's checkable rules
 width 160
-origin 304                # 1,280 px (SPEC.md 130.10.4.2): steel's north-west leg
+origin 304                # 1,280 px (SPEC.md 137.10.4.2): steel's north-west leg
 uses boost spike water spring
 ball rubber
 music trial               # the owner: Bounce Trial, kept for course 3 (its speaker ring fix: spkring)
@@ -598,7 +598,7 @@ def bbc(out):
     L.append("# rooms (the sketch's sections)")
     rooms_at = len(L)
     L.append("")
-    L.append("# the chute (SPEC.md 130.28): unfenced, its shape guides")
+    L.append("# the chute (SPEC.md 137.28): unfenced, its shape guides")
     L += CHUTE_TXT
     L.append("")
     L.append("# rails: block rails (wall tiles) on the void side of each railed edge")
@@ -652,9 +652,9 @@ def bbc(out):
     for x, y, side in HALVES:
         L.append("hole  half %s tile %d %d          # a diagonal corner" % (side, x + OFF, y + OFF))
     for x, y, gvz in SPRINGS:
-        L.append("spring %d %d %d                      # SPEC.md 130.14: thrown up, away from the camera" % (x + OFF, y + OFF, gvz))
+        L.append("spring %d %d %d                      # SPEC.md 137.14: thrown up, away from the camera" % (x + OFF, y + OFF, gvz))
     for x0, y0, x1, y1, along, under in ARCHES:
-        L.append("archway rect %d %d %d %d along %s under %g   # SPEC.md 130.39: a Hop passes under it"
+        L.append("archway rect %d %d %d %d along %s under %g   # SPEC.md 137.39: a Hop passes under it"
                  % (x0 + OFF, y0 + OFF, x1 + OFF, y1 + OFF, along, under))
     L.append("")
     L += EXTRA
@@ -680,7 +680,7 @@ def bbc(out):
     for x, y in ROUTE:
         if (int(x), int(y)) not in CHUTE and (int(x), int(y)) in CELLS:   # (none on a chute or over a gap)
             L.append("way %d %d" % (int(x) + OFF, int(y) + OFF))
-    # the GLASS leg (ROUTE2) as a `branch` (SPEC.md 130.14.4.1): the tool's alone - no byte of the part, nor
+    # the GLASS leg (ROUTE2) as a `branch` (SPEC.md 137.14.4.1): the tool's alone - no byte of the part, nor
     # its identity - so bbcourse's item 8 plans it and holds the glass flags to it (the main route, steel, can
     # touch only its own leg's)
     L.append("# the glass leg: a branch from the hub to the glass finish (the tool's alone)")

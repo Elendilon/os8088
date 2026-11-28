@@ -1,4 +1,4 @@
-# Spike Test - BONANZA's SPIKES test course (SPEC.md 130.38), built only by the BZSPIKE=1 knob, as
+# Spike Test - BONANZA's SPIKES test course (SPEC.md 137.38), built only by the BZSPIKE=1 knob, as
 # water.bbc is by BZWATER=1.  NOT a shipped course: the knob adds it to BZ_COURSES and makes it the
 # pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.
 #
@@ -14,7 +14,7 @@
 #  - north-east, the WATER PAIRING (the owner's: two steel-only mechanisms): a walkway 2 units up, past the spike corridor, whose one
 #    water cell sinks steel down its column and out of the arch onto spikes - steel rides them to the yard.
 course SPIKE "Spike Test"
-music fairway    # a test course: SPEC.md 130.50.3, every course names its song
+music fairway    # a test course: SPEC.md 137.50.3, every course names its song
 width  128
 origin 320
 ball   rubber

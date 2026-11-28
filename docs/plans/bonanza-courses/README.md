@@ -14,7 +14,7 @@ designer's and the owner's judgment.*
 
 *KITE HILL, LODESTONE GORGE, CLOCKWORK KEEP and CASTLE CLIMB (`castle.bbc`, the owner's own) are IN THE DEFAULT
 BUILD and on the map since 2026-11-25, in the owner's order of that day: [pathway/README.md](pathway/README.md),
-"The journey", and SPEC.md 130.22.11. Where a paragraph below says a course is "in no build yet", it is that
+"The journey", and SPEC.md 137.22.11. Where a paragraph below says a course is "in no build yet", it is that
 step's record.*
 
 *What 3-wide chutes would cost (a deferred study for DOWN, 2026-11-20) is [CHUTE3.md](CHUTE3.md).*
@@ -26,7 +26,7 @@ step's record.*
 *Options for showing whether a column touches its floor or stands over a gap (a proposal, 2026-11-21) are [EDGES.md](EDGES.md).*
 
 *Course 4 WINDMILL LANE's pen-in (attempt 1, 2026-11-21) is [MILL.md](MILL.md); it ships as `mill.bbc`
-in the prototype's place, whose features the rows now play on TMIL (SPEC.md 130.54.10).*
+in the prototype's place, whose features the rows now play on TMIL (SPEC.md 137.54.10).*
 
 *Courses 5 - 7's pen-ins (attempt 1, 2026-11-25; designed for looks and function, each sheet's "Risks for
 refinement" the list for the step after): [KITE.md](KITE.md) KITE HILL (wind: gusts, a thermal, a glide),
@@ -39,8 +39,8 @@ course is held to; [KITE.md](KITE.md) sections 10 - 13 are what it passes, what 
 the owner's playtest list. Still in no build. Two things it found that the next courses meet too: `--guide`'s G3
 counts a flight until the ball stops BOUNCING, and depends on `origin` (the camera's lattice is 64 px of the
 picture: KITE.md section 2); `finish_reach_rule` follows an updraft that carries a ball since this step
-(SPEC.md 130.34.5), and nothing else that lifts one (a magnet's hoist, a lift, a spring, a tube); and
-`--camcheck`'s dither map (SPEC.md 130.17.6.5 item 4) reverses at the flat top of any ramp a route CLIMBS
+(SPEC.md 137.34.5), and nothing else that lifts one (a magnet's hoist, a lift, a spring, a tube); and
+`--camcheck`'s dither map (SPEC.md 137.17.6.5 item 4) reverses at the flat top of any ramp a route CLIMBS
 (KITE.md section 12, K13): run `--camcheck` with the shipped and test courses and the new one in the list.*
 
 *LODESTONE GORGE is REFINED (2026-11-25): `lode.bbc` says `guide` and passes what a shipped course is held to;
@@ -60,7 +60,7 @@ playtest list. Still in no build. What it found that the next course meets too:*
 - *Hold every arrow from rest on every tile of the model before trusting a room: `lode/measure.py` (its `held`
   and `soft` sections read any course) found a dozen open edges nobody had chosen.*
 - *`--selfcheck`'s `reachpath` red arm compiles under a round bound of its own since this step (SPEC.md
-  130.11.4.7): a new course's route demo is tried shortest first, and LODE's reach under the arm took one
+  137.11.4.7): a new course's route demo is tried shortest first, and LODE's reach under the arm took one
   round more than the bound.*
 
 *CLOCKWORK KEEP is REFINED (2026-11-25): `keep.bbc` says `guide` and passes what a shipped course is held to;
@@ -68,12 +68,12 @@ playtest list. Still in no build. What it found that the next course meets too:*
 playtest list. Still in no build. It has TWO exits, the second a secret (`hidden`): section 7 is what the pathway
 has to add. What it found that the next course meets too:*
 
-- *NO TRAP remembers an opened channel and waits for a timed drawbridge since this step (SPEC.md 130.14.4.1.4):
+- *NO TRAP remembers an opened channel and waits for a timed drawbridge since this step (SPEC.md 137.14.4.1.4):
   a key need not be in line with its door for the check, nor a bridge down on step 0. It still proves a way on
   with the Hop, not that a player makes a timer: MEASURE the window (`keep/measure.py`'s phases: a 3-tile
   bridge wants a third of its period, and a bridge that is DOWN as the play starts drops a ball sent a second
   late).*
-- *A `guide` course's route demo STANDS at every timed element since this step (SPEC.md 130.14.7.4.6), as it did
+- *A `guide` course's route demo STANDS at every timed element since this step (SPEC.md 137.14.7.4.6), as it did
   at a turntable: no Hop on the spot to pass the time. A course of timers has no one route time (KEEP's is 29 -
   36 s over the phases it can meet its cogs at): `keep/measure.py --only phases`.*
 - *A flag and a key are ONE cell. In a 2-wide walk half the balls pass them by: narrow the walk to the flag's
@@ -87,7 +87,7 @@ has to add. What it found that the next course meets too:*
 - *A drop a route takes on purpose lands on SAND: rubber off a 2-unit wall bounces for 2 s on plain floor and
   not at all on sand, which is a flight G3 has nothing to say about.*
 - *`--selfcheck`'s `courses` section took an art gate's lane for a stranger until this step (SPEC.md
-  130.41.12.1): any course with a gate's `art` failed it.*
+  137.41.12.1): any course with a gate's `art` failed it.*
 - *A flag within 3 cells of the main route that the route cannot also reach its fellows of (a secret's) makes
   the route search's flag pass spend its whole budget, 45 s a compile: keep a secret's flags 4 cells off.*
 
@@ -96,7 +96,7 @@ has to add. What it found that the next course meets too:*
 writes) and written up in its sheet's section 16. Host-checked on both arms and NOT YET HEARD by anybody. What
 the step found that the next song meets too:*
 
-- *A song in the manifest that no course of a build names ships nowhere (SPEC.md 130.50.3): adding the three
+- *A song in the manifest that no course of a build names ships nowhere (SPEC.md 137.50.3): adding the three
   moved no byte of the default `BONANZA.O88`.*
 - *The speaker plays the BASS channel wherever the lead is silent for two sub-ticks (`spkbass`), and the bass
   channel can hold anything: CLOCKWORK KEEP's tick-tock is there, so one speaker voice plays tick, tune, tock,
@@ -130,7 +130,7 @@ that the next course's art meets too:*
 - *Gate art (KEEP's is the first in a real course): draw the channel's glyph UPRIGHT and large, the stone in the
   scene's face ink (white stone is lost on the floor behind it), what moves in black and white, and leave a
   grille's gaps open - the occluder is the shut frame's, so a ball behind an open gate is still cut by it
-  (SPEC.md 130.41.12.7). A gate's art is masks: KEEP's three took 32.*
+  (SPEC.md 137.41.12.7). A gate's art is masks: KEEP's three took 32.*
 - *A sign that STANDS goes where only the void is behind it (a ball behind it would be drawn over it). Floor
   paint goes on any tile a prop does not draw itself: paint ON a cog, a stair or a plate would be drawn over
   by the prop's poses (and would not turn or tilt with it), but paint BESIDE one is safe - a lane's poses are
@@ -168,7 +168,7 @@ course.
   makes it more interesting. What matters is WHERE the camera pans: on the
   ground, at a turn or a flat, never during a jump (G3), and not back and
   forth on every leg. A course whose whole picture fits one window may also
-  hold the camera still across with **`lock across`** (SPEC.md 130.45;
+  hold the camera still across with **`lock across`** (SPEC.md 137.45;
   the owner: "We won't use this often due to visual interest, but for the
   intro course it fits fine"). The tool refuses it on a course wider than
   the window.
@@ -278,7 +278,7 @@ course.
     is the course's balls - RUBBER at the start, a SPLIT orb at the hub (its
     steel half toward the steel way, its glass half toward the glass way),
     and STEEL or GLASS at each finish, the material that finish is reached
-    in (SPEC.md 130.18.5.2). LITTLE HOP's frogs turning to look down the path
+    in (SPEC.md 137.18.5.2). LITTLE HOP's frogs turning to look down the path
     are the same idea in pose rather than material.
 
 ### 1.6 Balls
@@ -379,7 +379,7 @@ moves.
   in the air. Re-laying the course to a 168 px route swing still left five
   or six sweeps. The course's whole picture is 320 px across, so ONE fixed
   horizontal framing would show all of it. That is a camera change (a
-  per-course horizontal lock). TAKEN and BUILT: SPEC.md 130.45, `lock across`.
+  per-course horizontal lock). TAKEN and BUILT: SPEC.md 137.45, `lock across`.
 
 ### 1.10 Reading the course: guidance from LITTLE HOP (2026-11-19)
 
@@ -401,7 +401,7 @@ can SEE; each is a default to depart from with a reason.*
   one height read as one hop, whether or not the course means it; about
   three void tiles, or a clear height difference, keeps a non-route
   neighbour from looking like the route.
-- **The jump rungs** (quarter heights, SPEC.md 130.48): a 3/4-unit step
+- **The jump rungs** (quarter heights, SPEC.md 137.48): a 3/4-unit step
   is the EASY jump (no ball rolls up it, every ball's Hop climbs it), and a
   1-unit step is the hard single jump or rubber's easy double jump. A 1-tile
   gap is an easy Hop; a 2-tile gap needs a precise "and again".

@@ -19,7 +19,7 @@ Fifteen rows. The emulator rows and their DEFAULT runs:
 | row | declared | boots | what costs | prototype dependence |
 |---|---|---|---|---|
 | bonanzaring | 1,180 s | 3 (a card each) | BENCH, TRIAL, MILL benchmarks of 1,200 frames each; MILL's scripted scenes; MOON's and PEAK's demos; the ground and camera replays (~6,000 frames a card); `symbols()` re-assembled per card; the ground scenarios recomputed per card | all legs but `glass` |
-| bonanzaexit | 902 s | 3 | ~52 launches a card: FIRST x 3 balls x 6 ways out, then the 6 ways again on MILL, MOON, PEAK, PLAY (the balls are held since 130.25.5.2: the ball loop tests one thing three times); BENCH's benchmark twice | incidental (a cup, a tube, two palettes) |
+| bonanzaexit | 902 s | 3 | ~52 launches a card: FIRST x 3 balls x 6 ways out, then the 6 ways again on MILL, MOON, PEAK, PLAY (the balls are held since 137.25.5.2: the ball loop tests one thing three times); BENCH's benchmark twice | incidental (a cup, a tube, two palettes) |
 | bonanzagame | 920 s | **44** (22 a card) | a boot a hostile BONANZA.DAT (16) and a physics-identity file (4), each playing FIRST to its goal by autopilot; the TOUR legs (three) | incidental; the tour |
 | bonanzademo | 690 s | 2 | five full MILL runs a card; every shipped demo through V and D (8 since ROLL and HOP shipped) | the shipped prototype demos |
 | bonanzareplay | 471 s | 3 | a frame-by-frame breakpoint on every presented frame; TRIAL, MILL, PLAY, MOON scripts | essential, by geometry |
@@ -79,7 +79,7 @@ declared.
 
 ### Phase 2 - the test courses
 
-**The mechanism (BUILT, SPEC.md 130.54):** a course says `test`; the
+**The mechanism (BUILT, SPEC.md 137.54):** a course says `test`; the
 Makefile lists it in `BZ_TESTCRS`, which only `BZDEV=1`'s block appends,
 AFTER every other course; `bbcourse.py -o` refuses a `test` course without
 `--dev` (make passes it under `BZDEV=1`), so none ships; a test course owes
@@ -120,7 +120,7 @@ the shipped build's.
       and a cannon, a clock, scrolling both ways, occluders.  BUILT as
       **TMIL** (`tmil.bbc`, "Wheel and Ring", rubber; the table below).
 - [x] **TQUICK** (exits and the save), BUILT as two courses because a course
-      finishes at a goal or in a cup, never both (130.14.4.1): **TQUIK**
+      finishes at a goal or in a cup, never both (137.14.4.1): **TQUIK**
       (`tquik.bbc`; a NAME is five characters) - rubber, the goal 165
       autopilot steps (3.0 s) from the start, flag 0 on the route and a hole
       beside it, a plain KEEP tube drain off the route (16 steps hidden, as
@@ -136,7 +136,7 @@ the shipped build's.
 
   | row, leg | today | phase 3 | the feature it uses |
   |---|---|---|---|
-  | exit, the six WAYS (Esc, F, Alt+Enter, the goal, a replay's end, Esc in a replay) | FIRST x 3 balls | TQUIK, once (the balls are held, 130.25.5.2) | the goal (`goal()` pokes the ball onto its GOAL cell), a log made by `make_log` on TQUIK |
+  | exit, the six WAYS (Esc, F, Alt+Enter, the goal, a replay's end, Esc in a replay) | FIRST x 3 balls | TQUIK, once (the balls are held, 137.25.5.2) | the goal (`goal()` pokes the ball onto its GOAL cell), a log made by `make_log` on TQUIK |
   | exit, the benchmark's end (B) | BENCH | BENCH (a test course now) | B's own course |
   | exit, Esc while HIDDEN (`into_tube`) | MILL's drop | TQUIK | the KEEP tube's IN cell (6, 7) |
   | exit, the cup's way out and the `padleak` red | MOON, PEAK, PLAY | TCUP | the cup (`goal()`'s cup arm) |
@@ -272,7 +272,7 @@ the shipped build's.
   | ring camera, `ramp-*`, `mill-demo`, `side`, `peak-demo` (`camcap`), `peak-cannon` (`campreaim`, `camprex`) | MILL, PEAK (the lift, the cannon) | TMILL |
   | ring, `nodither` (the bench leg's data) | every course undithered: PLAYGROUND's 292 masks refuse | TPLY undithered: 95 masks |
 - [x] **A test pathway** for bonanzapath's secret and paging legs. BUILT as
-      **THE TEST MAP** (SPEC.md 130.54.6, `apps/bonanza/courses/pathdev.bbc`,
+      **THE TEST MAP** (SPEC.md 137.54.6, `apps/bonanza/courses/pathdev.bbc`,
       `test` on the pathway): the BZDEV=1 build compiles it as its pathway in
       place of `path.bbc` (`BZ_PATHDEV`; a pad-0 knob's map still wins), so
       ONE boot walks every leg and the shipped build is byte for byte what it
@@ -325,7 +325,7 @@ the shipped build's.
   | the refusals on the private map (`T(...)`: gate on a secret route, a non-hidden key, neither SHORTCUT nor SIDE) | PATH_TEST | on `pathdev.bbc`'s route 2 -> 6 |
   | the key map: straights beat a diagonal | the shipped pads 2 and 5 | the test map's pads 2 (Down a straight, Up and Left the diagonal) and 3 |
   | every route followed both ways arrives exactly | the shipped routes | both maps' (the test map's ramp included) |
-  | 130.54.6: the test map's features, its secret's hidden key, the two refusals | - | BUILT (this item) |
+  | 137.54.6: the test map's features, its secret's hidden key, the two refusals | - | BUILT (this item) |
 - [ ] The B benchmark takes a course (no hard-wired BENCH).
 
 ### Phase 3 - the rows on them, bundled
@@ -424,9 +424,9 @@ four lanes busy (the rows' `secs` are set to these):
 | bonanzatitle | 44 | 51 |
 
 What the test courses found in the GAME, fixed: a ball swap on a still
-ball drew nothing (SPEC.md 130.14.4.4; `bz_setmat` invalidates `bz_ospr`).
-And in the HARNESS: the bench leg's late-box rule stricter than 130.11.10.3,
-a respawn inside the window wrongly expected to cut (130.10.8 item 3), the
+ball drew nothing (SPEC.md 137.14.4.4; `bz_setmat` invalidates `bz_ospr`).
+And in the HARNESS: the bench leg's late-box rule stricter than 137.11.10.3,
+a respawn inside the window wrongly expected to cut (137.10.8 item 3), the
 probe on a course whose start is far from the top clamp, TMIL's corner
 scene too heavy (a quiet post added), perf's demo row and first R.
 

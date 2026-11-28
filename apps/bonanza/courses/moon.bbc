@@ -1,8 +1,8 @@
-# Moonlit Green - BONANZA's course 4 (SPEC.md 130.14.6): a night round of
+# Moonlit Green - BONANZA's course 4 (SPEC.md 137.14.6): a night round of
 # mini-golf, the course that teaches wave 4's FLAGS, the CUP and the PADS,
 # glass last and gently.  Built for the RUBBER ball; every flag names its ball
 # and `bbcourse.py --selfcheck` item 7 proves from each flag and each pad, with
-# its ball, that the cup can be reached (NO TRAP, 130.14.4.1).  In order:
+# its ball, that the cup can be reached (NO TRAP, 137.14.4.1).  In order:
 #  1. the start tier (z 30) and an ICE approach between bumper rails; flag 0
 #     at its corner (a pit beside it);
 #  2. a steep ramp down to the STEEL pad; a corridor of STONE rails the route
@@ -12,7 +12,7 @@
 #     straight down the screen;
 #  3. the RUBBER pad and the rubber-only ledge: H, a 6-unit drop onto F four
 #     tiles deep, a two-tile gap, G two units up (TRAIL's required bounce,
-#     130.11.5.3); flag 1 in front of
+#     137.11.5.3); flag 1 in front of
 #  4. the CLOWN MOUTH: a castle with three channels to three KEEP tubes - the
 #     middle on to the course, the left a SHORTCUT under the terrace's rail to
 #     the last green's foot (the SHORT branch), the right a DEAD END into a
@@ -24,10 +24,10 @@
 #  6. the last green, UP a gentle ramp so the ball arrives slow, sand round
 #     the CUP (capture 160).
 course MOON "Moonlit Green"
-music moonlit    # SPEC.md 130.50.3: every course names its song (the song it had by position)
+music moonlit    # SPEC.md 137.50.3: every course names its song (the song it had by position)
 width 64
 ball rubber
-# story 9.8 (SPEC.md 130.25.20): today's props' families, home RESIDENT (130.25.6.9)
+# story 9.8 (SPEC.md 137.25.20): today's props' families, home RESIDENT (137.25.6.9)
 uses tube
 # 1 the start tier and the ice approach between bumper rails (z 30)
 floor rect   5 10  8 13  flat 30
@@ -46,11 +46,11 @@ checkpoint 14 11 ball rubber
 floor rect  13 15 17 19  ramp y 15 19 30 24
 floor rect  13 19 17 22  flat 24
 pad steel 14 20
-# 4 the coast (z 22), straight down the screen (SPEC.md 130.24, wave D5.3): `box a0 a1 s0 s1` a rectangle
+# 4 the coast (z 22), straight down the screen (SPEC.md 137.24, wave D5.3): `box a0 a1 s0 s1` a rectangle
 # ON THE SCREEN (16 a0 <= gx - gy <= 16 a1, 16 s0 <= gx + gy <= 16 s1), so the lane's sides and its two rails
 # are STRAIGHT: halves along them, where the zigzag bands it replaces stood a whole cell in and out (a ball
 # sliding down the left rail met a stair's corner every cell).  The rails' ends are square (the one quarter
-# inside a box's corner whose a and s differ in parity, 130.24.3).  Laid BEFORE the corridor, so the corridor
+# inside a box's corner whose a and s differ in parity, 137.24.3).  Laid BEFORE the corridor, so the corridor
 # and the ramp keep their whole cells where the box's top edge (s 48) crosses them
 floor box -1 7 48 71 flat 22
 wall  box -3 -1 48 71 flat 23
@@ -122,7 +122,7 @@ wall  rect  51 56 54 57  flat 17
 
 start 6 11
 
-# The autopilot's route (the route demo's and bonanzaperf's leg, 130.14.6):
+# The autopilot's route (the route demo's and bonanzaperf's leg, 137.14.6):
 # along the ice to flag 0, down to the steel pad, through the zig-zag, down
 # the coast to the rubber pad, off H's lip over the gap to G, flag 1, the
 # middle tube, flag 2, the glass pad, the terrace and up the green to the cup
@@ -163,14 +163,14 @@ way 42 46 branch SHORT
 way 52 47 branch SHORT
 way 52 51 branch SHORT
 
-# par: the autopilot's time on the route and a third (130.14.3.1, PROVISIONAL)
-# wave 7 (SPEC.md 130.18.3): `par` is refused; the tool's limit from the route applies
-# Wave 5b (SPEC.md 130.15.8): the design time (CD3), the middle class until its retrofit; the
+# par: the autopilot's time on the route and a third (137.14.3.1, PROVISIONAL)
+# wave 7 (SPEC.md 137.18.3): `par` is refused; the tool's limit from the route applies
+# Wave 5b (SPEC.md 137.15.8): the design time (CD3), the middle class until its retrofit; the
 # course budget reads it (12550 bytes packed, refused past 1.5 times).  Tool-only:
 # it writes nothing into the part, so no identity moves.
 target 60
 
-# the FINISH clock (wave 8R, SPEC.md 130.22.6: every finish has a clock in the CGA window centred on it,
+# the FINISH clock (wave 8R, SPEC.md 137.22.6: every finish has a clock in the CGA window centred on it,
 # which the finish sequence flashes); placed off the demo's and the autopilot's routes - their replays
 # are the same with it and without it, so the build re-stamps the demo's identity
 clock 51 48

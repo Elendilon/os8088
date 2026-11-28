@@ -1,12 +1,12 @@
 ; =============================================================================
-; apps/bonanza/fam/probe.asm - BONANZA's PROBE FAMILY (SPEC.md 130.25.15), the
+; apps/bonanza/fam/probe.asm - BONANZA's PROBE FAMILY (SPEC.md 137.25.15), the
 ; family the hook table and the per-play state are proved with (stories 9.1,
 ; 9.2): ID 1, one kind, `probe` (16), and NO PHYSICS - every hook the
 ; smallest thing that makes its call visible, so the guest is held equal to
 ; bbcourse.ProbeFamily through every hook and a course that names it replays
 ; exactly as one without it.
 ;
-; A FAMILY PART (SPEC.md 130.25.6.2): a flat binary at org 0, a lazy OP_SEG
+; A FAMILY PART (SPEC.md 137.25.6.2): a flat binary at org 0, a lazy OP_SEG
 ; row of BONANZA.O88, LINKED against the package's bss as the shell part is
 ; (build/bonanza-art/bzlink.inc names no code label, so nothing here can call
 ; the package).  Every hook is entered by `call far` with DS = ES = the
@@ -22,7 +22,7 @@ org 0
 %include "bzlink.inc"           ; the package's constants and bss (pxlink)
 %include "fam/bzfwalk.inc"
 
-PR_ID       equ BZ_FID_PROBE    ; (bzcourse.inc's: never a literal, SPEC.md 130.25.6.2)
+PR_ID       equ BZ_FID_PROBE    ; (bzcourse.inc's: never a literal, SPEC.md 137.25.6.2)
 PR_KIND     equ BZ_FK0
 
     db 'BF'
@@ -35,7 +35,7 @@ PR_KIND     equ BZ_FK0
     db 0
     dw pr_reset, pr_enter, pr_contact, pr_step, pr_pose, pr_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 137.25.6.2)"
 %endif
 
 ; RESET: counted (the class in AH: the engine cleared it), and every probe's
@@ -110,9 +110,9 @@ pr_pose:
     retf
 
 ; CELL: every TOUCHED probe in the window has its cell's +3 bit 7 set in
-; bz_nbr - the window, never the grid (SPEC.md 130.25.7.2)
+; bz_nbr - the window, never the grid (SPEC.md 137.25.7.2)
 pr_cell:
-    call pr_slot                ; (its own records: SPEC.md 130.25.6.10)
+    call pr_slot                ; (its own records: SPEC.md 137.25.6.10)
     call pr_walk
     mov bp, bx                  ; BP the list, CX its count
     jcxz .x
@@ -177,14 +177,14 @@ pr_bit:
     pop bx
     ret
 
-; EVERY family row is OP_COMP (SPEC.md 130.25.6.2): one plain lazy row would
+; EVERY family row is OP_COMP (SPEC.md 137.25.6.2): one plain lazy row would
 ; assemble the parts standard's plain-row path, 86 resident bytes, so a part
 ; too small for LZB to shrink carries zeros until it does - the probe's 48
 ; (disk and arena bytes only, never the image's)
     times 48 db 0
 
 ; the part's RAM form against its row's ceiling in bbcourse.FAMILIES (paras):
-; the ARENA reserve counts that ceiling, not these bytes (SPEC.md 130.25.4.2)
+; the ARENA reserve counts that ceiling, not these bytes (SPEC.md 137.25.4.2)
 %if $ - $$ > BZ_FAMP_PROBE * 16
  %error "the probe's part passes its FAMILIES paras ceiling: raise it there"
 %endif

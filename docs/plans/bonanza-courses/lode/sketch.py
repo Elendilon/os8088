@@ -98,7 +98,7 @@ def curb(x0, y0, x1, y1, z, z1=None, axis=None, note=""):
 # pen-in had a railed catwalk outside each corner, and MEASURED there a player who steers late or early still
 # went over the first corner's EAST lip and the middle leg's far bank (404 of 6,480 timings of the S).  A rail
 # needs a floor to stand on and is cut into many occluder masks beside a curved channel; a low stone curb is a
-# wall with a straight top (SPEC.md 130.35's "block rail")
+# wall with a straight top (SPEC.md 137.35's "block rail")
 curb(20, 8, 21, 9, ZA, note="the flume's curbs: the mouth's flanks")
 curb(24, 8, 25, 9, ZA)
 curb(20, 9, 21, 13, ZA, C1 + 1, "y", "the first leg's west curb, sloping with it")
@@ -198,7 +198,7 @@ p.goal(GW - 1, AY - 4, GW + 2, AY - 3, ZV + 3)
 
 
 def noocclude(p, keep=()):
-    """SPEC.md 130.53: `noocclude` on the cells NO BALL IS IN - the void within 3 cells of the course (the band
+    """SPEC.md 137.53: `noocclude` on the cells NO BALL IS IN - the void within 3 cells of the course (the band
     the tool cuts occluders for) less the FALL ZONE of every open edge, and the floors no ball can get onto (the
     wall's posts, the hoists' and the sirens' pillars: sections M and O.  NOT the gantry's posts, section N: a
     ball that waits under the gantry rises to the magnets' ceiling and can be steered onto them, LODE.md
@@ -257,7 +257,7 @@ def noocclude(p, keep=()):
 ZONE_OUT = 4
 noocclude(p, keep={(GW, y) for y in range(RY - 5, RY)})
 
-# the clocks are ORE CARTS on a trestle (lode/CLOCKS.md; SPEC.md 130.18.5.2): the tub fills down the quarry
+# the clocks are ORE CARTS on a trestle (lode/CLOCKS.md; SPEC.md 137.18.5.2): the tub fills down the quarry
 p.clock(24, 6, ZA, "start: empty", frame="cart0")
 p.clock(14, 19, ZB, "pen: a few lumps", frame="cart1")
 p.clock(WX, 18, ZC, "turn: half full", frame="cart2")

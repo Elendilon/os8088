@@ -1,11 +1,11 @@
 # WINDMILL LANE: clock options (2026-11-21, for the owner to pick)
 
 **PICKED (2026-11-23): B, `vase`.** The owner chose the tulip vase to try in the game. It is now the tool's
-`vases`, `vasem`, `vaset` and `vasef` (SPEC.md 130.18.5.2, `_clock_vase`): MILL has FOUR clocks since the owner's
+`vases`, `vasem`, `vaset` and `vasef` (SPEC.md 137.18.5.2, `_clock_vase`): MILL has FOUR clocks since the owner's
 builder edits, so a fourth frame and a fourth flower (a FLAMED tulip) were added; [MILL.md](../MILL.md) section 8.
 What follows is the study as it stood.
 
-*Course 4's DRAFT ([MILL.md](../MILL.md), [mill.bbc](../../../../apps/bonanza/courses/mill.bbc), the scratch `mill-draft.bbc` until it shipped, SPEC.md 130.54.10) has three clocks, all in the
+*Course 4's DRAFT ([MILL.md](../MILL.md), [mill.bbc](../../../../apps/bonanza/courses/mill.bbc), the scratch `mill-draft.bbc` until it shipped, SPEC.md 137.54.10) has three clocks, all in the
 default `crystal` frame: the START on the tee's front-left corner (7, 13), the TURNTABLE on a low pillar east of S
 (34, 36), and the FINISH on the sandpit's front-left corner (22, 55), by the cup. Four concepts follow. Each is
 one object with a variant for each position. The brief is the course guide's G23 ([README.md](../README.md)
@@ -192,7 +192,7 @@ plate carries the digits.
 | `body` | **1,011 (+31)** | 221 (+36) | 56,934 (+1,324) | 19,685 / 16,464 | +1,121 B LZ4, +967 LZB | 13 |
 | `hub` | **1,018 (+38)** | 236 (+51) | 57,280 (+1,670) | 19,793 / 16,531 | +1,229 B LZ4, +1,034 LZB | 6 |
 
-All four compile (no refusal, all pass 130.18.5.4's one-ball-length check). For comparison: `mill` +31, `wheel`
+All four compile (no refusal, all pass 137.18.5.4's one-ball-length check). For comparison: `mill` +31, `wheel`
 +30, `vase` +10, `flag` -7. **No sail design here comes close to `vase` in cost**: the sails are diagonals and
 detail at the 8 px grid's scale, which is what the block pool pays for. The cheapest sail is still twice `vase`.
 `frames2.py`'s functions are 32 - 49 lines each, plus about 100 lines of shared helpers (`_vane`, `_smock`,
@@ -228,12 +228,12 @@ spare. The world part does not move. On-disk LZ4 is the picture part plus the wo
   tool's own budget line). The sum here measures 18,564 for the same draft, so read the DELTA column against
   MILL.md's figure. Every option adds to the 258 bytes the draft is already over: `flag` by about 240 bytes, the
   sails by about 1,100.
-- **No code, no lanes:** the digits are 130.18.5's lanes in every option. This is picture only, like every frame
+- **No code, no lanes:** the digits are 137.18.5's lanes in every option. This is picture only, like every frame
   so far.
 
 ## Rules each one bends
 
-- **G11 / 130.18.5.4 (a clock never hides the ball for more than one ball length):** all four pass the compile's
+- **G11 / 137.18.5.4 (a clock never hides the ball for more than one ball length):** all four pass the compile's
   check at all three positions.
 - **G10 / G9 / G12:** the positions are unchanged, so these hold as in MILL.md 2. The turntable clock stays low, so
   `mill`'s extra height does not reach the see-saw's window. That is PREDICTED from the crop, not re-measured with
@@ -270,7 +270,7 @@ None was needed to draw them. **To lift the chosen concept into the tool**, copy
 
 - about 60 - 90 lines for one concept (`wheel` 58, `vase` 74, `mill` 79, `flag` 88);
 - about 80 lines of shared helpers (`_sail`, `_arc_marks`, `_disc`, `_tee_peg`). `flag` and `vase` use only `_disc` and `_tee_peg`;
-- its three names in `CLOCK_STYLES` and `_CLOCK_DRAW`, and a paragraph in SPEC.md 130.18.5.2;
+- its three names in `CLOCK_STYLES` and `_CLOCK_DRAW`, and a paragraph in SPEC.md 137.18.5.2;
 - the sketch's three clocks naming the frames per position.
 
 That costs 0 bytes of guest code. Until then, the scratch `.bbc` files compile only through `sheet.py`.

@@ -1,12 +1,12 @@
 ;;; =============================================================================
 ;;; apps/bonanza/bzface.inc - BONANZA's desktop FACE, assembled into the SHELL
-;;; PART (apps/bonanza/bzshell.asm, SPEC.md 130.19.2) - never into the package.
+;;; PART (apps/bonanza/bzshell.asm, SPEC.md 137.19.2) - never into the package.
 ;;; Moved out of bonanza.asm by wave 8a whole; what changed is only where its
 ;;; tables are read: the part's own through CS (`[cs:...]`, bz_lcat), the
 ;;; package's bss through DS, as every vector is entered with DS = the package.
 ;;; =============================================================================
 
-%ifdef BZDEV                    ; (the instruments' face: SPEC.md 130.26.6.1)
+%ifdef BZDEV                    ; (the instruments' face: SPEC.md 137.26.6.1)
 bz_face:
     call bz_fgeom
     jc .out
@@ -84,7 +84,7 @@ bz_fgeom:
 .out:
     ret
 
-%ifdef BZDEV                    ; (the instruments' face: SPEC.md 130.26.6.1)
+%ifdef BZDEV                    ; (the instruments' face: SPEC.md 137.26.6.1)
 ; the window's clip armed and the face's geometry read: CF = 1 when either
 ; cannot be had - or when this key LEAVES the RESULTS page ([bz_pgo]), whose
 ; whole MAIN face bz_onkey paints after it, so no line is drawn twice.
@@ -111,7 +111,7 @@ bz_fline:
     jmp [cs:bz_ftab + bx]
 bz_ftab:    dw bz_lhead, bz_l1, bz_l2, bz_l3, bz_l4, bz_l5, bz_l6
 %if ($ - bz_ftab) / 2 != BZ_NLINE
- %error "MAIN is seven lines - no scorecard, whatever the courses (SPEC.md 130.26.8)"
+ %error "MAIN is seven lines - no scorecard, whatever the courses (SPEC.md 137.26.8)"
 %endif
 
 ; MAIN's lines in the 0FFh-ended list at SI, redrawn outside a paint (the clip
@@ -131,8 +131,8 @@ bz_redraw:
     ret
 
 ; ---- MAIN's builders: each draws its line at [bz_fy] and steps it -------------
-; MAIN's line 0 (BZ_LHEAD): a refused replay's reason (SPEC.md 130.12.8,
-; 130.14.7.2), else the title - RESULTS's line 0, the title always
+; MAIN's line 0 (BZ_LHEAD): a refused replay's reason (SPEC.md 137.12.8,
+; 137.14.7.2), else the title - RESULTS's line 0, the title always
 bz_lhead:
     mov si, bz_s_err3
     cmp byte [bz_err], 3
@@ -147,10 +147,10 @@ bz_lline:
     call bz_lstr
     jmp bz_line
 
-; line 1: what Enter does (wave 8b, 130.19.5: Enter the game, F a free play
+; line 1: what Enter does (wave 8b, 137.19.5: Enter the game, F a free play
 ; of the selected course, [bz_crsel])
 bz_l1:
-    mov si, bz_s_keys           ; wave 8c (130.19.8.3): `ENTER SLOT n  LIVES l
+    mov si, bz_s_keys           ; wave 8c (137.19.8.3): `ENTER SLOT n  LIVES l
     call bz_lstr                ; TIMED|EXPLORE  F <NAME>` - the game's slot,
     mov al, [bz_slot]           ; its lives (`-` none) and mode, then F's free
     add al, '1'                 ; play of the selected course
@@ -223,12 +223,12 @@ bz_adname:
 .out:
     ret
 
-%ifdef BZDEV                    ; (the instruments' face: SPEC.md 130.26.6.1)
+%ifdef BZDEV                    ; (the instruments' face: SPEC.md 137.26.6.1)
 ; line 3: the setting and its key, `T <control>` (no C since the camera
 ; became LATTICE alone, and no M since a play rolls its course's own ball,
-; SPEC.md 130.11.5.4)
+; SPEC.md 137.11.5.4)
 bz_l3:
-    mov si, bz_s_ctlk + 2       ; T: KEYS or MOUSE (SPEC.md 130.14.8)
+    mov si, bz_s_ctlk + 2       ; T: KEYS or MOUSE (SPEC.md 137.14.8)
     call bz_lstr
     mov si, bz_s_keyb
     cmp byte [bz_ctl], 0
@@ -239,7 +239,7 @@ bz_l3:
     jmp bz_line
 
 ; line 4: `S <the sound>` - the player's choice and, under AUTO, the arm it
-; found (SPEC.md 130.20.4).  S redraws it (bzs_skey, bz_line4).
+; found (SPEC.md 137.20.4).  S redraws it (bzs_skey, bz_line4).
 bz_l4:
     mov si, bz_s_sndk
     call bz_lstr
@@ -259,9 +259,9 @@ bz_l4:
 .l:
     jmp bz_line
 
-; line 5: the demo keys (SPEC.md 130.14.3.2): `B BENCH  L LOAD  V DEMO`, and
+; line 5: the demo keys (SPEC.md 137.14.3.2): `B BENCH  L LOAD  V DEMO`, and
 ; with a log held `R PLAY  D TIME  W SAVE  L LOAD  V DEMO` - B, the engine
-; benchmark, is the key dropped for the 42 cells (130.14.17 item 2), and still
+; benchmark, is the key dropped for the 42 cells (137.14.17 item 2), and still
 ; works
 bz_l5:
     call bz_lbeg
@@ -279,14 +279,14 @@ bz_l5:
     call bz_lcat
     jmp bz_line
 
-; line 6: THE HELD LOG's last run (SPEC.md 130.14.3.2, 130.14.16 item 1): after
+; line 6: THE HELD LOG's last run (SPEC.md 137.14.3.2, 137.14.16 item 1): after
 ; a play or a replay, finished or stopped, `<NAME> <time> s <end> falls <n>`
 ; and on a course with flags `flags <reached>/<all>` - the clock, the falls,
 ; the flags and the hole-out, on the face that costs the frame nothing.  The
-; play's stuns and shatters are the field it drops to fit (130.14.17 item 2).
+; play's stuns and shatters are the field it drops to fit (137.14.17 item 2).
 ; With none, the keys' hint (the mouse's under T MOUSE).  After L, `<NAME>
 ; <time> s  <8.3 name>`, and after V `<NAME> <time> s  demo`: the held log's
-; course and its steps (SPEC.md 130.14.3.2).
+; course and its steps (SPEC.md 137.14.3.2).
 bz_l6:
     mov al, [bz_lsv]
     cmp al, 1
@@ -360,7 +360,7 @@ bz_l6:
 
 ; RESULTS line 3: what was measured - `BENCH autopilot`, or after D `Demo
 ; <NAME> <time> s` and `TRUNCATED` when it stopped measuring at 65,535 frames
-; (SPEC.md 130.14.3.2, 130.14.7.3).  The held log is D's until the next key
+; (SPEC.md 137.14.3.2, 137.14.7.3).  The held log is D's until the next key
 ; leaves the page.
 bz_lmeas:
     mov si, bz_s_meas
@@ -384,7 +384,7 @@ bz_lmeas:
 .l:
     jmp bz_line
 
-; RESULTS line 2's numbers (SPEC.md 130.6), after the adapter's prefix: the
+; RESULTS line 2's numbers (SPEC.md 137.6), after the adapter's prefix: the
 ; frames, the display rate (to 999.9, the field's width) and the refreshes
 ; missed - a mean rate cannot tell 0 misses from a few
 bz_frline:
@@ -458,7 +458,7 @@ bz_facres:
     mov ax, [bz_rnfull]
     call bz_lnumw
     mov si, bz_s_late           ; the row-0 boxes the beam overtook (SPEC.md
-    call bz_lcat                ; 130.9 item 6)
+    call bz_lcat                ; 137.9 item 6)
     mov ax, [bz_rlate]
     call bz_lnumw
     jmp bz_line
@@ -546,7 +546,7 @@ bz_div32:
     ret
 
 ; -----------------------------------------------------------------------------
-; bz_t100 - STEPS to HUNDREDTHS of a second (SPEC.md 130.10.6.2, 130.14.3.1):
+; bz_t100 - STEPS to HUNDREDTHS of a second (SPEC.md 137.10.6.2, 137.14.3.1):
 ; floor(n x 21,845 x 100 / 1,193,182), a step being 21,845 PIT counts.  In
 ; DX:AX = n (at most 2^19), out DX:AX.  The
 ; product is a 48-bit Q (its top word under 300), and 1,193,182 = 14,551 x 82,
@@ -606,7 +606,7 @@ bz_lstr:
     call bz_lbeg
 %endif
 ; bz_lcat: append SI's NUL string at DI - the PART's own, read through CS
-; (SPEC.md 130.19.2: the face's strings live in the shell part)
+; (SPEC.md 137.19.2: the face's strings live in the shell part)
 bz_lcat:
     push ax
 .c:
@@ -619,7 +619,7 @@ bz_lcat:
 .e:
     pop ax
     ret
-%ifdef BZDEV                    ; (the instruments' face: SPEC.md 130.26.6.1)
+%ifdef BZDEV                    ; (the instruments' face: SPEC.md 137.26.6.1)
 ; bz_lcatd: the same for a string in the PACKAGE's segment (DS): bss names
 bz_lcatd:
     push ax
@@ -649,7 +649,7 @@ bz_lname:
     xchg ax, si
     jmp bz_lcat
 
-; AX = a course time in steps: `20:00+` for the clamp (SPEC.md 130.14.3.1),
+; AX = a course time in steps: `20:00+` for the clamp (SPEC.md 137.14.3.1),
 ; else as bz_ltime.  Preserves all.
 bz_ltimew:
     cmp ax, 0ffffh
@@ -667,7 +667,7 @@ bz_ltimew:
     ret
 
 ; DX:AX = steps -> appended as seconds: `s.hh` under 100 s, `s.h` from there
-; (SPEC.md 130.14.17 item 2), at most BZ_TIMEW cells.
+; (SPEC.md 137.14.17 item 2), at most BZ_TIMEW cells.
 ; Preserves all.
 bz_ltime:
     push ax
@@ -708,7 +708,7 @@ bz_lch:
 .full:
     ret
 
-%ifdef BZDEV                    ; (the instruments' face: SPEC.md 130.26.6.1)
+%ifdef BZDEV                    ; (the instruments' face: SPEC.md 137.26.6.1)
 ; AX = an unsigned word, appended at DI in decimal.  Preserves all.
 bz_lnumw:
     push dx
@@ -925,14 +925,14 @@ BZS bz_s_p3,    '  retrace (idle) '
 BZS bz_s_p4,    '  flip+columns   '
 BZS bz_s_p5,    '  box write      '
 
-; EVERY FACE LINE FITS THE CGA's 42 CELLS (SPEC.md 130.14.17 item 2): each
+; EVERY FACE LINE FITS THE CGA's 42 CELLS (SPEC.md 137.14.17 item 2): each
 ; builder's widest line - the margin cell, its strings, its fields at their
 ; widest (a word 5 digits, a DWORD 10, a time BZ_TIMEW, the longest title and
 ; NAME and the widest par as bzcourse.inc measures them) - or the build fails.
 %macro BZ_FIT 2
  %assign %%w %2
  %if %%w > BZ_FACEW
-  %error face line %1 is %[%%w] cells and the CGA content holds BZ_FACEW (SPEC.md 130.14.17 item 2)
+  %error face line %1 is %[%%w] cells and the CGA content holds BZ_FACEW (SPEC.md 137.14.17 item 2)
  %endif
 %endmacro
 %assign BZ_SNDW bz_s_sauto_n

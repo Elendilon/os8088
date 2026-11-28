@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BONANZA's QUARTER-UNIT HEIGHTS in the guest (SPEC.md 130.48): the package's own routines under unicorn
+"""BONANZA's QUARTER-UNIT HEIGHTS in the guest (SPEC.md 137.48): the package's own routines under unicorn
 against tools/bbcourse.py's model on a course of quarter steps - tests/bonanza_dsplit.py's method, and its
 harness (Guest, start, poke, run): after EVERY step the guest's state is read out of its own bss and compared
 EXACTLY with the model's.
@@ -7,7 +7,7 @@ EXACTLY with the model's.
     python3 tests/bonanza_dquarter.py [--runs N] [--seed S] [--reds]
 
   1  CELLS: bz_cexp on QDEV's, BENCH's and SUMMIT's STORED forms equals their RAM forms - the CELLS rule's
-     quarter-unit corner and bias (SPEC.md 130.48.3) on a quarter course and on the two REBASED ones.
+     quarter-unit corner and bias (SPEC.md 137.48.3) on a quarter course and on the two REBASED ones.
   2  SCRIPTED: a half-unit step rolled up; a 3/4-unit step that stops a rolling ball (a WALL); rubber's Hop
      onto it (it lands); steel's against it; a quarter ramp climbed; a fall into a pit whose kill height is a
      quarter course's (12 quarter units under its lowest corner).
@@ -98,7 +98,7 @@ def check(n=200, seed=1119, verbose=True, patches=()):
         binp, sym = DS.build(td, patches)
         c = BB.compile_course(QDEV, "<QDEV>", _hack={"no_finish": True})
         cs = {"qdev": c}
-        for k in ("bench", "summit"):               # (the two REBASED courses, SPEC.md 130.48.1)
+        for k in ("bench", "summit"):               # (the two REBASED courses, SPEC.md 137.48.1)
             cs[k] = BB.compile_course(os.path.join(BB.COURSE_DIR, k + ".bbc"))
         b = DS.cells_check(binp, sym, cs)
         print("bonanza_dquarter CELLS: bz_cexp on %s's stored forms (BENCH rebased %d units, SUMMIT %d) -> %s" % (
@@ -144,7 +144,7 @@ def main():
     ap.add_argument("--seed", type=int, default=1119)
     ap.add_argument("--reds", action="store_true", help="every red arm: each must go red")
     a = ap.parse_args()
-    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
+    R.dev()                             # the BZDEV=1 build (SPEC.md 137.26.6.1)
     if a.reds:
         for name in sorted(REDS):
             bad = check(min(a.runs, 40), a.seed, verbose=False, patches=REDS[name])

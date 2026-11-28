@@ -1,4 +1,4 @@
-bbcourse --sizes: RECB 4 (D), the stored form of SPEC.md 130.15.4.3; packed as os88pkg packs a part (os88lz, the near-call filter tried); KiB = 1,024 bytes
+bbcourse --sizes: RECB 4 (D), the stored form of SPEC.md 137.15.4.3; packed as os88pkg packs a part (os88lz, the near-call filter tried); KiB = 1,024 bytes
 
   course 0 BENCH (bench.bbc): RAM 40156 bytes, stored 40156 (6788 of them holes), 10 sections
     tag section            form           RAM  stored LZ4 share LZB share
@@ -36,7 +36,7 @@ bbcourse --sizes: RECB 4 (D), the stored form of SPEC.md 130.15.4.3; packed as o
     its decode, PREDICTED: LZ4 136 ms (10140 bytes at 63.8 clk), LZB 142 ms (782 literals, 664 matches, 9358 bytes copied; 67 clk a byte)
     RAM 10140 bytes against 65024: 54884 of headroom; 274 bytes a block row (37 rows)
     target 30 s: 0.811 s a block row; one part holds about 237 rows at this density, about 192 s at this pace
-    budget 6275 bytes (ROOM 244736 x 30 / 1170), 1.5x 9412 (LZ4), REPORTED, never refused (SPEC.md 130.27.5): LZ4 2693, under; LZB 2194, under
+    budget 6275 bytes (ROOM 244736 x 30 / 1170), 1.5x 9412 (LZ4), REPORTED, never refused (SPEC.md 137.27.5): LZ4 2693, under; LZB 2194, under
 
   course 2 TRIAL (trial.bbc): RAM 16880 bytes, stored 16880 (2900 of them holes), 11 sections
     tag section            form           RAM  stored LZ4 share LZB share
@@ -56,7 +56,7 @@ bbcourse --sizes: RECB 4 (D), the stored form of SPEC.md 130.15.4.3; packed as o
     its decode, PREDICTED: LZ4 226 ms (16880 bytes at 63.8 clk), LZB 243 ms (1350 literals, 1144 matches, 15530 bytes copied; 69 clk a byte)
     RAM 16880 bytes against 65024: 48144 of headroom; 301 bytes a block row (56 rows)
     target 30 s: 0.536 s a block row; one part holds about 215 rows at this density, about 115 s at this pace
-    budget 6275 bytes (ROOM 244736 x 30 / 1170), 1.5x 9412 (LZ4), REPORTED, never refused (SPEC.md 130.27.5): LZ4 4636, under; LZB 3798, under
+    budget 6275 bytes (ROOM 244736 x 30 / 1170), 1.5x 9412 (LZ4), REPORTED, never refused (SPEC.md 137.27.5): LZ4 4636, under; LZB 3798, under
 
   course 3 MILL (mill.bbc): RAM 29975 bytes, stored 29975 (4229 of them holes), 11 sections
     tag section            form           RAM  stored LZ4 share LZB share
@@ -76,7 +76,7 @@ bbcourse --sizes: RECB 4 (D), the stored form of SPEC.md 130.15.4.3; packed as o
     its decode, PREDICTED: LZ4 401 ms (29975 bytes at 63.8 clk), LZB 507 ms (2240 literals, 2564 matches, 27735 bytes copied; 81 clk a byte)
     RAM 29975 bytes against 65024: 35049 of headroom; 370 bytes a block row (81 rows)
     target 30 s: 0.370 s a block row; one part holds about 175 rows at this density, about 65 s at this pace
-    budget 6275 bytes (ROOM 244736 x 30 / 1170), 1.5x 9418 (LZ4), REPORTED, never refused (SPEC.md 130.27.5): LZ4 9520, OVER 1.5x; LZB 7786, OVER
+    budget 6275 bytes (ROOM 244736 x 30 / 1170), 1.5x 9418 (LZ4), REPORTED, never refused (SPEC.md 137.27.5): LZ4 9520, OVER 1.5x; LZB 7786, OVER
 
   course 4 MOON (moon.bbc): RAM 43087 bytes, stored 43087 (6860 of them holes), 12 sections
     tag section            form           RAM  stored LZ4 share LZB share
@@ -97,7 +97,7 @@ bbcourse --sizes: RECB 4 (D), the stored form of SPEC.md 130.15.4.3; packed as o
     its decode, PREDICTED: LZ4 576 ms (43087 bytes at 63.8 clk), LZB 591 ms (2279 literals, 2720 matches, 40808 bytes copied; 65 clk a byte)
     RAM 43087 bytes against 65024: 21937 of headroom; 331 bytes a block row (130 rows)
     target 60 s: 0.462 s a block row; one part holds about 196 rows at this density, about 90 s at this pace
-    budget 12550 bytes (ROOM 244736 x 60 / 1170), 1.5x 18825 (LZ4), REPORTED, never refused (SPEC.md 130.27.5): LZ4 10212, under; LZB 8318, under
+    budget 12550 bytes (ROOM 244736 x 60 / 1170), 1.5x 18825 (LZ4), REPORTED, never refused (SPEC.md 137.27.5): LZ4 10212, under; LZB 8318, under
 
   course 5 PEAK (summit.bbc): RAM 48129 bytes, stored 48129 (7446 of them holes), 11 sections
     tag section            form           RAM  stored LZ4 share LZB share
@@ -117,7 +117,7 @@ bbcourse --sizes: RECB 4 (D), the stored form of SPEC.md 130.15.4.3; packed as o
     its decode, PREDICTED: LZ4 644 ms (48129 bytes at 63.8 clk), LZB 714 ms (2917 literals, 3378 matches, 45212 bytes copied; 71 clk a byte)
     RAM 48129 bytes against 65024: 16895 of headroom; 339 bytes a block row (142 rows)
     target 60 s: 0.423 s a block row; one part holds about 191 rows at this density, about 81 s at this pace
-    budget 12550 bytes (ROOM 244736 x 60 / 1170), 1.5x 18825 (LZ4), REPORTED, never refused (SPEC.md 130.27.5): LZ4 12645, OVER; LZB 10325, under
+    budget 12550 bytes (ROOM 244736 x 60 / 1170), 1.5x 18825 (LZ4), REPORTED, never refused (SPEC.md 137.27.5): LZ4 12645, OVER; LZB 10325, under
 
   course 6 PLAY (playground.bbc): RAM 49422 bytes, stored 49422 (9386 of them holes), 12 sections
     tag section            form           RAM  stored LZ4 share LZB share
@@ -138,7 +138,7 @@ bbcourse --sizes: RECB 4 (D), the stored form of SPEC.md 130.15.4.3; packed as o
     its decode, PREDICTED: LZ4 661 ms (49422 bytes at 63.8 clk), LZB 585 ms (1997 literals, 2524 matches, 47425 bytes copied; 56 clk a byte)
     RAM 49422 bytes against 65024: 15602 of headroom; 526 bytes a block row (94 rows)
     target 30 s: 0.319 s a block row; one part holds about 123 rows at this density, about 39 s at this pace
-    budget 6275 bytes (ROOM 244736 x 30 / 1170), 1.5x 9412 (LZ4), REPORTED, never refused (SPEC.md 130.27.5): LZ4 9483, OVER 1.5x; LZB 7715, OVER
+    budget 6275 bytes (ROOM 244736 x 30 / 1170), 1.5x 9412 (LZ4), REPORTED, never refused (SPEC.md 137.27.5): LZ4 9483, OVER 1.5x; LZB 7715, OVER
 
   the 7 courses: LZ4 56796, LZB 46147 packed; RAM 237789
   the set: the shipped tour courses (49189 LZ4, 40136 LZB) and the plan's courses still to come at their budgets (194525: 2 x 30 s, 7 x 60 s, 5 x 90 s) against ROOM 244736 (239 KiB): LZ4 238.0 KiB, LZB 229.2 KiB

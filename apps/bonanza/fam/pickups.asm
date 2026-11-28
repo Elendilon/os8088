@@ -1,6 +1,6 @@
 ; =============================================================================
-; apps/bonanza/fam/pickups.asm - BONANZA's PICKUPS FAMILY (SPEC.md 130.25.9,
-; 130.25.19, 130.55): three kinds, each taken when the ball's centre is in its cell
+; apps/bonanza/fam/pickups.asm - BONANZA's PICKUPS FAMILY (SPEC.md 137.25.9,
+; 137.25.19, 137.55): three kinds, each taken when the ball's centre is in its cell
 ; (CONTACT) and its one state bit, COLLECTED, clear -
 ;   hourglass (19)  +BZ_PU_HGSEC on the limit (bz_tsec; the clocks' next second
 ;                   shows it), once an attempt (ATTEMPT), and HIDDEN while
@@ -13,7 +13,7 @@
 ;                   rubber's boost: the boost's rule reads the bounce), for its
 ;                   own duration, RESPAWN
 ; Record +19 bit 0, OVERWRITE: taking it ENDS the other timed effect; bit 1,
-; RESPAWN (SPEC.md 130.55, "let them try again"): an effect ENDING - worn off,
+; RESPAWN (SPEC.md 137.55, "let them try again"): an effect ENDING - worn off,
 ; an OVERWRITE, a RESET - puts back every element of its kind so marked
 ; (pu_rearm), its bit cleared and its lane marked.  The two
 ; timers are this family's SLOT (bz_fsl + BZF_SLOT AL): +0 speed's steps left,
@@ -27,7 +27,7 @@
 ; written again because a part cannot call the package.
 ; bbcourse.PickupFamily is the model, step for step.
 ;
-; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 137.25.6.2), linked against the package's bss as the
 ; probe is (build/bonanza-art/bzlink.inc: no code label).  Entered by `call
 ; far` with DS = ES = the package, AL = the slot, AH = the argument (CONTACT,
 ; POSE: the kind), BX = the element; `retf`.
@@ -48,7 +48,7 @@ org 0
     db 0
     dw pu_reset, 0, pu_contact, pu_step, pu_pose, 0
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 137.25.6.2)"
 %endif
 %if BZ_K_SPEED != BZ_K_HOURGLASS + 1 || BZ_K_JUMP != BZ_K_HOURGLASS + 2
  %error "the pickups' kinds are one run (the part's +9, +10)"
@@ -67,7 +67,7 @@ pu_reset:
     je .m
     call pu_joff
 .m:
-    and byte [bz_cue], 4        ; (bit 2 THE LIFE's, 130.55)
+    and byte [bz_cue], 4        ; (bit 2 THE LIFE's, 137.55)
     mov cl, [bz_nprop]
     xor ch, ch
     jcxz .out
@@ -129,7 +129,7 @@ pu_contact:
     call pu_joff
 .s1:
     mov [di], ax
-    push ax                     ; (its STEP every step now: 130.25.6.11)
+    push ax                     ; (its STEP every step now: 137.25.6.11)
     xor ax, ax
     call pu_setwk
     pop ax
@@ -153,7 +153,7 @@ pu_contact:
     mov word [bz_mrec + BZM_HOP], BZ_PU_JHOP
 .j2:
     mov [di + 2], ax
-    push ax                     ; (its STEP every step now: 130.25.6.11)
+    push ax                     ; (its STEP every step now: 137.25.6.11)
     xor ax, ax
     call pu_setwk
     pop ax
@@ -201,16 +201,16 @@ pu_step:
     ja .c
     or dl, 2
 .c:
-    mov al, [bz_cue]            ; (bit 2 THE LIFE's, 130.55)
+    mov al, [bz_cue]            ; (bit 2 THE LIFE's, 137.55)
     and al, 4
     or al, dl
     mov [bz_cue], al
-    xor ax, ax                  ; (130.25.6.11: an effect running, every
+    xor ax, ax                  ; (137.25.6.11: an effect running, every
     mov cx, [di]                ; step; none, none until CONTACT starts one)
     or cx, [di + 2]
     jnz .w
     mov ax, [bz_nstep]          ; (idle: no STEP until something wakes it,
-    add ax, 4000h               ; 130.25.6.11)
+    add ax, 4000h               ; 137.25.6.11)
 .w:
     call pu_setwk
     retf
@@ -236,7 +236,7 @@ pu_pose:
     retf
 
 ; the speed's effect ended (DI the slot): its timer, bz_wacc and bz_vup 0, the
-; tables rebuilt, its RESPAWN elements back (130.55).  Clobbers AX, BX, CX,
+; tables rebuilt, its RESPAWN elements back (137.55).  Clobbers AX, BX, CX,
 ; DX, SI, ES.
 pu_soff:
     mov word [di], 0
@@ -280,7 +280,7 @@ pu_ramp:
     ret
 
 ; the jump's effect ended (DI the slot): its timer 0, the Hop it replaced
-; back, its RESPAWN elements back (130.55).  Preserves AX, DX, DI; clobbers
+; back, its RESPAWN elements back (137.55).  Preserves AX, DX, DI; clobbers
 ; BX, CX, SI, ES.
 pu_joff:
     mov word [di + 2], 0
@@ -294,7 +294,7 @@ pu_joff:
     pop ax
     ret
 
-; DL = a timed kind whose effect ENDED (SPEC.md 130.55, "let them try
+; DL = a timed kind whose effect ENDED (SPEC.md 137.55, "let them try
 ; again"): every element of it marked BZ_PU_RESP and COLLECTED is put back -
 ; its bit cleared, its lane marked (bz_fmark).  Preserves DX, DI.  Clobbers
 ; AX, BX, CX, SI, ES.

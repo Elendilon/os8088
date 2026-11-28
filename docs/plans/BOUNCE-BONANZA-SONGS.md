@@ -1,4 +1,4 @@
-# Bounce Bonanza: songs in their courses, the finish's tunes resident (BUILT; SPEC.md 130.50)
+# Bounce Bonanza: songs in their courses, the finish's tunes resident (BUILT; SPEC.md 137.50)
 
 The owner, 2026-11-19: *"Victory/death are sounds always loaded, and each
 course's song will be unique to that course. This may be part of why load
@@ -48,14 +48,14 @@ FIRST. Every launch pays it again, because every part is given back.
    gains the VICTORY and TIME'S UP songs (each at a paragraph-aligned offset,
    reached by a derived segment from `OSAPI_SEG`'s `SEG_SUB`, never by
    segment arithmetic - kern_mega's rule), and is fetched ONCE at the open
-   and HELD while BONANZA is open, as the balls and the kit are (130.25.5.2,
-   130.37.5): the arena's floor, under `op_artop`. Cost: about **1.8 KB of
+   and HELD while BONANZA is open, as the balls and the kit are (137.25.5.2,
+   137.37.5): the arena's floor, under `op_artop`. Cost: about **1.8 KB of
    heap held** for the package's life (1,383 + 224 + 152, rounded to
    paragraphs) against **three fetches less per launch**. Sound OFF still
    fetches nothing; kern_small plays nothing, as now.
 2. **EACH COURSE'S SONG IN ITS COURSE PART.** The tool writes the course's
    song into the course part as one more directory entry (BZC2's directory,
-   130.15), paragraph-aligned; `bzs_gfetch` points `bzs_mseg` at it through
+   137.15), paragraph-aligned; `bzs_gfetch` points `bzs_mseg` at it through
    `OSAPI_SEG` instead of fetching `BZM<S>`. A song two courses share is
    COPIED into both (the owner: fine; each course gets its own song for the
    release). The pathway's and the title's parts carry theirs the same way
@@ -65,7 +65,7 @@ FIRST. Every launch pays it again, because every part is given back.
 3. **What goes**: the per-launch `BZM<S>` fetch and its drop; the fanfare's
    and TIME'S UP's fetches, drops and `bzs_vseg`/`bzs_tseg` claims (they
    become derived segments of the held sound part, re-derived when the
-   arena moves - 130.25.4.2's `bz_arload`); the songs' own part rows, once
+   arena moves - 137.25.4.2's `bz_arload`); the songs' own part rows, once
    no part needs them (`BZM<S>.BIN` stays the tool's intermediate).
 4. **What stays**: the music format, the sequencer, the bank, every effect;
    `bbmusic` builds the songs as now and `bbcourse` places them.
@@ -87,13 +87,13 @@ about 0.2 s. To be MEASURED with the same probe after.
 - [x] **S1 + S2** (the owner: *"there is already a shared family/ball part
       ... it can go in that and save an extra int13h even on initial
       load"*): the sound part, VICTORY and TIME'S UP ride the RESIDENT
-      BUNDLE after the balls (SPEC.md 130.50.2), their segments derived
+      BUNDLE after the balls (SPEC.md 137.50.2), their segments derived
       with `OSAPI_SEG` by `bz_bsload`; no fetch or drop at a launch, no
       new row, no new read at the open. MEASURED: PEAK 3.47 -> 2.69 s,
       MOON 2.95 -> 2.68 s.
 - [x] **S3** The tool writes each course's song into its course part as
       section `S` (and the pathway's and the title's); the guest plays it
-      from there (SPEC.md 130.50.3). The identity is taken without it.
+      from there (SPEC.md 137.50.3). The identity is taken without it.
 - [x] **S4** The song part rows retired; `crs_arena` and `BZ_CRS_ARENA`
       count no sound. (`bzs_vseg` and `bzs_tseg` stay in `tests/pins.txt`'s
       words as the bundle's derived segments.)
@@ -104,7 +104,7 @@ about 0.2 s. To be MEASURED with the same probe after.
 
 ## The courses' songs (the list, 2026-11-25)
 
-Every course names its song with `music` (SPEC.md 130.50.3); the song is a
+Every course names its song with `music` (SPEC.md 137.50.3); the song is a
 section of that course's part, so a song no course of a build names ships
 nowhere. The manifest is `tools/bbmusic.py`'s `SONGS` (append, never insert);
 the Makefile's `BZ_SONGS` is the same list.

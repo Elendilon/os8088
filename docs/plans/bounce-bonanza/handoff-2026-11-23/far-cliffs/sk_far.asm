@@ -1,4 +1,4 @@
-; SPEC.md 130.29.12 research SKETCH (not built): A, the far list, read at a NEW V into the extra slots
+; SPEC.md 137.29.12 research SKETCH (not built): A, the far list, read at a NEW V into the extra slots
 ; (DS = the world part, ES = ours; BX = BZG1).  Each entry (i << 4 | j) is a WHOLE, readable, non-float cell
 ; the tool picked, so no kind/OBS/float test is made.  Two extra slots (right then left), as bz_axcell's.
 cpu 8086

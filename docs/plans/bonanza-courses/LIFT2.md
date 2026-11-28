@@ -1,7 +1,7 @@
 # LIFT2: two lifts in a course (a costed study, 2026-11-20)
 
 *Status (later the same day): **BUILT** (the owner: "build it ... the re-point design with BZ_LIFTMAX 2 and
-the shared sprite"). SPEC.md 130.12.4.7 is the contract, TLFT (130.54.7) the test course, the selfcheck's
+the shared sprite"). SPEC.md 137.12.4.7 is the contract, TLFT (137.54.7) the test course, the selfcheck's
 `lift2` section the host check. MEASURED against the prediction below: `bonanza.bin` +169 bytes (predicted
 ~170) and bss +22 (predicted 21); `bz_psel` 108, `bz_pload` 99 (the inline cache moved out, `bz_pread` 462 ->
 404), `bz_pfull` +7, `.plat` +11, the two sprite conversions +2 each. Two things differ from section 2: the
@@ -12,9 +12,9 @@ lift. DOWN keeps one lift (section 4 stands). The study below is kept as it was 
 The owner, designing course 3 (DOWN, [DOWN.md](DOWN.md)): *"How many lifts can
 we have on a stage? I'm thinking steel will probably need a lift itself; so we
 may need to take glass's lift if we can't support 2."* Today the answer is
-**one**: SPEC.md 130.12.4.6's bounds table says "lifts in a COURSE: 1", because
+**one**: SPEC.md 137.12.4.6's bounds table says "lifts in a COURSE: 1", because
 the guest tracks one lift (`bz_pidx`, `bz_pline`, its sprite and columns: the
-review, 130.12.17, finding m1), and a second one would be a bare shaft on the
+review, 137.12.17, finding m1), and a second one would be a bare shaft on the
 glass that physics still carries a ball through. The owner's O24 also allows
 only one platform per window.
 
@@ -37,7 +37,7 @@ are counted from the design's instructions and have not been assembled.
   arithmetic.
 - **Per frame: about 25 clk on a one-lift course and about 400 clk on a
   two-lift course** (PREDICTED, 0.6% of the ~65k-clk busy frames
-  130.12.11 prices). The hand-over frame costs about 1.5k clk, once per crossing. It
+  137.12.11 prices). The hand-over frame costs about 1.5k clk, once per crossing. It
   draws nothing: no box is added and the 4-box frame budget does not move.
 - **Each lift keeps its own phase while off-screen.** The phase is a pure
   function of the step count (`bz_ppos`). On re-entry the player sees it where
@@ -94,7 +94,7 @@ can be on the card when no window holds two.
 
 The key fact for the design: **a lift outside the shown window is not on the
 card.** `bz_props`'s `.plat` already keeps such a lift's drawn line equal to
-its true line in RAM (`.pout`; 130.12.15 item 3). Its display state is
+its true line in RAM (`.pout`; 137.12.15 item 3). Its display state is
 therefore a pure function of `n` and can be thrown away and rebuilt. It never
 has to be saved.
 
@@ -106,8 +106,8 @@ The tracked lift is the one whose TRACK (the slab's rectangle over its whole
 rise: `bz_pox` .. `+ PL_W`, `bz_pyt` .. `bz_pyb`) meets the **widened
 window**. The widened window is the shown window plus the margins the walk
 already uses to see a lane before it is shown: `BZ_LCM` (2) word columns
-either side (the wave-7 column band, 130.18.2) and the range's 2 block rows
-above and 3 below (130.12.5.2). When no lift meets it, the tracked lift stays
+either side (the wave-7 column band, 137.18.2) and the range's 2 block rows
+above and 3 below (137.12.5.2). When no lift meets it, the tracked lift stays
 as it was. It is not on the card either way.
 
 The **tool refuses** a course in which any widened window, on either card at
@@ -193,10 +193,10 @@ kernel bytes, so no kernel budget is touched.
 
 ### 2.4 SPEC.md
 
-130.12.4.6's row becomes "lifts in a COURSE: `BZ_LIFTMAX`; no widened window
+137.12.4.6's row becomes "lifts in a COURSE: `BZ_LIFTMAX`; no widened window
 (the walk's margins) meets two tracks". The reason becomes the re-point rule.
-130.12.17's m1 row gets a note that it was closed by a design, not by the
-refusal. 130.12.5.2's THE PLATFORM paragraph gains the hand-over sentence.
+137.12.17's m1 row gets a note that it was closed by a design, not by the
+refusal. 137.12.5.2's THE PLATFORM paragraph gains the hand-over sentence.
 O24 is unchanged (one platform per window).
 
 ## 3. Independent phases, and what the player sees
@@ -258,7 +258,7 @@ floor is within 122 lines of glass's track today.
 
 - **Performance (PREDICTED).** On a two-lift course `bz_psel` runs every
   frame: about 20 instructions of set-up and four memory compares a table
-  entry, about 400 clk, or 0.6% of 130.12.11's ~65k-clk busy frames. A one-lift
+  entry, about 400 clk, or 0.6% of 137.12.11's ~65k-clk busy frames. A one-lift
   course pays `cmp`/`jb`, about 25 clk. The hand-over (`bz_pload` with
   `bz_pcache`'s `div`) is about 1.5k clk, once per crossing, on a frame where
   the new lift is by construction not shown. No box, no wheel candidate and no
@@ -289,10 +289,10 @@ If the owner wants both lifts where the current DOWN layout would put them,
 the slab state becomes per-lift arrays and two slabs can be on the card at
 once. The cost goes well beyond the ~50 read sites:
 
-- **The contact group** (130.12.4.3) holds one slab box. That box "cannot
+- **The contact group** (137.12.4.3) holds one slab box. That box "cannot
   wait" while it carries the ball or while it is leaving. Two slabs can both
   be in that state on one frame, which needs a new group or a fifth box, and
-  the 4-box budget and 130.12.11's busy table are priced on four.
+  the 4-box budget and 137.12.11's busy table are priced on four.
 - **The compose.** `bz_pblit`, `bz_povr` and `bz_mkboxes`'s second rect
   (`bz_crect2`) assume one slab. A box meeting both slabs needs an occluder
   order between them.
@@ -300,7 +300,7 @@ once. The cost goes well beyond the ~50 read sites:
   start window's corner and the display model all assume one slab per window.
 
 Rough size: **700 - 1,200 bytes** of guest code (PREDICTED, not itemised) and
-a SPEC.md amendment to 130.12.4.3 and 130.12.11. It is not recommended
+a SPEC.md amendment to 137.12.4.3 and 137.12.11. It is not recommended
 before DOWN's layout has been tried against option 1.
 
 ## 7. Tests that would cover it
@@ -319,7 +319,7 @@ sub-agent does not soak (fork rule 10).
 | `bonanzamega` | one launch and play of the test course on kern_mega's Hercules |
 | `bonanzademo`, `bonanzapath` | only if DOWN gains a second lift (its route demo is regenerated) |
 
-**A test course**, BZDEV-only like TPLY and TMIL (SPEC.md 130.54): two lifts,
+**A test course**, BZDEV-only like TPLY and TMIL (SPEC.md 137.54): two lifts,
 a widened Hercules window apart, a route riding both, and a start window
 holding neither.
 
@@ -329,7 +329,7 @@ holding neither.
 |---|---|
 | guest: `bz_pload`, `bz_ppin`, `bz_psel`, the table, the two call sites, the VAR and `%error` work | 0.5 - 1 day |
 | tool: the bound, `BZ_LIFTMAX` export, the shared sprite, `_Disp`'s rule, the red arms | 0.5 day |
-| SPEC.md 130.12.4.6, 130.12.5.2, 130.12.17 m1 | 0.25 day |
+| SPEC.md 137.12.4.6, 137.12.5.2, 137.12.17 m1 | 0.25 day |
 | the test course and the row changes above | 1 day |
 | **total** | **about 2 - 3 days**, plus DOWN's layout change (option 1), which is design work |
 

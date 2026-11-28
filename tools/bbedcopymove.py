@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SPEC.md 130.58.57: several parts dragged together on the plan, Ctrl+C / Ctrl+X / Ctrl+V, and the whole course
+"""SPEC.md 137.58.57: several parts dragged together on the plan, Ctrl+C / Ctrl+X / Ctrl+V, and the whole course
 moved over when an addition reaches the grid's edge - driven through the REAL window (the canvas's own press,
 motion and release; the keys sent to it; the pointer warped over the plan), so it needs a Python with Tk and a
 display:
@@ -211,7 +211,7 @@ chk("Ctrl+C in the Source tab's text is the text's own", app.clip == before)
 app.nb.select(0)
 settle()
 
-# 7. SPEC.md 130.58.59: an area's parts made the selection (the area panel's Select buttons), then dragged at once
+# 7. SPEC.md 137.58.59: an area's parts made the selection (the area panel's Select buttons), then dragged at once
 app._escape()
 app.area = (10, 3, 13, 6)
 app.select(None)
@@ -246,7 +246,7 @@ chk("Parts touching also takes the floor reaching past a one-cell area (%s)" % p
 app._escape()
 chk("the course is as it was", app.doc.text() == t0)
 
-# 9. SPEC.md 130.58.60: a diagonal pair pasted into a selected one-cell area - the pair's first part (topmost,
+# 9. SPEC.md 137.58.60: a diagonal pair pasted into a selected one-cell area - the pair's first part (topmost,
 # then leftmost) lands IN the area, the other keeping its place beside it, wherever the pointer is
 pair = "wall half right tile 14 16 flat 6.5\nwall half right tile 13 17 flat 6.5\n"
 for name, ptr in (("pointer off the plan", None), ("pointer over another cell", (5, 9))):
@@ -270,7 +270,7 @@ for name, ptr in (("pointer off the plan", None), ("pointer over another cell", 
     settle()
 chk("the course is as it was (pastes undone)", app.doc.text() == t0)
 
-# 10. SPEC.md 130.58.61: a crack's "Falls away with its column" writes and takes out a one-tile float under it
+# 10. SPEC.md 137.58.61: a crack's "Falls away with its column" writes and takes out a one-tile float under it
 n0 = len(app.doc.undo_stack)
 app.doc.insert("prop crack 5 6")
 app._fill_problems()
@@ -300,7 +300,7 @@ app._escape()
 settle()
 chk("the course is as it was (the crack's edits undone)", app.doc.text() == t0)
 
-# 8. SPEC.md 130.58.59: the problem bar describes a PICKED row, or it goes
+# 8. SPEC.md 137.58.59: the problem bar describes a PICKED row, or it goes
 app.doc.insert("clock 40 40")
 app._fill_problems()
 settle()

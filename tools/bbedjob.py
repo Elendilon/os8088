@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedjob - THE COURSE BUILDER'S JOBS (SPEC.md 130.58.8), each run as a process
+"""bbedjob - THE COURSE BUILDER'S JOBS (SPEC.md 137.58.8), each run as a process
 by tools/bbedit.py, reporting JSON lines on stdout and killed by Cancel or by
 the next edit:
 
@@ -17,30 +17,30 @@ still gets a picture to look at, and the CHECK says what is over. It writes
 OUTDIR/cga.png, OUTDIR/herc.png, OUTDIR/owners.bin (the cell that drew each
 pixel, 256 wx + wy or -1, int32 rows) and OUTDIR/meta.json (the size, the
 origin, every mark the visibility audit weighs with its seen and hidden
-pixels; with --gaps, the gap band's candidate faces, SPEC.md 130.57.4). With
+pixels; with --gaps, the gap band's candidate faces, SPEC.md 137.57.4). With
 --occ it also compiles WITH the occluders and writes OUTDIR/occ.json: every
 record the rule cuts, the cells it hides and the OCC/OCCG cells (SPEC.md
-130.58.32), every record's pixels in the
+137.58.32), every record's pixels in the
 PICTURE's lines (the occluder compile is at the kit's alignment, the picture's at
-+0: 130.58.52.4).  With --kit it writes OUTDIR/kit.json: which of the picture's
-8 x 8 blocks and FIELD cells are THE STANDARD KIT's (SPEC.md 130.37), off a
++0: 137.58.52.4).  With --kit it writes OUTDIR/kit.json: which of the picture's
+8 x 8 blocks and FIELD cells are THE STANDARD KIT's (SPEC.md 137.37), off a
 compile at the kit's alignment; with --occ as well, occ.json's shipped records
-name their mask's kit piece (SPEC.md 130.58.52).
+name their mask's kit piece (SPEC.md 137.58.52).
 
-KIT (SPEC.md 130.58.52.3) writes OUTDIR/kitlib.json: every piece of the kit,
+KIT (SPEC.md 137.58.52.3) writes OUTDIR/kitlib.json: every piece of the kit,
 the pool courses (bbcourse.KIT_POOL) that use each - each compiled WITH the
 kit, as it ships, through the compile cache - the open COURSE's own use, the
-totals and the kit's staleness (SPEC.md 130.37.2).
+totals and the kit's staleness (SPEC.md 137.37.2).
 
 CHECK is bbcourse's compile_course: the errors that refuse the course and
-the warnings that do not (SPEC.md 130.58.4); a blend warning carries its two
-regions' cells and the seam's pixels (130.58.18); and the ROUTE's warnings
-(bbcourse.route_lint, SPEC.md 130.58.49), the builder's own, each naming the
+the warnings that do not (SPEC.md 137.58.4); a blend warning carries its two
+regions' cells and the seam's pixels (137.58.18); and the ROUTE's warnings
+(bbcourse.route_lint, SPEC.md 137.58.49), the builder's own, each naming the
 `way` line to move or add beside.  Its `done` line carries the course's STATS
-(course_stats, SPEC.md 130.58.51): each figure against its bound, the bytes on
+(course_stats, SPEC.md 137.58.51): each figure against its bound, the bytes on
 the floppy, and every option the course uses to go past a usual bound.
 
-RIDE (SPEC.md 130.58.19) rolls each ball over the shape on line LINE - a
+RIDE (SPEC.md 137.58.19) rolls each ball over the shape on line LINE - a
 chute, a pit or a hump - on the play-only compile, and answers in words.
 """
 
@@ -63,13 +63,13 @@ def emit(**kw):
 
 
 def refusal(e):
-    """a refusal's extra keys for the window: a MOUTH that does not fit (SPEC.md 130.58.41) names its tube's line
+    """a refusal's extra keys for the window: a MOUTH that does not fit (SPEC.md 137.58.41) names its tube's line
     and the largest height in half units that does (None: none does) -> {"mouth": [line, h2 | None]} or {}"""
     return {"mouth": [e.line, e.fit]} if isinstance(e, B.MouthFit) else {}
 
 
 def palette(src):
-    """the course's CGA colours (SPEC.md 130.16.6): its `palette` byte, else palette 1 bright"""
+    """the course's CGA colours (SPEC.md 137.16.6): its `palette` byte, else palette 1 bright"""
     b = src.palette[0] if src.palette else 0x30
     bright = bool(b & 0x10)
     if b & 0x40:                                # palette 2: mode 5's (the B/W bit), cyan, red, white
@@ -89,7 +89,7 @@ BLEND_KEYS = ("regions", "lines", "seam", "px", "cards", "x0", "y0")
 
 def warning(w):
     """a warning as JSON: its kind, message, line, cell and whether accepted - and a blend's two regions' cells,
-    lines and seam pixels with the picture's origin they were measured at (SPEC.md 130.58.18), for the window"""
+    lines and seam pixels with the picture's origin they were measured at (SPEC.md 137.58.18), for the window"""
     out = {k: w[k] for k in ("kind", "msg", "line", "cell", "accepted")}
     out.update({k: w[k] for k in BLEND_KEYS if k in w})
     return out
@@ -101,13 +101,13 @@ def picture(path, out, name=None, gaps=False, occ=False, kit=False):
     with open(path, "r", encoding="ascii", newline="") as f:
         text = f.read()
     path = name or path
-    B.BLK_MAX = 1 << 30                         # the picture's alone: never a part that ships (130.58.8)
-    B.GAP_DETECT = gaps                         # the gap band's candidates, only while the overlay shows (130.58.21)
+    B.BLK_MAX = 1 << 30                         # the picture's alone: never a part that ships (137.58.8)
+    B.GAP_DETECT = gaps                         # the gap band's candidates, only while the overlay shows (137.58.21)
     emit(stage="compile", what="laying the course")
-    dropped = []                                # SPEC.md 130.58.21: a `gap` an edit left banding nothing is
+    dropped = []                                # SPEC.md 137.58.21: a `gap` an edit left banding nothing is
     while True:                                 # dropped (the window removes it from the course) - never a
         try:                                    # picture refused for a mark that no longer fits
-            if M.is_map(text):                  # a pathway: its pads' courses with the extra ones (130.58.20)
+            if M.is_map(text):                  # a pathway: its pads' courses with the extra ones (137.58.20)
                 c = M.compile_map(text, path)
             else:
                 c = B.compile_course(text, path, occluders=False)
@@ -159,7 +159,7 @@ def picture(path, out, name=None, gaps=False, occ=False, kit=False):
     except Exception as e:                      # (the audit wants more than a picture compile holds)
         emit(stage="log", what="no visibility marks: %s" % e)
     occm = None
-    if occ:                                     # SPEC.md 130.58.32: the occluders, only while the overlay shows
+    if occ:                                     # SPEC.md 137.58.32: the occluders, only while the overlay shows
         emit(stage="occluders", what="cutting the occluders (the full rules: a while on a big course)")
         tmp = os.path.join(out, "occ.bbc")
         with open(tmp, "w", encoding="ascii", newline="") as f:
@@ -168,10 +168,10 @@ def picture(path, out, name=None, gaps=False, occ=False, kit=False):
         ws, err = occluders(tmp, out, path, pic_y0=c.y0)
         os.remove(tmp)
         occm = {"error": err, "secs": round(time.time() - t1, 2),
-                "partial": bool(err) and os.path.exists(os.path.join(out, "occ.json")),   # (130.58.46)
-                "warnings": []}       # (the `shade` warnings' place: none is made since SPEC.md 130.12.19)
+                "partial": bool(err) and os.path.exists(os.path.join(out, "occ.json")),   # (137.58.46)
+                "warnings": []}       # (the `shade` warnings' place: none is made since SPEC.md 137.12.19)
     kitm = None
-    if kit:                                     # SPEC.md 130.58.52: what comes from the kit, only while it shows
+    if kit:                                     # SPEC.md 137.58.52: what comes from the kit, only while it shows
         emit(stage="kit", what="what comes from the kit")
         t1 = time.time()
         try:
@@ -234,11 +234,11 @@ def _floor_range(c, rc):
 
 
 def occ_data(c):
-    """SPEC.md 130.58.32: the occluder view's data, in the picture's pixels - every record the RULE cuts (the
+    """SPEC.md 137.58.32: the occluder view's data, in the picture's pixels - every record the RULE cuts (the
     records the cells' OCC and OCCG flags are counted on: c.rule_records), its pixels as runs, s, top, the cells
     that drew them, the cells whose ball positions NEED it (the cutter's test, pixel by pixel: a `noocclude` over
     all of them and it is not cut) and the cells whose flags it sets; every flagged cell;
-    and (SPEC.md 130.58.44) `shipped`, the same rows for the records the PART ships (c.records, after AV and the
+    and (SPEC.md 137.58.44) `shipped`, the same rows for the records the PART ships (c.records, after AV and the
     merge), each with `rule`, the rule's records that share its pixels"""
     ob = B.owners_canvas(c)
     y0 = c.y0
@@ -269,7 +269,7 @@ def occ_data(c):
             ids |= _flag_recs(c, rc, B.CLIMB, *(zr or (rc.zlo, rc.zhi)))
         for k in ids:
             out[rid[k]]["flags"].add(cell)
-    # SPEC.md 130.58.44: the records the PART ships (c.records: AV's residual and today's records, merged) - the
+    # SPEC.md 137.58.44: the records the PART ships (c.records: AV's residual and today's records, merged) - the
     # same rows, their `needs` by the same test over their own blocks, and `rule`: the rule's records sharing
     # their pixels (what each shipped record was cut as)
     ship = _rec_rows(c, c.records, ob, rails)
@@ -314,7 +314,7 @@ def _needs(c, recs, out, by_block):
           for r in recs}                        # (a merged record's s and top are its first member's: the test
     sb, tb, y0 = c.sbuf, c.tbuf, c.y0           # below skips on the highest of its members')
     dyn = getattr(c, "cutdyn", None)
-    plane = dyn is not None and (len(dyn) < 3 or dyn[2])     # (SPEC.md 130.49.9, as the cutter)
+    plane = dyn is not None and (len(dyn) < 3 or dyn[2])     # (SPEC.md 137.49.9, as the cutter)
     for rc, zlo, zhi, xl, xh, yt0, yb0, flo, _vd in B.feet_real(c.reach, c.tiles, c.x0, dyn):
         pl = B.ball_plane(c.tiles, rc, c.x0, y0) if plane and flo else None
         s = rc.s
@@ -345,9 +345,9 @@ def _needs(c, recs, out, by_block):
 def occluders(path, out, name=None, pic_y0=None):
     """the --occ half of PICTURE: the course compiled WITH its occluders (the part's block limit lifted, as the
     picture's), written to OUTDIR/occ.json; -> the compile's warnings, or an error string.  PIC_Y0: the picture's
-    Y0 - a play course's occluder compile is at the kit's alignment (SPEC.md 130.37.6) and the picture's at +0, so
-    every line written is moved up by the difference into the picture's lines (130.58.52.4); and each shipped
-    record names its mask's kit piece (`kmask`, 130.58.52.2)"""
+    Y0 - a play course's occluder compile is at the kit's alignment (SPEC.md 137.37.6) and the picture's at +0, so
+    every line written is moved up by the difference into the picture's lines (137.58.52.4); and each shipped
+    record names its mask's kit piece (`kmask`, 137.58.52.2)"""
     t0 = time.time()
     with open(path, "r", encoding="ascii", newline="") as f:
         text = f.read()
@@ -355,7 +355,7 @@ def occluders(path, out, name=None, pic_y0=None):
     try:
         c = B.compile_course(text, name or path, occluders=True)
     except B.CourseError as e:
-        c = partial_course(e)                   # SPEC.md 130.58.46: a refusal AFTER the cut still shows the cut
+        c = partial_course(e)                   # SPEC.md 137.58.46: a refusal AFTER the cut still shows the cut
         if c is None:
             return None, str(e)
         refused = str(e)
@@ -373,7 +373,7 @@ def occluders(path, out, name=None, pic_y0=None):
 
 
 def shift_occ(d, dy):
-    """occ_data's rows moved DY lines up (SPEC.md 130.58.52.4): the occluder compile's lines into the picture's.
+    """occ_data's rows moved DY lines up (SPEC.md 137.58.52.4): the occluder compile's lines into the picture's.
     A run above the picture's first line is dropped (none is there: those lines are the alignment's blank ones)"""
     for k in ("records", "shipped"):
         for o in d.get(k) or ():
@@ -381,8 +381,8 @@ def shift_occ(d, dy):
 
 
 def kit_bytes(tag, idx, n, nkit, ref):
-    """SPEC.md 130.58.52.2: one class's account - IDX the kit indices the course's section names (c.kit_use's), N
-    its pieces in all, NKIT the kit's; REF whether the section is stored KITREF (130.37.4: only when the named
+    """SPEC.md 137.58.52.2: one class's account - IDX the kit indices the course's section names (c.kit_use's), N
+    its pieces in all, NKIT the kit's; REF whether the section is stored KITREF (137.37.4: only when the named
     pieces outweigh the bitmap; a PLAIN section carries them itself, so the kit saves it nothing)"""
     sz = B.KIT_SIZE[tag]
     bm = B.kit_bmlen(nkit) if ref else 0
@@ -392,11 +392,11 @@ def kit_bytes(tag, idx, n, nkit, ref):
 
 
 def kit_overlay(c, text, name):
-    """SPEC.md 130.58.52.2: the Kit overlay's data for the picture compile C (of TEXT, named NAME): a play course
+    """SPEC.md 137.58.52.2: the Kit overlay's data for the picture compile C (of TEXT, named NAME): a play course
     is compiled again at the kit's alignment when the picture's is not it (occluders off, as the picture: its
     blocks and map are the shipped ones), and kit_data read off that; anything else is no play course"""
     if getattr(c, "kit_use", None) is None:
-        return {"play": False, "why": "the pathway and the title name no kit piece (SPEC.md 130.37.3): only a play "
+        return {"play": False, "why": "the pathway and the title name no kit piece (SPEC.md 137.37.3): only a play "
                                       "course does"}
     k = (B.KIT_Y0 - c.y0) % 8
     ca = c if k == 0 else B.compile_course(text, name, occluders=False, _hack={"y0add": k})
@@ -404,9 +404,9 @@ def kit_overlay(c, text, name):
 
 
 def kit_data(c, dy=0):
-    """SPEC.md 130.58.52.2: what of the course C (compiled at the kit's alignment) is THE KIT's - the block map
+    """SPEC.md 137.58.52.2: what of the course C (compiled at the kit's alignment) is THE KIT's - the block map
     (row-major, `cols` x `brows`: block index j is kit piece use["B"][j] when j < len(use["B"]), else the course's
-    own, 130.37.3), the FIELD cells with their table's kit piece (-1: own), the blocks only the lanes' poses use,
+    own, 137.37.3), the FIELD cells with their table's kit piece (-1: own), the blocks only the lanes' poses use,
     and each class's account (kit_bytes).  DY: the lines the picture's are above this compile's"""
     kit = B.kit_load()
     use = c.kit_use
@@ -427,7 +427,7 @@ def kit_data(c, dy=0):
 
 
 def kit_masks(c, d):
-    """SPEC.md 130.58.52.2: the K class off the occluder compile C - each of occ_data's SHIPPED rows given `kmask`,
+    """SPEC.md 137.58.52.2: the K class off the occluder compile C - each of occ_data's SHIPPED rows given `kmask`,
     its mask's kit piece (-1: the course's own; None: a record that lays nothing), and the class's account; None
     for no play course (or a refused compile cut before the kit was ordered)"""
     use = getattr(c, "kit_use", None)
@@ -463,13 +463,13 @@ def _open_course(text, name, full):
 
 
 def _kit_course(arg):
-    """the Kit tab's one course (SPEC.md 130.58.52.3): ARG a pool course's path, compiled WITH the kit as it ships
+    """the Kit tab's one course (SPEC.md 137.58.52.3): ARG a pool course's path, compiled WITH the kit as it ships
     (the occluders cut: K is theirs), or (text, name, full) for the open one (_open_course) -> {name, use, own:
     {tag: [hex]}, places, palette}, or None for no play course; an open course compiled without its occluders has
     `use` and `places` K None.  Small, so a forked child hands it back cheaply"""
     if isinstance(arg, str):
         held = B.TRAP_CHECK
-        B.TRAP_CHECK = False                    # (the softlock search changes no piece: not run, 130.58.24)
+        B.TRAP_CHECK = False                    # (the softlock search changes no piece: not run, 137.58.24)
         try:
             c = B.compile_course(arg)
         finally:
@@ -502,7 +502,7 @@ def _kit_course(arg):
 
 def kit_cut_date():
     """when the kit's source was last committed (`git log`: date and commit), or None (no git, as in the bundle) -
-    the source itself records no date (SPEC.md 130.37.2)"""
+    the source itself records no date (SPEC.md 137.37.2)"""
     import subprocess
     try:
         r = subprocess.run(["git", "log", "-1", "--format=%cs %h", "--", B.KIT_FILE], cwd=B.ROOT,
@@ -517,7 +517,7 @@ class _NoSrc(object):
 
 
 def kit_lib(course=None, jobs=None):
-    """SPEC.md 130.58.52.3: the Kit tab's data - every piece of the kit by class, which pool courses use each (each
+    """SPEC.md 137.58.52.3: the Kit tab's data - every piece of the kit by class, which pool courses use each (each
     compiled with the kit, through the compile cache, in parallel), the open COURSE's use ((text, name, full) or
     None: _open_course),
     the totals and the staleness: pieces no pool course names, and pieces the kit lacks that its own rule would take
@@ -559,7 +559,7 @@ def kit_lib(course=None, jobs=None):
 
 
 def kit_job(out, path=None, name=None, full=False):
-    """the KIT job (SPEC.md 130.58.52.3): kit_lib written to OUTDIR/kitlib.json; FULL (--masks): the open course
+    """the KIT job (SPEC.md 137.58.52.3): kit_lib written to OUTDIR/kitlib.json; FULL (--masks): the open course
     compiled with its occluders, so its masks are counted too"""
     t0 = time.time()
     course = None
@@ -584,7 +584,7 @@ class _Partial(object):
 
 
 def partial_course(e):
-    """SPEC.md 130.58.46: a compile refused AFTER its occluder cut (a bound: the 256 masks, a band's 256, a block
+    """SPEC.md 137.58.46: a compile refused AFTER its occluder cut (a bound: the 256 masks, a band's 256, a block
     row's records, the occluder pass, the part's size) -> the course as cut, read off the refused compile's own frame
     (bbcourse._compile_course's locals: the rule's records and the part's, the flags, the picture's buffers), so the
     overlay can show what to `noocclude` to come under the bound; None for a refusal before the cut.  The compiler
@@ -593,7 +593,7 @@ def partial_course(e):
     while tb is not None:
         f = tb.tb_frame
         if f.f_code is B._compile_course.__code__ and "rule" in f.f_locals and "records" in f.f_locals:
-            frame = f.f_locals                  # (the innermost: a re-cut's, 130.49.5, after the first's)
+            frame = f.f_locals                  # (the innermost: a re-cut's, 137.49.5, after the first's)
         tb = tb.tb_next
     if frame is None:
         return None
@@ -617,7 +617,7 @@ def check(path, strict, name=None, trap=False):
     with open(path, "r", encoding="ascii", newline="") as f:
         text = f.read()
     path = name or path
-    if M.is_map(text):                          # the pathway: its own compile and the map's PROOFS (130.58.20)
+    if M.is_map(text):                          # the pathway: its own compile and the map's PROOFS (137.58.20)
         emit(stage="compile", what="the map and every pad's course (its exits)")
         try:
             pr = M.proofs(text, path, log=lambda nm: emit(stage="compile", what="the map: %s's exits" % nm))
@@ -626,14 +626,14 @@ def check(path, strict, name=None, trap=False):
             return 1
         emit(stage="done", ok=True, warnings=[], proofs=str(pr)[:400], secs=round(time.time() - t0, 1))
         return 0
-    B.TRAP_CHECK = trap                         # SPEC.md 130.58.24: NO TRAP only when asked
+    B.TRAP_CHECK = trap                         # SPEC.md 137.58.24: NO TRAP only when asked
     emit(stage="compile", what="the full check (occluders, reach%s)" % (", softlocks" if trap else ""))
     try:
         c = B.compile_course(text, path, strict=strict)
     except B.CourseError as e:
         emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1), **refusal(e))
         return 1
-    if not c.test and c.src.title_ln is None:   # SPEC.md 130.58.23: what the GAME BUILD asks of every course (its
+    if not c.test and c.src.title_ln is None:   # SPEC.md 137.58.23: what the GAME BUILD asks of every course (its
         emit(stage="compile", what="the game's rules: the finish clock, music, target")   # finishes' clocks, its
         try:                                    # song, its target), checked here too, so "Put in the game" never
             B.course_song(c)                    # refuses a course the full check passed
@@ -644,16 +644,16 @@ def check(path, strict, name=None, trap=False):
             emit(stage="done", ok=False, error=str(e), secs=round(time.time() - t0, 1), **refusal(e))
             return 1
     warns = [warning(w) for w in c.warnings]
-    if c.src.ways:                              # SPEC.md 130.58.49: the route's warnings, the builder's own (never
+    if c.src.ways:                              # SPEC.md 137.58.49: the route's warnings, the builder's own (never
         emit(stage="compile", what="the route's ways")    # the compiler's: no refusal, under --strict either)
         warns += [warning(w) for w in B.route_lint(c)]
     emit(stage="compile", what="the course's stats (its song, packed as the game packs it)")
-    st = course_stats(c)                        # SPEC.md 130.58.51: last - it re-encodes c with its song
+    st = course_stats(c)                        # SPEC.md 137.58.51: last - it re-encodes c with its song
     emit(stage="done", ok=True, warnings=warns, stats=st, secs=round(time.time() - t0, 1))
     return 0
 
 
-NEAR = 0.9                      # SPEC.md 130.58.51: a figure at 90% of its bound or more is shown as near it
+NEAR = 0.9                      # SPEC.md 137.58.51: a figure at 90% of its bound or more is shown as near it
 
 
 def _row(key, label, text, n=None, bound=None):
@@ -669,7 +669,7 @@ def _fmt(n):
 
 
 def course_stats(c):
-    """SPEC.md 130.58.51: course C's STATS, read off the compile the full check made (no second compile) ->
+    """SPEC.md 137.58.51: course C's STATS, read off the compile the full check made (no second compile) ->
     {"rows": [row], "above": [{"key", "name", "spec", "detail"}], "summary": one line}.  The song is attached
     first (bbcourse.attach_song, as the game build does: its section S is in the part), so the part sizes and the
     bytes on the floppy are the shipped ones; the floppy's are os88pkg's - the part LZB-packed (BZPARTZF) with the
@@ -689,7 +689,7 @@ def course_stats(c):
         _fmt(c.width), _fmt(c.lines), c.cols, c.brows), c.width, 8 * B.COLS_MAX))
     rows.append(_row("brows", "Block rows", "%d of %d" % (c.brows, B.BROWS_MAX), c.brows, B.BROWS_MAX))
     if c.cols > 128:
-        above.append({"key": "wide", "name": "Wider than 1,024 px", "spec": "130.10.4.2",
+        above.append({"key": "wide", "name": "Wider than 1,024 px", "spec": "137.10.4.2",
                       "detail": "%s px (COLS %d): WIDTH 160, any multiple of 8 word columns up to 1,280 px" % (
                           _fmt(c.width), c.cols)})
     # BLOCKS
@@ -697,7 +697,7 @@ def course_stats(c):
     if nb > B.BLK_ROWP:
         rows.append(_row("blocks", "Blocks", "%s of %s (past 1,024: the map is form 9 ROWNIBS)" % (
             _fmt(nb), _fmt(B.BLK_MAX)), nb, B.BLK_MAX))
-        above.append({"key": "rownibs", "name": "More than 1,024 blocks", "spec": "130.56",
+        above.append({"key": "rownibs", "name": "More than 1,024 blocks", "spec": "137.56",
                       "detail": "%s blocks: the map is stored as form 9 ROWNIBS (a 12-bit block index)" % _fmt(nb)})
     else:
         rows.append(_row("blocks", "Blocks", "%s of %s (form 1 ROWPLANES)" % (_fmt(nb), _fmt(B.BLK_ROWP)),
@@ -719,7 +719,7 @@ def course_stats(c):
         most = max(len(x) for x in sl) if sl else 0
         rows.append(_row("masks", "Masks", "%d in all; at most %d of 256 in a band (%d bands: %s)" % (
             nm, most, len(sl), ", ".join(str(len(x)) for x in sl)), most, 256))
-        above.append({"key": "banded", "name": "masks banded", "spec": "130.52",
+        above.append({"key": "banded", "name": "masks banded", "spec": "137.52",
                       "detail": "a mask table a band of 16 block rows: %d masks in all, at most %d in a band" % (
                           nm, most)})
     else:
@@ -727,11 +727,11 @@ def course_stats(c):
             nm, c.raw_masks, c.umasks), nm, 256))
     recut = getattr(c, "recut", None)
     if recut:
-        above.append({"key": "recut", "name": "Real-pose re-cut", "spec": "130.49.5",
+        above.append({"key": "recut", "name": "Real-pose re-cut", "spec": "137.49.5",
                       "detail": "over 256 masks at 4 ground units: cut again %s" % (
                           "at whole cells" if recut == "cell" else "in %d gu squares" % recut)})
     if getattr(c, "noshadow", False):
-        above.append({"key": "noshadow", "name": "Shadows dropped", "spec": "130.47.5",
+        above.append({"key": "noshadow", "name": "Shadows dropped", "spec": "137.47.5",
                       "detail": "over %s blocks with cast shadows: compiled again without them" % _fmt(B.BLK_MAX)})
     # THE PARTS
     sheets = B.sheets_of(c.cga)
@@ -739,7 +739,7 @@ def course_stats(c):
         for i, q in enumerate(sheets):
             rows.append(_row("sheet%d" % i, "Sheet %d" % i, "%s of %s bytes in RAM" % (
                 _fmt(len(q)), _fmt(B.PARTMAX)), len(q), B.PARTMAX))
-        above.append({"key": "sheets", "name": "Sheets", "spec": "130.30.12",
+        above.append({"key": "sheets", "name": "Sheets", "spec": "137.30.12",
                       "detail": "the picture part cut into %d sheets of %d block rows (from rows %s), and a world "
                                 "part" % (c.plan["k"], c.plan["n"], ", ".join(str(x["m0"]) for x in c.plan["sheets"]))})
     else:
@@ -750,7 +750,7 @@ def course_stats(c):
                          len(c.wcga), B.PARTMAX))
         if not sheets:
             one = B.one_part_len(c.model, 4)
-            above.append({"key": "two", "name": "Two parts", "spec": "130.30",
+            above.append({"key": "two", "name": "Two parts", "spec": "137.30",
                           "detail": "a picture part and a world part, each its own segment (as one part it would be "
                                     "%s bytes, over %s)" % (_fmt(one), _fmt(B.PARTMAX))})
     stored = bytes(c.bstored or c.stored)
@@ -867,7 +867,7 @@ def _roll(c, mat, at, v, route=None, secs=20.0, done=None):
 
 
 def rides(c, toks):
-    """SPEC.md 130.58.19: each ball over one shape, in words -> [{"ball", "test", "result", "words"}]"""
+    """SPEC.md 137.58.19: each ball over one shape, in words -> [{"ball", "test", "result", "words"}]"""
     sh = shape_of(toks)
     if not sh:
         return []

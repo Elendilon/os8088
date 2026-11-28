@@ -1,6 +1,6 @@
 ; =============================================================================
 ; apps/bonanza/fam/turntable.asm - BONANZA's QUARTER-TURN TURNTABLE FAMILY
-; (SPEC.md 130.43, the props round's P11), held equal to bbcourse.TurnFamily at
+; (SPEC.md 137.43, the props round's P11), held equal to bbcourse.TurnFamily at
 ; every step.
 ;
 ; An N x N table (2 or 3), HALF FILLED, turning a quarter turn every Q steps
@@ -8,7 +8,7 @@
 ; cell that turns into a gap drops the ball.  Each SWITCHING cell is an element
 ; (a 3 x 3's centre is the PIVOT, a plain floor); the grid holds it as a FLAT
 ; FLOOR at TZ with OBS, and CELL rewrites it in the 9-cell window.  Its record:
-;   +18 TZ     its floor's z0 (quarter units, SPEC.md 130.48.4)
+;   +18 TZ     its floor's z0 (quarter units, SPEC.md 137.48.4)
 ;   +19 SEQ    bit r: a floor at rotation r, the nibble written twice so bit
 ;              r + 1 is the next rotation's with no wrap
 ;   +20 QSH    the quarter's shift (Q = 1 << QSH), +21 QMASK (Q - 1)
@@ -22,7 +22,7 @@
 ;         with the ball's whole-px z ([bz_gz + 1]) under its top, 4 TZ: the
 ;         ball has fallen into its hole, and a hole that closes over it must
 ;         not lift it - a NEAR VOID: TZ less 12 quarter units, kind and surface 0,
-;         its flags kept (the membrane's: SPEC.md 130.38); every other
+;         its flags kept (the membrane's: SPEC.md 137.38); every other
 ;         element in the window written back a FLOOR (TZ, KIND_FLOOR): the
 ;         window KEEPS its cells when it moves one cell (bz_win9i), and a cell
 ;         the centre's rule voided must not stay void once the centre leaves.
@@ -32,7 +32,7 @@
 ;         so every other element costs the one test.
 ;   POSE  the element's pose.
 ;
-; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 137.25.6.2), linked against the package's bss as the
 ; others are (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the
 ; package, AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -62,12 +62,12 @@ TT_KFLOOR   equ 1               ; a floor's kind byte: KIND_FLOOR, SURF_NORMAL (
     db 0
     dw 0, 0, 0, tt_step, tt_pose, tt_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 137.25.6.2)"
 %endif
 
 ; CELL: the window's gaps (and a fallen ball's centre) a NEAR VOID
 tt_cell:
-    call tt_slot                ; (a new window: the STEP runs next, 130.25.6.11)
+    call tt_slot                ; (a new window: the STEP runs next, 137.25.6.11)
     push ax
     xor ax, ax
     call tt_setwk
@@ -106,7 +106,7 @@ tt_cell:
     jne .w                      ; its top, a gap all the same
     mov al, dl
     cbw
-    shl ax, 1                   ; 2 TZ px (quarter units, SPEC.md 130.48.4)
+    shl ax, 1                   ; 2 TZ px (quarter units, SPEC.md 137.48.4)
     cmp [bz_gz + 1], ax
     jge .w
 .gap:
@@ -125,7 +125,7 @@ tt_cell:
 ; refilled when it is in it
 tt_step:
     call tt_slot
-    mov word [bz_fwkk], 4000h   ; (130.25.6.11: the nearest wake, a distance)
+    mov word [bz_fwkk], 4000h   ; (137.25.6.11: the nearest wake, a distance)
     call tt_walk
 .l:
     jcxz .x
@@ -172,7 +172,7 @@ tt_step:
     dec cx
     jmp short .l
 .x:
-    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (130.25.6.11)
+    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (137.25.6.11)
     add ax, [bz_nstep]
     call tt_setwk
     retf

@@ -20,14 +20,14 @@ the right. [struct/measure.py](struct/measure.py) prints a variant's sheets and 
 The constraint is that the course PLAYS exactly as before. Three kinds of change meet it, and the options are
 sorted by which kind they are:
 
-1. **`float` (SPEC.md 130.27.2), the picture's alone.** A floating cell's faces over the void hang 3 units (or
-   `thick` units) instead of to the ground. *No grid byte, no physics, no route* (130.27.2, 130.27.4): the
+1. **`float` (SPEC.md 137.27.2), the picture's alone.** A floating cell's faces over the void hang 3 units (or
+   `thick` units) instead of to the ground. *No grid byte, no physics, no route* (137.27.2, 137.27.4): the
    world part, which is all physics reads, is the same size (20,290 bytes RAM in every float option, MEASURED).
    Options **A, B, C** (and F, their sum).
 2. **Geometry on cells no ball reaches**: free-standing WALL pillars three or more tiles (Chebyshev) from every
-   floor and rail (a wall is never a reachable cell, 130.10.4.1) - option **E**. The grid gains the cells, the
+   floor and rail (a wall is never a reachable cell, 137.10.4.1) - option **E**. The grid gains the cells, the
    play does not.
-3. **Geometry on reachable cells the route never uses**: half-cell chamfers (`hole half`, 130.24.4) on corners -
+3. **Geometry on reachable cells the route never uses**: half-cell chamfers (`hole half`, 137.24.4) on corners -
    option **D**. This one IS a change to the floor (a ball that rolls into a cut corner now falls), so it is the
    one to weigh.
 
@@ -36,7 +36,7 @@ Tried and NOT offered, and why:
 - **A back wall** behind the run or the hub: every back edge of DOWN is a fall today (the hump run, the landing,
   the snake), and a wall there would catch the ball. The hub's back already has its rails.
 - **A different surface pattern**: `surface` is physics (sand, ice and bounce change the force, drag and
-  restitution, 130.11.6.2); the only drawn-but-inert case is a `bounce` WALL top (magenta), and DOWN's walls are
+  restitution, 137.11.6.2); the only drawn-but-inert case is a `bounce` WALL top (magenta), and DOWN's walls are
   rails the ball meets.
 - **Notches cut into long flat platforms** (the hump run, the hub): a notch is a hole in a floor the route
   crosses. B gets the same break-up from the faces under the platform instead.
@@ -60,7 +60,7 @@ Tried and NOT offered, and why:
 
 ## The budget
 
-DOWN is SHEETED (SPEC.md 130.30.12): its picture is **2 sheets of 89 block rows** (rows 0 - 88 and 55 - 143),
+DOWN is SHEETED (SPEC.md 137.30.12): its picture is **2 sheets of 89 block rows** (rows 0 - 88 and 55 - 143),
 each **53,150 bytes in RAM** (11,874 under the 65,024 a part may be), plus the world part. A sheet holds every
 block, record and mask (`fixed`, 24,670 bytes on the base) and its own 89 map rows, so **a new block costs 16
 bytes in BOTH sheets** and a record/mask its bytes in both; only the map is per-sheet and it does not move (no
@@ -78,13 +78,13 @@ option adds a block row: the picture stays 1,152 lines, the plan 2 x 89 at rows 
 
 D also grows the world part by 40 bytes RAM (20,290 -> 20,330: the split cells' pair records); E's world part
 is the same size in RAM (its walls are inside the grid's existing rows and width). (These are `compile_course`'s parts, without the song
-the build attaches to the world part, SPEC.md 130.50.3: the build's world figure is larger by the song and is
+the build attaches to the world part, SPEC.md 137.50.3: the build's world figure is larger by the song and is
 the same in every option.) The LZB world figure moves
 by a few bytes in every variant because the identity word is in it. Every variant is far inside the sheet
 (F, the largest, leaves 10,018 bytes per sheet).
 
 **Why the float options add records.** A float takes a column out of the picture, and what was hidden
-behind it is now drawn - and is an occluder for some reachable ball position (130.10.4.4). C adds the most
+behind it is now drawn - and is an occluder for some reachable ball position (137.10.4.4). C adds the most
 (+272 records, about 1.1 KB a sheet): a 3 x 3 island floating over the maze exposes the islands, banks and
 links behind it, each a record. It is still the cheapest on DISK (+45 bytes LZB), because the black that
 replaces the columns packs to nothing.
@@ -98,7 +98,7 @@ and the CGA window at 2x: [A-window.png](struct/A-window.png).
 
 **The structural answer to the owner's note.** Today L stands on an 11-unit magenta wall that runs straight down
 into the hub's and the steel leg's platforms, so its checker, its columns and the lower platforms' checkers
-are one continuous field (the alias SPEC.md 130.47.1 describes, now between DIFFERENT platforms: every height
+are one continuous field (the alias SPEC.md 137.47.1 describes, now between DIFFERENT platforms: every height
 here is a whole unit, so every top sits on one diamond grid). Floating L leaves a band of black under it on
 every side: it reads as an island between its two gaps, which is what it is - the wide gap and drop before it,
 the bounce gap after it. It agrees with the course guide's 1.10 ("a notch means a gap"): the black under L is
@@ -120,7 +120,7 @@ Caveat: a pier is a strip of FRONT face only (its neighbours are floating cells,
 ### C. The glass maze's islands float - +1,160 a sheet (+45 on disk)
 
 The maze's seven 3 x 3 islands and the bridge's landing float; the one-cell membrane LINKS do not (a `thick` on
-a crack would re-lane it, 130.27.2.1). [C-maze-islands.png](struct/C-maze-islands.png).
+a crack would re-lane it, 137.27.2.1). [C-maze-islands.png](struct/C-maze-islands.png).
 
 Today the maze is a cluster of grounded columns whose faces overlap into one magenta block, so which island
 joins which is hard to read until the ball is there. Floating them shows the WEB: islands over the void, the
@@ -148,7 +148,7 @@ never cover the ball or the route. [E-skyline.png](struct/E-skyline.png).
 The cheapest option (two blocks): depth and a sense of a world beyond the course in the empty top-right of the
 picture, stepping down with the hill. They stand on the ground plane, which is high on the screen at that depth,
 so their feet end in open black above the course rather than on anything: they read as ruins rising out of the
-deep, not as part of the route (they are wall tops, the cyan dither that says "not a floor", 130.47.3).
+deep, not as part of the route (they are wall tops, the cyan dither that says "not a floor", 137.47.3).
 Placed clear of the hub clock's screen columns so the clock study's art is unaffected. More pillars cost about
 16 bytes a sheet each while they repeat the same blocks.
 

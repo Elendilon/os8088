@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedmap - THE COURSE BUILDER'S MAP TAB (SPEC.md 130.58.20): the pathway (`path.bbc`, SPEC.md 130.22)
+"""bbedmap - THE COURSE BUILDER'S MAP TAB (SPEC.md 137.58.20): the pathway (`path.bbc`, SPEC.md 137.22)
 edited on its own picture - pads, routes and their points, gates, icons, lives counters, pages and the
 view - and a course put on the map (its pad, its route, its icon).
 
@@ -55,7 +55,7 @@ def compile_map(text, path, occluders=False):
 
 
 def proofs(text, path, log=None):
-    """the map's PROOFS (SPEC.md 130.22.2: every pad reachable, every route's exit one its course has, a
+    """the map's PROOFS (SPEC.md 137.22.2: every pad reachable, every route's exit one its course has, a
     secret route a shortcut or a side): every pad's course compiled (play-only, through the cache) ->
     path_proofs' answer"""
     crsinfo, paths = course_info(text, path)
@@ -170,7 +170,7 @@ def _sgn(v):
 
 
 def legal(p, q):
-    """a route's step (SPEC.md 130.22.2): along one axis, or along both by equal amounts"""
+    """a route's step (SPEC.md 137.22.2): along one axis, or along both by equal amounts"""
     dx, dy = q[0] - p[0], q[1] - p[1]
     return dx == 0 or dy == 0 or abs(dx) == abs(dy)
 
@@ -224,7 +224,7 @@ _EXITS = {}
 
 
 def course_exits(path):
-    """the exits a course HAS (its goals' and cups' `exit`, 0 by default; SPEC.md 130.19.4), off a parse alone"""
+    """the exits a course HAS (its goals' and cups' `exit`, 0 by default; SPEC.md 137.19.4), off a parse alone"""
     try:
         key = (path, os.path.getmtime(path))
     except OSError:
@@ -302,7 +302,7 @@ def pad_height(m, n):
 
 
 def place_course(m, crs, cell, from_pad, icon_file, title=None, exits=None):
-    """SPEC.md 130.58.20 (the plan's 7.2): COURSE put on the map at CELL - a new pad (the next number), a route
+    """SPEC.md 137.58.20 (the plan's 7.2): COURSE put on the map at CELL - a new pad (the next number), a route
     from pad FROM_PAD on its first free exit, an icon above the pad -> [(None, code)]: the statements to add"""
     n = max(m["pads"]) + 1 if m["pads"] else 0
     ex = free_exit(m, from_pad, exits)
@@ -759,7 +759,7 @@ class MapTab(object):
                 self.edit({it["line"]: route_code(dict(it, pts=tidy_points(pts)))}, "remove a point")
             ttk.Button(fr, text="Set", width=5, command=seth).pack(side="left")
             row[0] += 1
-            fr = ttk.Frame(self.form)           # (its own line: beside Set it ran off the form, SPEC.md 130.58.54)
+            fr = ttk.Frame(self.form)           # (its own line: beside Set it ran off the form, SPEC.md 137.58.54)
             fr.grid(row=row[0], column=0, columnspan=2, sticky="w", pady=(0, 2))
             ttk.Button(fr, text="Remove point", command=delp).pack(side="left")
             tv.bind("<<TreeviewSelect>>", lambda e: tv.selection() and hv.set(tv.item(tv.selection()[0])["values"][2]))

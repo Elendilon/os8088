@@ -1,4 +1,4 @@
-# BZSPIKE=1 (Makefile; SPEC.md 130.38): the pathway with the SPIKE test course - applied to path.bbc at
+# BZSPIKE=1 (Makefile; SPEC.md 137.38): the pathway with the SPIKE test course - applied to path.bbc at
 # build time, so the knob's pathway is the shipped one with these lines changed and nothing else.  Pad 0
 # becomes SPIKE (a new game rests on it: title, Play Game, Enter); its exit 0 still goes to DOWN (pad 1, TRIAL's until 2026-11-21).  SPIKE's
 # exit 1 goes straight left to FIRST (pad 6), a dead end as PEAK is, so every shipped course stays on the

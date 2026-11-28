@@ -2,13 +2,13 @@
 
 *Status: **IN ENGINE, first build** (2026-11-19): `apps/bonanza/courses/down.bbc`,
 written by `down/sketch.py --bbc --force`, on the `BZDOWN=1` playtest knob's pad 2
-(TRIAL's place). **SHIPPED since 2026-11-21** (SPEC.md 130.54.9): course 1 of `BZ_COURSES` in TRIAL's
+(TRIAL's place). **SHIPPED since 2026-11-21** (SPEC.md 137.54.9): course 1 of `BZ_COURSES` in TRIAL's
 slot, the shipped pathway's pad 2, no knob - `BZDOWN` and `pathdown.sed` are gone, TRIAL is a test course. Every check passes and the route demo finishes (22.0 s, steel,
 no falls). Attempt 1's sections below are the pen-in, kept for its reasoning.*
 
 *Rev 6 (2026-11-20), **ON TRIAL**: the line from the ramp through the corner chute into the hump run is 3
 wide all the way - the ramp 3 wide (its left rail kept, the right side open as rev 5 made it, no flat foot:
-the chute's end taper is the foot) and `chute 3 round depth 8` (SPEC.md 130.28.4; the study is
+the chute's end taper is the foot) and `chute 3 round depth 8` (SPEC.md 137.28.4; the study is
 [CHUTE3.md](CHUTE3.md)). The owner playtests it and decides whether it stays; `CHUTE_W = 2` in
 `down/sketch.py` and a re-emit puts the 2-wide line back exactly.*
 
@@ -47,10 +47,10 @@ What the tool and the autopilot found, *measured* each time:
 - the glass finish's clock is beside its goal (each finish needs one in view);
 - rev 8 (2026-11-20, the owner: rubber double-bounced over the spikes onto the
   water and off its front onto T): the water's front edge is GUARDED (`arch
-  ... guard`, SPEC.md 130.35.10 - rubber and glass stay on the water, steel
+  ... guard`, SPEC.md 137.35.10 - rubber and glass stay on the water, steel
   sinks under the rail and out of the arch), and the two cells beside a
   floor at each height - the front strip's last, the water's right strip's
-  last - are two-height guards instead of blocks (130.35.9). Distances are tiles, heights units; numbers marked PREDICTED come from
+  last - are two-height guards instead of blocks (137.35.9). Distances are tiles, heights units; numbers marked PREDICTED come from
 the tool's ladders and the rules quoted, not from a run. `down/sketch.py` draws
 the pictures.*
 
@@ -84,7 +84,7 @@ agent is fixing its PC-speaker ring sections).
 | H | **the hump run** | 2 wide, UNGUARDED, along +x, two HUMPS (2 x 2, the hump course's back hump's kind; height to tune) | the owner's "east/west" read as along world x; say if screen-horizontal was meant |
 | D | **the descent** | three inclines down +x: gentle (1 a tile), mild (0.5), steep (2): 7.5 units | |
 | B | **the booster chute** | 1 wide, block-railed, four `boost` pads +x | |
-| L | **the wide gap and drop** | a 3-tile gap and a drop of 4.5 units onto an EASY, UNGUARDED landing, 4 x 5 tiles | **to measure**: the throw's reach at the boosted speed (no ball crosses three LEVEL tiles even boosted, 130.16.5.3 - the drop is what makes it) |
+| L | **the wide gap and drop** | a 3-tile gap and a drop of 4.5 units onto an EASY, UNGUARDED landing, 4 x 5 tiles | **to measure**: the throw's reach at the boosted speed (no ball crosses three LEVEL tiles even boosted, 137.16.5.3 - the drop is what makes it) |
 | X | **the bounce gap and the HUB** | rubber's rebound off L carries it over another 3-tile gap onto the HUB, 8 x 9 tiles, a unit lower, railed at the back | the bounce is TRIAL's shape (Little Hop's K: a tile farther still passed) |
 | | **the split** | two ARCHWAYS out of the hub: south (+y) over a STEEL pad, east (+x) over a GLASS pad. Rolling through either converts the ball | about two thirds of the tiles are behind the player here |
 
@@ -92,7 +92,7 @@ agent is fixing its PC-speaker ring sections).
 
 | | what happens |
 |---|---|
-| S | SPIKES on the only path (3 x 3): steel rolls over them (130.38: its window holds the TIP); a rubber or glass ball would shatter. A flag before them |
+| S | SPIKES on the only path (3 x 3): steel rolls over them (137.38: its window holds the TIP); a rubber or glass ball would shatter. A flag before them |
 | W | a WATER SINK: a 3-unit-deep column across the path, a block rail ON TOP past it so nothing hops over; steel SINKS (rubber and glass ride on water) to the bed and rolls out of the column's front ARCH onto a floor 3 units lower |
 | M | MOMENTUM: a ramp up 2 units and down again that steel crosses only with its speed |
 | G | the steel FINISH (exit 0) |
@@ -103,7 +103,7 @@ agent is fixing its PC-speaker ring sections).
 |---|---|
 | K | a WEB BRIDGE: a 1-wide bridge of thin CRACKED tiles over the void (`prop crack ... `, the thin floating kind): glass, light, rolls across at leisure (PLAYGROUND's cracks: rubber and steel only at speed) |
 | P | a LIFT (`prop platform`, MILL's) carries the ball up 4 units to the CHOICE plateau |
-| Q | the CHOICE: left, a SAFE CHUTE down (a shape); right, STAIRS of 3.5-unit drops: glass SHATTERS at 3 (130.11.8.5) and respawns at the flag |
+| Q | the CHOICE: left, a SAFE CHUTE down (a shape); right, STAIRS of 3.5-unit drops: glass SHATTERS at 3 (137.11.8.5) and respawns at the flag |
 | V | the glass FINISH (exit 1) |
 
 ## 2. Flags and clocks (first guesses; the owner places them)
@@ -129,7 +129,7 @@ agent is fixing its PC-speaker ring sections).
   in a gentler form;
 - the **crystal MEMBRANE** (the spike family's `membrane`, glass-only): a
   doorway only glass passes;
-- **boost pads push glass x1.25** (130.40): a glass-only boost jump across a
+- **boost pads push glass x1.25** (137.40): a glass-only boost jump across a
   gap the hub's rubber could not have made.
 
 ## 4. Questions for the owner

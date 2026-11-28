@@ -1,12 +1,12 @@
 ; =============================================================================
-; apps/bonanza/fam/spike.asm - BONANZA's SPIKE FAMILY (SPEC.md 130.38, the
+; apps/bonanza/fam/spike.asm - BONANZA's SPIKE FAMILY (SPEC.md 137.38, the
 ; owner's design P5 and P8), held equal to bbcourse.SpikeFamily at every step.
 ;
 ; Three kinds, each a FLAT FLOOR cell of the grid (OBS, never SAFE) rewritten
-; in the 9-cell window PER BALL by CELL, as WATER's are (SPEC.md 130.36):
+; in the 9-cell window PER BALL by CELL, as WATER's are (SPEC.md 137.36):
 ;   SPIKES     the floor's base B in the grid; record +18 LOW (B less a half
 ;              unit), +19 TIP (B plus a half unit), quarter units (SPEC.md
-;              130.48.4).  Steel's window holds TIP
+;              137.48.4).  Steel's window holds TIP
 ;              (pushed up onto the tips, a climb, and it rolls on); every other
 ;              ball's LOW - so it drops onto them and LANDS - and, with the
 ;              window's CENTRE a spike cell, bz_mrec's HARD, HSTEPS and HTHR
@@ -35,7 +35,7 @@
 ; replaced, +4 the HTHR replaced, +6 the popspikes and membranes (STEP's walk),
 ; +7 TORN, the torn membrane's element + 1 (0 none).
 ;
-; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 137.25.6.2), linked against the package's bss as the
 ; probe is (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the
 ; package, AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -73,14 +73,14 @@ SP_MZ       equ 18              ; a membrane's: its floor's z0
     db 0
     dw sp_reset, 0, 0, sp_step, sp_pose, sp_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 137.25.6.2)"
 %endif
 
 ; RESET: the course's popspikes and membranes counted
 sp_reset:
     call sp_slot
     xor dx, dx
-    call sp_walk                ; (the family's own records: 130.25.6.10)
+    call sp_walk                ; (the family's own records: 137.25.6.10)
 .l:
     jcxz .x
     call sp_rec
@@ -100,7 +100,7 @@ sp_reset:
 ; CELL: the window's cells of the family for this ball, then the centre's rule
 sp_cell:
     call sp_slot                ; DI = the slot
-    xor ax, ax                  ; (a new window: the STEP runs next, 130.25.6.11)
+    xor ax, ax                  ; (a new window: the STEP runs next, 137.25.6.11)
     call sp_setwk
     call sp_walk                ; ES = the course, BP its list, CX its count
     mov bp, bx
@@ -142,7 +142,7 @@ sp_cell:
     cmp ah, [es:si + SP_ON]
     jb .up
     dec ax                      ; B = TIP less a half unit (2 quarter units,
-    dec ax                      ; SPEC.md 130.48.4)
+    dec ax                      ; SPEC.md 137.48.4)
     jmp short .w
 .up:
     cmp byte [bz_mat], BZ_MAT_STEEL
@@ -158,7 +158,7 @@ sp_cell:
     cmp byte [bz_mat], BZ_MAT_GLASS
     je .n
     mov al, [es:si + SP_MZ]     ; not glass: a NEAR VOID, its kill 3 units down
-    sub al, 12                  ; (quarter units, SPEC.md 130.48.4)
+    sub al, 12                  ; (quarter units, SPEC.md 137.48.4)
     mov [bz_nbr + bx], al
     mov byte [bz_nbr + bx + 2], 0
 .n:
@@ -196,7 +196,7 @@ sp_cell:
 ; found (BP: its element + 1), and on a change both lanes MARKED
 sp_step:
     call sp_slot
-    mov word [bz_fwkk], 4000h   ; (130.25.6.11: the nearest wake, a distance)
+    mov word [bz_fwkk], 4000h   ; (137.25.6.11: the nearest wake, a distance)
     mov al, [bz_mat]
     cmp al, [di]
     je .p
@@ -258,7 +258,7 @@ sp_step:
     je .nx
     mov al, [es:si + SP_MZ]
     cbw
-    shl ax, 1                   ; (z0 quarter units, SPEC.md 130.48.4)
+    shl ax, 1                   ; (z0 quarter units, SPEC.md 137.48.4)
     cmp [bz_gz + 1], ax
     jge .nx
     push bx
@@ -280,7 +280,7 @@ sp_step:
     je .x
     mov word [bz_fwkk], 1
 .x:
-    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (130.25.6.11)
+    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (137.25.6.11)
     add ax, [bz_nstep]
     call sp_setwk
     retf

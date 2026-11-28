@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BONANZA's SPLIT CELLS in the guest (SPEC.md 130.24, wave D3): the package's
+"""BONANZA's SPLIT CELLS in the guest (SPEC.md 137.24, wave D3): the package's
 own routines under unicorn against tools/bbcourse.py's model, on courses that
 use halves and quarters - the host half of bonanzaphys's split leg (no shipped
 course has a split cell until the diagonal plan's D5).
@@ -10,14 +10,14 @@ THE METHOD is bonanza_path.py --check's: the package image assembled from the
 tree (tests/bonanza_ring.py assemble, symbols), loaded at one segment of an
 emulated 8086, a course's RAM form (bbcourse's compile, the bytes bz_cexp
 leaves) at another, and its routines CALLED - bz_crshdr, bz_pinit, then
-bz_step once a step - while bbcourse.Physics, the model SPEC.md 130.24.7 binds
+bz_step once a step - while bbcourse.Physics, the model SPEC.md 137.24.7 binds
 the guest to, steps the same key bytes.  After EVERY step the guest's state is
 read out of its own bss and compared EXACTLY with the model's (state, state2,
 state6, bz_ps, the goal and its exit, the respawns): no tolerance.
 
   1  CELLS (D3.1): bz_cexp on each split course's STORED form equals its RAM
-     form - bz_cxcel's NEAR reads a split cell's records (130.24.5.3; SAFE
-     reads no neighbour since 2026-11-23, 130.10.4.3).
+     form - bz_cxcel's NEAR reads a split cell's records (137.24.5.3; SAFE
+     reads no neighbour since 2026-11-23, 137.10.4.3).
   2  SCRIPTED runs (D3.3), the model's own scenarios of `--selfcheck` item 7
      (_split_physics) and more: a roll off a diagonal edge (the take-off at
      the pick), a fall into a VOID half (its kill height), a goal half and its
@@ -33,9 +33,9 @@ state6, bz_ps, the goal and its exit, the respawns): no tolerance.
   4  A COURSE WITH NO SPLIT CELL (TRIAL): the same comparison, and bz_ps bit
      3 never set (the split path never entered).
 
---price: each run's bz_step instructions priced by 130.11.15's method
+--price: each run's bz_step instructions priced by 137.11.15's method
 (max(EU + EA, 4.34 x bytes), 8088 word operands) from the listing, the
-split runs against the same steps on whole cells (SPEC.md 130.24.7.6).
+split runs against the same steps on whole cells (SPEC.md 137.24.7.6).
 """
 import argparse
 import os
@@ -54,7 +54,7 @@ import bbcourse as BB          # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
 CS, PS, SS, STUB = 0x1000, 0x3000, 0x7000, 0xFFF0
-KS = 0x5000                                     # SPEC.md 130.37: THE KIT's part (BZKIT.BIN), held: bz_kseg
+KS = 0x5000                                     # SPEC.md 137.37: THE KIT's part (BZKIT.BIN), held: bz_kseg
 
 # THE NOTCH (R7, verify-dtool's): a floor N quarter between WALL W and E quarters; a ball rolled down the W
 # quarter's line from the cell above is pushed out of the cell by the FIRST line (nothing more of C's then)
@@ -108,7 +108,7 @@ class Guest:
         self.mu.mem_write(CS * 16 + STUB, b"\xf4")
         self.trace = None
         self.mu.hook_add(UC_HOOK_CODE, self._hook)
-        if "bz_kseg" in sym:                    # SPEC.md 130.37.5: the kit HELD, as bz_kget leaves it
+        if "bz_kseg" in sym:                    # SPEC.md 137.37.5: the kit HELD, as bz_kget leaves it
             self.mu.mem_write(KS * 16, BB.kit_part(BB.kit_load()))
             self.w("bz_kseg", KS, 2)
 
@@ -154,13 +154,13 @@ def start(binp, sym, c, mat):
     g = Guest(binp, sym, c.cga)
     g.w("bz_cseg", PS, 2)
     if "bz_mseg" in g.sym:                      # (one part: in both words, as bz_cload leaves them, SPEC.md
-        g.w("bz_mseg", PS, 2)                   # 130.30.5 - bz_crshdr's bz_osmake reads the picture's)
+        g.w("bz_mseg", PS, 2)                   # 137.30.5 - bz_crshdr's bz_osmake reads the picture's)
     g.call("bz_crshdr")
     p = BB.Physics(c, play=True, mat=mat)
     fam_load(g, p)
     g.w("bz_mode", 0)
     g.w("bz_mat", mat)
-    g.w("bz_crs", R.CRS_K["bench"])        # (BENCH by NAME: the course with no time limit, SPEC.md 130.54)
+    g.w("bz_crs", R.CRS_K["bench"])        # (BENCH by NAME: the course with no time limit, SPEC.md 137.54)
     g.call("bz_pinit")
     g.w("bz_tsec", 0, 2)
     g.w("bz_rtr", 1)                            # (the recorder off: nothing physics reads)
@@ -175,7 +175,7 @@ FS = 0x6000                                     # story 9.8: the family parts, o
 
 
 def fam_load(g, p):
-    """story 9.8 (SPEC.md 130.25.20): the course's FAMILY PARTS (the build's bzf-<name>.bin) in memory and
+    """story 9.8 (SPEC.md 137.25.20): the course's FAMILY PARTS (the build's bzf-<name>.bin) in memory and
     bz_frec / bz_fhk / bz_fnf and the hook lists (bz_fhs, bz_fhl) as bz_ffetch leaves them (its own fetch is bonanza_phys's unicorn half's to
     prove): the windmill's doorway and the tube are the ROTOR and TUBE families' code now"""
     fhk, rec = 0, bytearray()
@@ -189,7 +189,7 @@ def fam_load(g, p):
         g.mu.mem_write(CS * 16 + g.sym["bz_frec"], bytes(rec))
     g.w("bz_fhk", fhk)
     g.w("bz_fnf", len(p.grid.fams))
-    if "bz_fhs" in g.sym:                       # SPEC.md 130.25.6.3: the hook LISTS a dispatch walks, as
+    if "bz_fhs" in g.sym:                       # SPEC.md 137.25.6.3: the hook LISTS a dispatch walks, as
         fhl, fhs = bytearray(), []              # bz_ffetch builds them - hook by hook, each family in slot
         for b in range(7):                      # order whose mask has it: its far entry (the part's 12 + 2b),
             fhs.append(g.sym["bz_fhl"] + len(fhl))  # the slot and its run of kinds (+9, +10), packed; bz_fhs[b]
@@ -265,7 +265,7 @@ def hold(k, n):
     return [k] * n
 
 
-# ---- the scripted runs (SPEC.md 130.24.11, the model's own _split_physics and more) ---------------------------
+# ---- the scripted runs (SPEC.md 137.24.11, the model's own _split_physics and more) ---------------------------
 
 def scripted():
     """(label, course key, material, poke args, keys, the events it must raise)"""
@@ -360,7 +360,7 @@ def notch_sweep(binp, sym, c):
 
 
 def hostile(binp, sym, c):
-    """130.24.5.2's bound on a HOSTILE part: the stored form with one split cell's offset pointed past the part's
+    """137.24.5.2's bound on a HOSTILE part: the stored form with one split cell's offset pointed past the part's
     end, one aligned wrong and one record's kind made a split's; bz_cexp under unicorn with every read and write
     of the course's segment watched -> [complaints]"""
     from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE, UC_MEM_READ
@@ -386,7 +386,7 @@ def hostile(binp, sym, c):
     def watch(mu, access, addr, size, value, ud):
         if 0x10000 <= addr < 0xF0000 and not lo <= addr < hi and not CS * 16 <= addr < CS * 16 + 0x10000 \
                 and not SS * 16 <= addr < SS * 16 + 0x10000 \
-                and not (access == UC_MEM_READ and KS * 16 <= addr < KS * 16 + 0x10000):    # (the kit, 130.37)
+                and not (access == UC_MEM_READ and KS * 16 <= addr < KS * 16 + 0x10000):    # (the kit, 137.37)
             bad.append("an access at %05Xh, outside the part" % addr)
     g.mu.hook_add(UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE, watch)
     g.w("bz_cseg", PS, 2)
@@ -402,12 +402,12 @@ def hostile(binp, sym, c):
     return bad[:4]
 
 
-# the red arms (SPEC.md 130.24.11, the plan's D3.1 and D3.3): each is a broken copy of the package the check
+# the red arms (SPEC.md 137.24.11, the plan's D3.1 and D3.3): each is a broken copy of the package the check
 # must find - (file, old, new) as bonanza_ring.patch_tree takes them
 REDS = {
     # D3.1: the CELLS rule without halves - a split cell read as a whole one, its offset taken for a z0 (NEAR's
-    # V; until 2026-11-23 the arm broke SAFE's split edge neighbour, which SAFE no longer reads, 130.10.4.3)
-    "cellhalves": [("bonanza.asm", "    jnz .ssp                    ; records (130.24.5.3); 130.28.2: a FIELD's, its z0's\n",
+    # V; until 2026-11-23 the arm broke SAFE's split edge neighbour, which SAFE no longer reads, 137.10.4.3)
+    "cellhalves": [("bonanza.asm", "    jnz .ssp                    ; records (137.24.5.3); 137.28.2: a FIELD's, its z0's\n",
                     "    nop                         ; RED cellhalves: a split cell read whole\n")],
     # D3.3: the corner ray dropped
     "noray": [("bzphys.inc", "    call bz_dray\n    cmp byte [bz_sfb], 0\n",
@@ -421,7 +421,7 @@ REDS = {
     # the centre into another cell then undoes to a stale START
     "nostart": [("bzphys.inc", "    cmp byte [bz_dsn], 0        ; bz_dinner's first push: the step's START\n"
                  "    je .h0 ", "    cmp byte [bz_dsn], 0        ; RED nostart\n    jmp short .h0 ")],
-    # 130.24.5.2: the hostile bound dropped (bz_drec accepts every offset)
+    # 137.24.5.2: the hostile bound dropped (bz_drec accepts every offset)
     "nobound": [("bonanza.asm", "    cmp ax, [bz_dhi]\n    ja .bad\n", "    cmp ax, [bz_dhi]  ; RED nobound\n")],
 }
 
@@ -478,9 +478,9 @@ def fuzz(binp, sym, cs, n, seed):
     return bad, steps, kinds
 
 
-# ---- D3.4: the price (130.11.15's method) -----------------------------------------------------------------
+# ---- D3.4: the price (137.11.15's method) -----------------------------------------------------------------
 # 8086 clocks (Intel's tables), each instruction at max(EU + EA, 4 x its bytes), the 8088's +4 a WORD memory
-# transfer (a read-modify-write twice), as 130.11.15 priced wave 2's step: an ESTIMATE of the instruction
+# transfer (a read-modify-write twice), as 137.11.15 priced wave 2's step: an ESTIMATE of the instruction
 # stream, not a measurement (bonanzaperf measures)
 _EA = {"d": 6, "b": 5, "bd": 9, "bx+si": 7, "bp+di": 7, "bx+di": 8, "bp+si": 8, "bid": 11}
 _R8 = {"al", "ah", "bl", "bh", "cl", "ch", "dl", "dh"}
@@ -504,7 +504,7 @@ def _ea(m):
 
 
 def price_line(text, nbytes, taken=False):
-    """one instruction's clocks, 130.11.15's method"""
+    """one instruction's clocks, 137.11.15's method"""
     s = text.split(";")[0].strip().lower()
     s = re.sub(r"^(\.\w+:|\w+:)\s*", "", s)
     if not s:
@@ -626,7 +626,7 @@ def check(n=200, seed=1124, verbose=True, patches=()):
         binp, sym = build(td, patches)
         cs = courses()
         b = hostile(binp, sym, cs["split"])
-        print("bonanza_dsplit 130.24.5.2 HOSTILE: a part with a split cell's offset past its end, one off a record "
+        print("bonanza_dsplit 137.24.5.2 HOSTILE: a part with a split cell's offset past its end, one off a record "
               "and a split-kind record: bz_cexp %s" % ("; ".join(b) or "reads and writes nothing outside the part, "
                                                        "makes the two cells OPEN and the record VOID"))
         out += b
@@ -730,7 +730,7 @@ def price_report(n, seed):
                         sum(1 for x in d if x))
             print("bonanza_dsplit PRICE %s (no split cell, %d steps): BASE %.0f clk a step; D3 %+.1f clk a step "
                   "mean, %+d .. %+d, %d steps differ" % ((crs,) + res[crs][:1] + res[crs][1:]))
-        # 2. split courses: each step's price by what it met (the four of 130.24.7.6's table)
+        # 2. split courses: each step's price by what it met (the four of 137.24.7.6's table)
         cs = {k: v for k, v in courses().items() if k in ("split", "rail", "notch", "steps")}
         cat = {}
         rnd = random.Random(seed)
@@ -788,9 +788,9 @@ def main():
     ap.add_argument("--seed", type=int, default=1124)
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--reds", action="store_true", help="every red arm: each must go red")
-    ap.add_argument("--price", action="store_true", help="D3.4: the steps priced (130.11.15's method)")
+    ap.add_argument("--price", action="store_true", help="D3.4: the steps priced (137.11.15's method)")
     a = ap.parse_args()
-    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
+    R.dev()                             # the BZDEV=1 build (SPEC.md 137.26.6.1)
     if a.price:
         price_report(a.runs, a.seed)
         return

@@ -5,7 +5,7 @@ next course. Here is my original concept. We don't have to be quite this
 dense, but I would like a few options. 1-2 are the tutorials and then 3 is
 'Downhill Decision', which is the first course with two exits into a split
 pathway." Nothing here ships. The shipped prototype is still
-`apps/bonanza/courses/path.bbc` (SPEC.md 130.22), and it is unchanged.*
+`apps/bonanza/courses/path.bbc` (SPEC.md 137.22), and it is unchanged.*
 
 ## How the sketch was read
 
@@ -76,7 +76,7 @@ so titles fit between two route columns. A and C would not fit without it.
 
 ## What shaped every option (the tool's rules, met)
 
-- **The key map decides the junction (130.22.4.5).** A three-way pad needs
+- **The key map decides the junction (137.22.4.5).** A three-way pad needs
   a STRAIGHT direction among its routes. Three diagonal routes always leave
   some arrow claimed by two of them, and the tool refuses that. At 3 the
   shapes that work are:
@@ -86,7 +86,7 @@ so titles fit between two route columns. A and C would not fit without it.
 - **A straight route is a FAT band**, three cells wide (64 px across a
   vertical climb). A diagonal is one cell. Titles therefore have to fit
   between bands, and that is the main pressure on density.
-- **A pad's cell is at least 24 lines inside its page** (130.22.2), and
+- **A pad's cell is at least 24 lines inside its page** (137.22.2), and
   **every page has a LIVES counter**. A layout cannot crowd the page edges.
 - **Every non-secret route has a gate**, and the gate needs room on the
   route clear of the pads' lanes. A 1-2-cell route between two pads is
@@ -105,7 +105,7 @@ the sheet). Taking it into the build means a face argument on
 which is also a tool-side change. The LIVES label stays in the 8 x 8 face
 in every option.
 
-Bigger parts do cost the guest RAM. A held pathway (130.22.1, "memory") is
+Bigger parts do cost the guest RAM. A held pathway (137.22.1, "memory") is
 B's 35 KB or C's 31 KB rather than today's 22 KB, and `BZ_PATH_CLAIM`
 grows with it, which decides on more machines whether the pathway is
 dropped before a course. Every option is well inside the 65,024-byte part
@@ -187,7 +187,7 @@ centred over its frog again.
 
 *The last step of the pipeline that made KITE HILL, LODESTONE GORGE and CLOCKWORK KEEP
 (design, refinement, music, course art, pathway), with CASTLE CLIMB, the owner's own
-course, added the same day. SPEC.md 130.22.11 is the contract's record. Nothing was run
+course, added the same day. SPEC.md 137.22.11 is the contract's record. Nothing was run
 on an emulator.*
 
 **The order is the owner's** (2026-11-25): *"order on the pathway is only decided up
@@ -277,7 +277,7 @@ a route straight to PLAYGROUND, **skipping MOONLIT GREEN**. The tool's verdict i
 
 Rules that shaped it (the tool's, each met):
 
-- **The key map (130.22.4.5).** A three-way pad needs a straight among its roads. KEEP
+- **The key map (137.22.4.5).** A three-way pad needs a straight among its roads. KEEP
   is reached straight up, the throne's road goes straight on (Up), and the secret is the
   one diagonal (Left). The first try (KEEP reached by a diagonal) left the Right arrow
   claimed by two diagonals, refused.
@@ -305,7 +305,7 @@ White carries every shape and the two colours shade it, so each reads on the Her
 where both colours are one grey (`bbicons.py`'s rule).
 
 No pad or gate art was added: pads 0 - 3 use the tool's own pad overlay and gate, and
-so do the new ones. `pads/` and `gates/` are SPEC.md 130.22.8's provisional previews and
+so do the new ones. `pads/` and `gates/` are SPEC.md 137.22.8's provisional previews and
 the courses' own gate art, which no map names.
 
 ### One tool change it needed
@@ -334,12 +334,12 @@ shipped map's cells moved and the test map's did not.
 | the pathway's part | one part, 65,024 bytes | 35,711 | 65,024 |
 | signs | a byte | 43 | 255 |
 | an icon's frames | a lane's poses | 6 | 16 |
-| lanes on a page | SPEC.md 130.19.10's bounds, proved by the tool on every window row | icons' FAST lanes: 1 in a window, 3 changes a step | 6 and 6 |
+| lanes on a page | SPEC.md 137.19.10's bounds, proved by the tool on every window row | icons' FAST lanes: 1 in a window, 3 changes a step | 6 and 6 |
 
 What one more of each costs, MEASURED on this map (bytes of the part in RAM): a pad
 about 200 (its lane and poses), an animated 32 x 24 icon about 410, a gate about 230, a
 page 3,200 for its rows of the map plus its picture blocks, a block of new picture 16.
-The resident package pays nothing for any of them (SPEC.md 130.22.11's table).
+The resident package pays nothing for any of them (SPEC.md 137.22.11's table).
 
 ### What the map cost (MEASURED on the host, 2026-11-25)
 
@@ -348,7 +348,7 @@ The resident package pays nothing for any of them (SPEC.md 130.22.11's table).
 | the pathway's part, RAM (the tool's figure) | 22,784 | 34,862 | +12,078: the third page's rows 3,200, 210 more picture blocks 3,360 (the scenery 1,440 of the part), 4 pads 608, 4 more icons' lanes 1,672, 4 gates 704, the reveals 568, the rest tables |
 | the same, LZB | 6,561 | 10,194 | +3,633 (the scenery 971 of it) |
 
-The package and the disks are in SPEC.md 130.22.11, measured at the end of the step.
+The package and the disks are in SPEC.md 137.22.11, measured at the end of the step.
 
 ### Open choices for the owner
 

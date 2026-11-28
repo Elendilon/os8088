@@ -8,7 +8,7 @@
 #   beacon  A BEACON: an iron fire-basket on a stem, the digits on its white-hot coals; the FIRE grows up the
 #           castle (embers and smoke, a small flame, a tall one, a roaring one with sparks) - the alarm running
 #           up the walls ahead of the ball.  INSTALLED: tools/bbcourse.py's `bcn0` .. `bcn3` (`_clock_beacon`,
-#           SPEC.md 130.18.5.2) - named here, drawn there.
+#           SPEC.md 137.18.5.2) - named here, drawn there.
 #   banner  A war BANNER hung from a crossbar on a spear, the digits on its white chief; its red field carries one
 #           CHEVRON a stage climbed (1, 2, 3) and a CROWN at the keep.  Scratch: DRAW below.
 #   turret  A round brick TURRET, the digits on its white string course; it is a storey TALLER at each clock

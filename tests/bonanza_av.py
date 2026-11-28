@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""BONANZA's AV (SPEC.md 130.29): the occluder pass with the MODEL in VOID cells, the package's own bz_occ
+"""BONANZA's AV (SPEC.md 137.29): the occluder pass with the MODEL in VOID cells, the package's own bz_occ
 under unicorn against tools/bbcourse.py's binding model (bbcourse.AGrid, amodel_*) and the part's records -
-the host half of the guest's model, the precedent being SPEC.md 130.15.5.2's D/C proof.
+the host half of the guest's model, the precedent being SPEC.md 137.15.5.2's D/C proof.
 
     make bonanzadisk && python3 tests/bonanza_av.py [--n N] [--seed S] [--price] [--red amodel]
 
@@ -15,32 +15,32 @@ buffer with every block word of the footprint laid ONCE under the AND of the mas
 every record of the part (decode_part: the bytes the guest walks) whose verdict holds (s_b < s', z_b + m <
 top) and, where the model runs (AGrid.runs: GF_ANA, the ball's cell VOID and not OBS), the model's mask -
 each pixel at or under the least edge of the counting front cells in its column cleared, the checker ORed in
-(130.15.10.1).  Laying a word twice under two masks is laying it once under their AND, so the order the
+(137.15.10.1).  Laying a word twice under two masks is laying it once under their AND, so the order the
 guest lays in cannot show.  ASSERTED at every position: the buffer EXACTLY the host's, [bz_nlay] moved by the
 records the host's verdicts lay, [bz_namod] by 1 exactly where the model runs, the stack balanced.
 
 The positions, per course (every BZ_COURSES course, the pathway and the title): --n VOID positions (a reach
 cell the model runs in, a random point of it, a random height of its range and fraction, airborne), n / 30
 FALLS of ten consecutive frames from a VOID position (the ball dropping 1 - 6 px a frame and drifting up to an
-eighth of a cell: the guest's cell cache, SPEC.md 130.29.5, used, re-counted and left as a fall uses it) and
+eighth of a cell: the guest's cell cache, SPEC.md 137.29.5, used, re-counted and left as a fall uses it) and
 n / 3 others (any reach cell, grounded or airborne); one in five with the window clipping the footprint (its
 top line or its left word inside it).
 
---price: the pass's executed instructions at the VOID positions priced by 130.11.15's method (each at max(EU
+--price: the pass's executed instructions at the VOID positions priced by 137.11.15's method (each at max(EU
 + EA, 4.34 a byte), x 1.05; bonanza_dsplit's table), the AV part against the course compiled --occ off
 (today's records, GF_ANA clear: the model never runs) at the same positions - the fall frames' cost, PRICED.
 --red amodel: the guest with the right half's + 4 made + 12 (every right-half edge a line low) must fail.
---red aneigh: the guest's neighbour reuse (SPEC.md 130.29.5) keeping the old shadows on the new row 1 must fail.
+--red aneigh: the guest's neighbour reuse (SPEC.md 137.29.5) keeping the old shadows on the new row 1 must fail.
 --red acache: the guest's cell cache not dropped when a front cell starts to count (the speed pass's cache,
-SPEC.md 130.29.5: the FALLS above are what reach it) must fail.
---red afar: a VOID cell's FAR LIST (SPEC.md 130.29.13) never read must fail; the positions in a listed cell are
+SPEC.md 137.29.5: the FALLS above are what reach it) must fail.
+--red afar: a VOID cell's FAR LIST (SPEC.md 137.29.13) never read must fail; the positions in a listed cell are
 counted in the report.
-SPEC.md 130.49's: --red lowfl (the low flight's margin left out), --red apick (a split V's pick ignored), --red
+SPEC.md 137.49's: --red lowfl (the low flight's margin left out), --red apick (a split V's pick ignored), --red
 acent (a centre half-edge a line low) and --red aflat (a flat word laid from the first laid line) must fail;
-SPEC.md 130.11.4.2's: --red acum (a group's later laid records never ANDed, the least-t' test gone) must fail;
+SPEC.md 137.11.4.2's: --red acum (a group's later laid records never ANDed, the least-t' test gone) must fail;
 --course BBC (more than once) runs those course files alone (ROLL, HOP: the BZROLL=1 build's).
 
-SPEC.md 130.42.15, THE SEE-SAW'S POSES: on a course with see-saw lanes (MILL), after its positions, each plate's
+SPEC.md 137.42.15, THE SEE-SAW'S POSES: on a course with see-saw lanes (MILL), after its positions, each plate's
 lanes are put in each pose P by the guest's own bz_lsync (the map's words and, through bz_ltog, the records'
 TOGGLES), then --n / 3 positions round the plate (the reach whose footprint meets a block one of its poses
 changes) are run as above - the host's expectation laying only the records the part's toggles lay in pose P, from
@@ -62,8 +62,8 @@ import bonanza_dsplit as D     # noqa: E402
 import bonanza_ring as R       # noqa: E402
 
 CS, PS = D.CS, D.PS
-PS2 = 0x5000                    # a two-part course's WORLD part (SPEC.md 130.30)
-SHS = 0x8000                    # a SHEETED course's sheets past sheet 0 (SPEC.md 130.30.12), 1000h apart
+PS2 = 0x5000                    # a two-part course's WORLD part (SPEC.md 137.30)
+SHS = 0x8000                    # a SHEETED course's sheets past sheet 0 (SPEC.md 137.30.12), 1000h apart
 BOXD, BOXW = 20, 4
 LINES = 200
 CHKW = (0x3333, 0xCCCC)
@@ -79,31 +79,31 @@ REDS = {
                 "    nop\n")],
     "acache": [("bzvideo.inc", "    jl .count0                  ; a front cell counts that did not",
                 "    nop                         ; RED acache\n    nop")],
-    # SPEC.md 130.29.13: a VOID V's far list never read (the residual was cut with it); and the neighbour's test
+    # SPEC.md 137.29.13: a VOID V's far list never read (the residual was cut with it); and the neighbour's test
     # back on the extra slots' end (a far list then forces the next V to read whole: not red - a speed, not a
     # picture - so it is not an arm)
     "afar": [("bzvideo.inc", "    or al, al\n    jz .fnone\n    call bz_afar\n", "    or al, al\n    jmp .fnone                  ; RED afar\n")],
-    # SPEC.md 130.49: the low flight's margin left out; a split V's pick ignored (the model in every split
+    # SPEC.md 137.49: the low flight's margin left out; a split V's pick ignored (the model in every split
     # cell with a VOID piece); a centre half-edge's + 8 made + 24 (a line low)
     "lowfl": [("bzvideo.inc", "    cmp ax, bx\n    jge .air\n.grd:", "    cmp ax, bx\n    jmp .air          ; RED lowfl\n.grd:")],
     "apick": [("bzvideo.inc", "    test [es:bz_avm], al\n    jnz .run\n    ret\n",
                "    jmp .run                    ; RED apick\n")],
     "acent": [("bzvideo.inc", ".rxc:\n    add ax, 8\n", ".rxc:\n    add ax, 24                  ; RED acent\n")],
-    # SPEC.md 130.51: a band's TB taken at the pass's first block row alone (a footprint across a band edge keeps
+    # SPEC.md 137.51: a band's TB taken at the pass's first block row alone (a footprint across a band edge keeps
     # the first band's kt)
     "aband": [("bzvideo.inc", "    jnz .brow1                  ; first line a multiple of 128) takes its kt\n    call bz_otbk",
                "    jnz .brow1\n    nop                         ; RED aband\n    nop\n    nop")],
-    # SPEC.md 130.52: the band's mask table not loaded (a `masks banded` course reads band 0's slice everywhere)
+    # SPEC.md 137.52: the band's mask table not loaded (a `masks banded` course reads band 0's slice everywhere)
     "amband": [("bzvideo.inc", "    mov ax, [bx + 2]\n    mov [es:bz_mtab], ax\n",
                 "    nop                         ; RED amband\n")],
-    # SPEC.md 130.49.7: the flat word's lay from the first laid line, not from its edge
+    # SPEC.md 137.49.7: the flat word's lay from the first laid line, not from its edge
     "aflat": [("bzvideo.inc", "    add [es:bz_of], ax\n    sub [es:bz_on], ax\n",
                "    nop                         ; RED aflat\n    nop\n")],
-    # SPEC.md 130.11.4.2: a group's later laid records passed over whatever their t' (the least-t' test gone), so
+    # SPEC.md 137.11.4.2: a group's later laid records passed over whatever their t' (the least-t' test gone), so
     # a record UNDER the least laid t' - an antichain's, not under any laid cumulative mask - is never ANDed
     "acum": [("bzvideo.inc", "    jae .skip                   ; every record of its block at or over it in",
               "    jmp .skip                   ; RED acum")],
-    # SPEC.md 130.42.15: a see-saw lane's toggles never written; every posed record laid in every pose
+    # SPEC.md 137.42.15: a see-saw lane's toggles never written; every posed record laid in every pose
     "tltog": [("bzwheel.inc", "    mov [bz_ldrw + bx], al\n    call bz_ltog\n    push ax\n",
                "    mov [bz_ldrw + bx], al\n    push ax                     ; RED tltog\n")],
     "tlall": [("bzwheel.inc", "    jnz .on\n    xor dl, dl                  ; ...or 0: not laid in this pose",
@@ -134,7 +134,7 @@ class Pass:
         self.c, self.sym = c, sym
         self.g = D.Guest(binp, sym, c.cga)
         self.g.w("bz_cseg", PS, 2)
-        if getattr(c, "wcga", None):            # a TWO-PART course (SPEC.md 130.30): the picture part at PS
+        if getattr(c, "wcga", None):            # a TWO-PART course (SPEC.md 137.30): the picture part at PS
             self.g.mu.mem_write(PS2 * 16, bytes(c.wcga))    # (bz_mseg: the walk, the masks, the lay), the
             self.g.w("bz_cseg", PS2, 2)                     # world part at PS2 (bz_cseg: the grid, the model's
         if "bz_mseg" in sym:                                # reads)
@@ -145,7 +145,7 @@ class Pass:
         m = BB.course_model(c)
         self.masks = m["masks"]
         self.recs = {}
-        sz = m.get("sz") or ()                  # (SPEC.md 130.42.15: a record stored s' 0 is laid at rest by none)
+        sz = m.get("sz") or ()                  # (SPEC.md 137.42.15: a record stored s' 0 is laid at rest by none)
         for i, (br, col, s_, top, mi) in enumerate(m["recs"]):
             if i not in sz:
                 self.recs.setdefault((br, col), []).append((s_, top, m["masks"][mi]))
@@ -153,7 +153,7 @@ class Pass:
         self.mapsh, self.mapoff = info["mapsh"], BB.HDR
         self.cols = info["cols"]
         self.nneigh = 0
-        # SPEC.md 130.42.15: the see-saw lanes (the part's record order: lane j is record j) and each record's
+        # SPEC.md 137.42.15: the see-saw lanes (the part's record order: lane j is record j) and each record's
         # TOGGLE byte (the part's record index: a byte its toggle run's), read from the part's own props
         self.pose = 0
         self.mrecs = m["recs"]
@@ -166,7 +166,7 @@ class Pass:
             for br, kk, bs in runs:
                 for j, t in enumerate(bs):
                     self.tog[first[br] + kk + j] = t
-        # A SHEETED course (SPEC.md 130.30.12): sheet 0 at PS (above), each other sheet at a segment of its own
+        # A SHEETED course (SPEC.md 137.30.12): sheet 0 at PS (above), each other sheet at a segment of its own
         # (SHS up), and the sheet SHOWN for a window chosen by the plan's rule (show(): the shown one while it
         # serves the window's top, else the first that does) - bz_mseg its segment and bz_mrow its rows clamped
         # to [m0, hic], as bz_shset leaves them (tests/bonanza_sheet.py proves bz_shchk makes exactly those).
@@ -180,7 +180,7 @@ class Pass:
                 self.g.mu.mem_write(s_ * 16, bytes(q))
 
     def set_pose(self, pose):
-        """SPEC.md 130.42.15: every see-saw lane DRAWN in POSE through the guest's bz_lsync (its map words and its
+        """SPEC.md 137.42.15: every see-saw lane DRAWN in POSE through the guest's bz_lsync (its map words and its
         toggles), its tables poked as bz_winit makes them; the host's records those the toggles lay in it"""
         g, X = self.g, self.g.X
         for d in self.tlanes:
@@ -214,7 +214,7 @@ class Pass:
         self.g.mu.mem_write(CS * 16 + self.sym["bz_mrow"], mrow)
 
     def block_word(self, br, w, ly):
-        if self.pose and not self.sheets:       # (SPEC.md 130.42.15: the map as the guest's bz_lsync left it)
+        if self.pose and not self.sheets:       # (SPEC.md 137.42.15: the map as the guest's bz_lsync left it)
             mw = struct.unpack("<H", self.g.mu.mem_read(PS * 16 + self.mapoff + 2 * self.cols * br + 2 * w, 2))[0]
             return struct.unpack("<H", self.g.mu.mem_read(PS * 16 + mw + 2 * ly, 2))[0]
         if not self.sheets:
@@ -233,7 +233,7 @@ class Pass:
         delta, the host's laid count, namod delta, the model's verdict, the trace or None)"""
         g, c = self.g, self.c
         gx, gy, gz, air = pos[:4]
-        gh = pos[4] if len(pos) > 4 else None   # (SPEC.md 130.49.6: the floor's h4 under it, bz_gh; None: no bz_ghv)
+        gh = pos[4] if len(pos) > 4 else None   # (SPEC.md 137.49.6: the floor's h4 under it, bz_gh; None: no bz_ghv)
         px = ((gx - gy) >> 8) + c.x0 - 8
         py = ((((gx + gy) >> 1) - gz) >> 8) + c.y0 - 13
         sb = (gx >> 12) + (gy >> 12)
@@ -249,7 +249,7 @@ class Pass:
         g.w("bz_gy", gy, 4)
         g.w("bz_gz", gz, 4)
         g.w("bz_air", air)
-        g.w("bz_ghv", 0 if gh is None else 1)   # (SPEC.md 130.49.6's low flight)
+        g.w("bz_ghv", 0 if gh is None else 1)   # (SPEC.md 137.49.6's low flight)
         g.w("bz_gh", gh or 0, 2)
         g.w("bz_sb", sb, 2)
         g.w("bz_py", py, 2)
@@ -324,18 +324,18 @@ def _pt(rc, rnd):
 
 def positions(c, ag, n, rnd):
     """-> [(gx, gy, gz, air, void[, gh])]: n VOID positions (a VOID cell, or a split cell's VOID piece: SPEC.md
-    130.49.1) and n / 3 others, a third of the airborne ones over a floor a LOW FLIGHT (gh its h4, 130.49.6)"""
+    137.49.1) and n / 3 others, a third of the airborne ones over a floor a LOW FLIGHT (gh its h4, 137.49.6)"""
     rcs = BB.av_positions(c.reach, ag, c.slabcells) if ag.gflags & BB.GF_ANA else []
     out = []
     i = 0
     while i < (n if rcs else 0):
         rc = rnd.choice(rcs)
         for _ in range(1 + rnd.randrange(3)):       # (one to three a cell in a row: the guest's cell-top test
-            z = rnd.randrange(rc.zlo, rc.zhi + 1)   # remembers the cell, SPEC.md 130.29.5)
+            z = rnd.randrange(rc.zlo, rc.zhi + 1)   # remembers the cell, SPEC.md 137.29.5)
             gx, gy = _pt(rc, rnd)
             out.append((gx, gy, (z << 8) + rnd.randrange(256), 1, True))
             i += 1
-    for i in range(max(1, n // 15)):            # FALLS (the speed pass, SPEC.md 130.29.5): ten frames from a
+    for i in range(max(1, n // 15)):            # FALLS (the speed pass, SPEC.md 137.29.5): ten frames from a
         rc = rnd.choice(rcs) if rcs else None   # VOID position, the ball dropping 1 - 6 px a frame and drifting
         if rc is None:                          # up to an eighth of a cell, so that a run keeps its cell, its
             break                               # columns or its count set for a while and then leaves them
@@ -353,7 +353,7 @@ def positions(c, ag, n, rnd):
             gx += rnd.randrange(800, 1400) * dx_ if fwd else rnd.randrange(-512, 513)
             gy += rnd.randrange(800, 1400) * dy_ if fwd else rnd.randrange(-512, 513)
     sps = [q for q in rcs if q.pts is not None]
-    for i in range(max(1, n // 15) if sps else 0):     # CORNER FALLS (SPEC.md 130.49): ten frames from a split
+    for i in range(max(1, n // 15) if sps else 0):     # CORNER FALLS (SPEC.md 137.49): ten frames from a split
         q = rnd.choice(sps)                     # cell's top down through its VOID piece, 1 - 3 px a frame - its
         t = c.tiles[(q.wx, q.wy)]               # own pieces' edges and the flat word's lay are what they cross
         top = int(4 * max(max(h.corners()) for h in t.halves if h is not None))
@@ -366,7 +366,7 @@ def positions(c, ag, n, rnd):
                 break
     ramps = [rc for rc in c.reach if isinstance(c.tiles.get((rc.wx, rc.wy)), BB.Tile)
              and c.tiles[(rc.wx, rc.wy)].kind == BB.KIND_FLOOR and (c.tiles[(rc.wx, rc.wy)].sx or c.tiles[(rc.wx, rc.wy)].sy)]
-    for i in range(n // 10 if ramps else 0):    # LOW FLIGHTS on ramps (SPEC.md 130.49.6: what the margin is for)
+    for i in range(n // 10 if ramps else 0):    # LOW FLIGHTS on ramps (SPEC.md 137.49.6: what the margin is for)
         rc = rnd.choice(ramps)                  # (the cell's FRONT quarter, by the next cell of the ramp)
         gx, gy = (16 * rc.wx + 8 << 8) + rnd.randrange(2048), (16 * rc.wy + 8 << 8) + rnd.randrange(2048)
         f = BB.pose_floor(c.tiles, rc.wx, rc.wy, gx, gy)
@@ -378,7 +378,7 @@ def positions(c, ag, n, rnd):
         z = rnd.randrange(rc.zlo, rc.zhi + 1)
         gx, gy = (16 * rc.wx << 8) + rnd.randrange(4096), (16 * rc.wy << 8) + rnd.randrange(4096)
         f = BB.pose_floor(c.tiles, rc.wx, rc.wy, gx, gy) if air else None
-        if f is not None and rnd.randrange(3) == 0:     # a LOW FLIGHT over the floor there (130.49.6)
+        if f is not None and rnd.randrange(3) == 0:     # a LOW FLIGHT over the floor there (137.49.6)
             z = f + rnd.randrange(BB.CLIMB + 2)
             out.append((gx, gy, (z << 8) + rnd.randrange(256), 1, False, 4 * f))
             continue
@@ -453,7 +453,7 @@ def check(n=300, seed=1129, patches=(), price=False, verbose=True):
                         rw_ = P.ag.raw(gx >> 12, gy >> 12)
                         pr.append((price_of(tr, lst), price_of(r0[6], lst), runs,
                                    rw_ is not None and rw_[2] & 15 in BB.SPLIT_KINDS))
-            if P.tlanes and not P.sheets and getattr(c, "tl_rep", None):   # SPEC.md 130.42.15: the poses
+            if P.tlanes and not P.sheets and getattr(c, "tl_rep", None):   # SPEC.md 137.42.15: the poses
                 near = BB.tl_occ_reach(c.reach, c.tl_rep["rb"][1] | c.tl_rep["rb"][2], c.x0, c.y0)
                 for pose in (2, 1, 0):
                     P.set_pose(pose)
@@ -499,7 +499,7 @@ def check(n=300, seed=1129, patches=(), price=False, verbose=True):
                                     else "%d DIFFER, the first %s" % (bad, first)), flush=True)
             if bad:
                 out.append("bonanza_av %s: %d positions differ, the first %s" % (name, bad, first))
-            for lab, sel in (("VOID cells", False), ("SPLIT pieces", True)):     # (SPEC.md 130.49: apart)
+            for lab, sel in (("VOID cells", False), ("SPLIT pieces", True)):     # (SPEC.md 137.49: apart)
                 ran = [p for p in pr if p[2] and p[3] == sel] if price else []
                 d = sorted(a - b for a, b, _r, _s in ran)
                 if d:
@@ -522,7 +522,7 @@ def main():
     ap.add_argument("--course", action="append", metavar="BBC", help="these course files alone")
     a = ap.parse_args()
     EXTRA.extend(a.course or ())
-    if a.red == "lowfl":            # (SPEC.md 130.49.6: the real-pose cut holds no record a low flight's margin
+    if a.red == "lowfl":            # (SPEC.md 137.49.6: the real-pose cut holds no record a low flight's margin
         HACK["realcut"] = False     # keeps off the ball, so its red arm reads the whole-cell cut, which does)
         EXTRA[:] = EXTRA or [os.path.join(BB.COURSE_DIR, "roll.bbc")]
     bad = check(a.n, a.seed, REDS[a.red] if a.red else (), a.price)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """THE BOUNCE BONANZA COURSE BUILDER, PACKED FOR PEOPLE WITH NO os8088 TREE
-(SPEC.md 130.58.11), the battle builder's shape (tools/os88vbtbundle.py).
+(SPEC.md 137.58.11), the battle builder's shape (tools/os88vbtbundle.py).
 
     make bbeditbundle       # -> build/os8088-course-builder.zip
     python3 tools/bbeditbundle.py OUT.zip
@@ -28,7 +28,7 @@ TREE = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import os88vbundle as VB    # noqa: E402
 
-# bbgame.py (ADD TO THE GAME, SPEC.md 130.58.17) runs os88pkg, os88disk and os88lz as processes: roots too
+# bbgame.py (ADD TO THE GAME, SPEC.md 137.58.17) runs os88pkg, os88disk and os88lz as processes: roots too
 ROOTS = ("bbedit.py", "bbedjob.py", "bbedproj.py", "bbplay.py", "bbgame.py", "os88pkg.py", "os88disk.py", "os88lz.py")
 THIRD_PARTY = {"PIL"}
 # imported only inside functions the builder never calls: the music's WAV
@@ -198,7 +198,7 @@ def course_lists():
     import bbcourse as B
     mk = B._makefile()
     out = ["# The course lists of os8088's Makefile (BZ_COURSES, BZ_TESTCRS), for the course builder's",
-           "# bundle: tools/bbcourse.py reads the courses and their order from here (SPEC.md 130.58.11).", ""]
+           "# bundle: tools/bbcourse.py reads the courses and their order from here (SPEC.md 137.58.11).", ""]
     for var in ("BZ_COURSES", "BZ_TESTCRS"):
         files = B._mk_list(mk, var)
         if files:

@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/fam/life.asm - BONANZA's LIFE FAMILY (SPEC.md 130.55): one kind,
+; apps/bonanza/fam/life.asm - BONANZA's LIFE FAMILY (SPEC.md 137.55): one kind,
 ; the HEART (27), taken when the ball's centre is in its cell (CONTACT) and
 ; its one state bit, COLLECTED, clear -
 ;   +1 on the game's lives (bz_lives, never past BZ_LVMAX), once an attempt
@@ -14,7 +14,7 @@
 ; kept.  RESET (a respawn: a play's start finds the slot zero) ends the rise.
 ; bbcourse.LifeFamily is the model, step for step.
 ;
-; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 137.25.6.2), linked against the package's bss as the
 ; probe is (build/bonanza-art/bzlink.inc: no code label).  Entered by `call
 ; far` with DS = ES = the package, AL = the slot, AH = the argument (CONTACT,
 ; POSE: the kind), BX = the element; `retf`.
@@ -35,7 +35,7 @@ org 0
     db 0
     dw lf_reset, 0, lf_contact, lf_step, lf_pose, 0
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 137.25.6.2)"
 %endif
 
 ; RESET: the rise ended, its cue bit cleared, every life's lane MARKED (its
@@ -83,7 +83,7 @@ lf_contact:
     inc byte [bz_lives]
 .l2:
     mov byte [di], BZ_LF_RISE   ; its cue: the sparkles RISING
-    xor ax, ax                  ; (its STEP every step now: 130.25.6.11)
+    xor ax, ax                  ; (its STEP every step now: 137.25.6.11)
     call lf_setwk
 .out:
     retf
@@ -100,7 +100,7 @@ lf_step:
     or al, 4
 .c:
     mov [bz_cue], al
-    xor ax, ax                  ; (130.25.6.11: the rise running, every step;
+    xor ax, ax                  ; (137.25.6.11: the rise running, every step;
     cmp byte [di], 0            ; none, none until CONTACT starts one)
     jne .w
     mov ax, [bz_nstep]

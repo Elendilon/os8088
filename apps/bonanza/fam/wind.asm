@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/fam/wind.asm - BONANZA's WIND FAMILY (SPEC.md 130.34): the
+; apps/bonanza/fam/wind.asm - BONANZA's WIND FAMILY (SPEC.md 137.34): the
 ; BLOWER, a fan grate on a flat floor that PUSHES the ball while the ball's
 ; cell is in the element's REGION, along its FACE, by its STRENGTH weighted by
 ; the ball - glass S << BZ_WD_GSH, rubber S, steel S >> BZ_WD_SSH.  Facing UP
@@ -14,7 +14,7 @@
 ; makes: its lane is the region's squiggles, there while the gust blows.
 ; bbcourse.WindFamily is the model, step for step.
 ;
-; A blower's record (130.34.3): +16 its byte's FSB, +18 the face (0 +x, 1 -x,
+; A blower's record (137.34.3): +16 its byte's FSB, +18 the face (0 +x, 1 -x,
 ; 2 +y, 3 -y, 4 up) OR the flags WD_FLIFT (8), WD_FFLAG (16), +19 S, +20 - +23 the
 ; region X0 Y0 X1 Y1 (inclusive), +24 ON (0 steady), +26 the period's MASK,
 ; +28 the SEED, +30 an updraft's TOP (whole px).  A wisp's: +18 its blower.
@@ -22,9 +22,9 @@
 ;
 ; THE FORCE-FIELD CORE is wd_field: one element's push given its record and
 ; the ball's cell.  A family that PULLS (magnets) is the same routine with the
-; push's sign and weighting from its own record (SPEC.md 130.34.9).
+; push's sign and weighting from its own record (SPEC.md 137.34.9).
 ;
-; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss
+; A FAMILY PART (SPEC.md 137.25.6.2), linked against the package's bss
 ; (bzlink.inc: no code label).  Entered by `call far` with DS = ES = the
 ; package, AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -34,7 +34,7 @@ org 0
 %include "bzcourse.inc"
 %include "bzlink.inc"
 
-WD_FSB      equ 16              ; the record's fields (SPEC.md 130.34.3)
+WD_FSB      equ 16              ; the record's fields (SPEC.md 137.34.3)
 WD_DIR      equ 18
 WD_STR      equ 19
 WD_X0       equ 20
@@ -57,7 +57,7 @@ WD_FFLAG    equ 16
     db 0
     dw wd_reset, 0, 0, wd_step, wd_pose, 0
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 137.25.6.2)"
 %endif
 %if BZ_WD_GSH != 1 || BZ_WD_SSH != 2
  %error "wd_field's weighting is one shift left for glass and two right for steel"
@@ -130,7 +130,7 @@ wd_step:
     cmp byte [es:si], BZ_FK_WISP
     jne .blower
     call wd_vis                 ; (off the slice its mark would be dropped:
-    jnc .nx                     ; no gust test, 130.34.14)
+    jnc .nx                     ; no gust test, 137.34.14)
     push si
     mov al, [es:si + WD_DIR]    ; (a wisp: its blower's gust)
     xor ah, ah
@@ -150,7 +150,7 @@ wd_step:
     mov ch, 0                   ; CH: 1 blowing with the cell in its region
     cmp dl, [es:si + WD_X0]     ; the REGION first: outside it neither the
     jb .nb                      ; push nor the spin wants the gust test
-    cmp dl, [es:si + WD_X1]     ; (130.34.14; 0FFh dead is never inside)
+    cmp dl, [es:si + WD_X1]     ; (137.34.14; 0FFh dead is never inside)
     ja .nb
     cmp dh, [es:si + WD_Y0]
     jb .nb
@@ -344,7 +344,7 @@ wd_on:
 ; the walk's slice [bz_lr0, bz_lr1) (a lone element's lane is its index) and
 ; not held OUT of the column band (bz_lout), or a
 ; GROUP MEMBER (bz_fmark tests its lanes).  Off it, bz_fmark drops the mark,
-; so a test that decides only a mark is skipped (SPEC.md 130.34.14).
+; so a test that decides only a mark is skipped (SPEC.md 137.34.14).
 ; Preserves all but the flags.
 wd_vis:
     test byte [es:si + BZP_FLAGS], BZ_PF_GRP
@@ -354,7 +354,7 @@ wd_vis:
     cmp bl, [bz_lr1]
     jae .n
     cmp byte [bz_lout + bx], 0  ; (OUT of the column band: dropped too,
-    jne .n                      ; 130.19.10 item 12)
+    jne .n                      ; 137.19.10 item 12)
 .y:
     stc
     ret

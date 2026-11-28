@@ -11,7 +11,7 @@ keeps its art. Looked at in the tool's own picture on both cards, never on an em
 
 ![the course, the tool's own picture](picture-cga.png)
 
-## The gates (SPEC.md 130.41.12.7)
+## The gates (SPEC.md 137.41.12.7)
 
 ![the three gates in place, CGA over Hercules: the portcullis, the door, the treasury's grille](art-gates.png)
 
@@ -25,13 +25,13 @@ Each is a file of its own under `apps/bonanza/courses/gates/`: GATE's lab art (`
 | the TREASURY's grille, (41, 21) `along y`, channel cross | `keep_vault.bba`, 24 x 38 | 1 | heavy bars under a round stone head, the **CROSS** on a plaque on the keystone | the bars slide ASIDE into one jamb |
 
 - **The three glyphs are LARGE and UPRIGHT**: 7 x 7, black on a white 11 x 11 plaque with a black edge, the
-  look the engine gives a plate and a key (SPEC.md 130.41.5) at about twice the size. A plaque is drawn in
+  look the engine gives a plate and a key (SPEC.md 137.41.5) at about twice the size. A plaque is drawn in
   screen pixels, not sheared with the wall (a sheared 7 x 7 plus was a blot): the kit's `gate_bba` takes it as
   a "flat" piece. They are the course's whole language, and on the Hercules they are what a gate IS.
 - **The stone is the scene's own magenta**, with black joints. White stone, the first try, vanished on the
   white and cyan floor behind it; what MOVES (grille, leaves, bars) is black and white, so every frame differs
   on the Hercules (the tool refuses two equal ones).
-- **The gaps stay open.** A gate's occluder is its shut frame's (SPEC.md 130.41.12.6, question 1), so a ball
+- **The gaps stay open.** A gate's occluder is its shut frame's (SPEC.md 137.41.12.6, question 1), so a ball
   behind an OPEN gate is still cut by frame 0's pixels. The grille and the bars are 2 px of iron in 4 or 5 with
   nothing between; the door's leaves are solid, and a ball rolling up to the open door is clipped for the last
   third of a tile before the sill, as it was with the lab's door.
@@ -73,7 +73,7 @@ Each is a file of its own under `apps/bonanza/courses/gates/`: GATE's lab art (`
 
 The signs and decals are 67 blocks (1,072 bytes of RAM, 897 of LZ4) and no mask: paint has no depth of its own.
 The gates are the masks: 31 of them. **The course is 592 LZ4 bytes under its class and has 16 masks to spare.**
-The next thing it carries wants `masks banded` (SPEC.md 130.52) or a piece struck.
+The next thing it carries wants `masks banded` (SPEC.md 137.52) or a piece struck.
 
 ## Not done, and why
 

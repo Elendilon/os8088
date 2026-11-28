@@ -1,14 +1,14 @@
 # BOUNCE BONANZA: occlusion, computed instead of stored
 
-*AV (waves A0 and A1) IS BUILT on branch `bounce-bonanza-av` (2026-11-17), SPEC.md 130.29; the story
+*AV (waves A0 and A1) IS BUILT on branch `bounce-bonanza-av` (2026-11-17), SPEC.md 137.29; the story
 rows below say what landed and what was measured. A3 and V are not built.*
 
 *A PROPOSAL for the owner to review (2026-11-17). Nothing here is built: the
-shipped guest, the shipped course format and SPEC.md 130 are unchanged on this
+shipped guest, the shipped course format and SPEC.md 137 are unchanged on this
 branch. The measurements, the pictures and how each figure was taken are in
 [the report](../reports/BONANZA-OCCLUSION-2026-11-17.md). The contract this
-would become is SPEC.md section **130.29**, reserved and not yet written. The parallel two-segment-course
-work adds 130.28. This plan does not touch it, and section 7 says what each
+would become is SPEC.md section **137.29**, reserved and not yet written. The parallel two-segment-course
+work adds 137.28. This plan does not touch it, and section 7 says what each
 option gives it.*
 
 The owner, 2026-11-17: *"Course size is too big, and most of it seems to be
@@ -29,11 +29,11 @@ per frame."*
 - **58% of today's records exist only for a ball in a VOID cell**, one
   that is falling off an edge or in the air over a gap. These are the
   cheapest records to lose. They are also the ones the earlier option (c)
-  lost visibly (SPEC.md 130.11.4.5).
+  lost visibly (SPEC.md 137.11.4.5).
 - **Most records can be COMPUTED instead.** The ball is hidden by the cells
   in front of it that rise above it, and everything under such a cell's top
   edge is that cell's own top and face, because every face now reaches the
-  ground plane (SPEC.md 130.27). A model reads up to 14 cells in front of
+  ground plane (SPEC.md 137.27). A model reads up to 14 cells in front of
   the ball from the grid: their heights and their top edges. Over about 2
   million sampled positions it hides **at most 0.1% of the ball's pixels that
   the rule does not**. Records are then needed only for what the model cannot
@@ -63,7 +63,7 @@ per frame."*
 **Recommended:** build the model once, and ship it in two steps. **First in
 the VOID cells (AV)**, which has no CPU risk. Then **everywhere (A4R)**, once
 the guest's routine is measured and the extension passes the owner's
-smoothness rule (SPEC.md 130.15.5.4) as an A/B. **Option V**, which ghosts the
+smoothness rule (SPEC.md 137.15.5.4) as an A/B. **Option V**, which ghosts the
 falling ball, is the cheap alternative if the owner would rather not have a
 rasterizer in the guest. It looks worse (section 3).
 
@@ -77,7 +77,7 @@ The figures are for the seven `BZ_COURSES` together:
   sampled falls (the report, section 5). It is the share of frames that get
   more than a quarter of the ball wrong.
 
-`BONANZA.O88` ships its parts as LZB (SPEC.md 130.27.7).
+`BONANZA.O88` ships its parts as LZB (SPEC.md 137.27.7).
 
 | option | records | parts, LZB / LZ4 | RAM | clk on a frame whose gate is open | looks | guest code | risk |
 |---|---|---|---|---|---|---|---|
@@ -87,7 +87,7 @@ The figures are for the seven `BZ_COURSES` together:
 | **A4R**: the model everywhere (front cells to depth 4) + residual records | 1,958 | **36,285 / 44,646** (-9,862 / -12,150) | **191,743** (-46,046) | **+0.4k to +3.1k** (BENCH +0.7k, MILL +0.9k, MOON +1.5k, PEAK +3.1k) | exact or over-hidden (at most 0.1% of pixels) | as AV | **high**: the CPU |
 | A4R-V: A4R with no residual for a VOID cell | 729 | 33,425 / 41,108 (-12,722) | 184,325 (-53,464) | as A4R | falls near props or split cells partly drawn over: 0 - 8% of fall frames (MOON 8.1%, PEAK 4.1%) | as AV | high |
 | **V**: no VOID record; below a per-cell height the WHOLE ball is ghosted | 5,235 | 39,397 / 48,493 (-6,750 / -8,303) | 206,489 (-31,300) | **cheaper** on a fall frame | the ball dims early: **27 - 51%** of fall frames; with a 50% threshold, 6 - 14% | +60 - 100 bytes | low |
-| (c): no VOID record and nothing in its place (rejected, 130.11.4.5) | 5,190 | 38,706 / 47,610 | 206,309 | as V | the ball drawn OVER what it falls behind: 8 - 29% of fall frames | - | low |
+| (c): no VOID record and nothing in its place (rejected, 137.11.4.5) | 5,190 | 38,706 / 47,610 | 206,309 | as V | the ball drawn OVER what it falls behind: 8 - 29% of fall frames | - | low |
 | vlow: no record below the lowest floor within two tiles | 8,460 | 42,506 / 52,445 (-3,641) | 221,657 | as V, on those frames | only the last part of a fall | +60 | low |
 | T: the reach cut at walls the ball cannot clear | 12,403 | no change | no change | 0 | - | 0 | - |
 | X: lay only a mask's active lines (CPU only) | 12,403 | 0 (built at the launch) | +256 bss | -3% (PEAK) to -10% (MILL, PLAY) of the priced pass | the same | +40 | low |
@@ -105,7 +105,7 @@ The figures are for the seven `BZ_COURSES` together:
 - `y` is at or below that cell's top edge in column `x`.
 
 Below that edge the column is N's own top, then N's face down to the ground
-plane (130.27), then nearer cells. Every one of them is in front of the ball.
+plane (137.27), then nearer cells. Every one of them is in front of the ball.
 
 The model reads only the grid. N's `z0`, `sx`, `sy` and kind give its four
 corners, and its top edge is two straight segments on the screen. It passes
@@ -143,7 +143,7 @@ every depth):
 | PLAY | 1,852 -> 842 -> 478 | 7,715 -> 7,046 -> 6,794 | 49,422 -> 45,508 -> 44,070 |
 
 Under A4R the fullest block is 2 - 3 records on six courses. BENCH keeps one
-residual block at 4, the bound (130.11.4.2), and its fullest row falls from 77
+residual block at 4, the bound (137.11.4.2), and its fullest row falls from 77
 to 23.
 
 **The risk** is that the guest's model and the tool's must agree to the
@@ -221,7 +221,7 @@ Each course's demo is replayed through the binding model, and at every step
 bz_occ's walk is done on the shipped part. Each frame is then priced from the
 instructions, using `occframes.py`'s constants: ESTIMATED from bzvideo.inc as
 built, one box. The priced pass is **about 0.4 of the MEASURED one** (MILL
-3.2k against 8.1k, PEAK 4.8k against 13.3k, from 130.15.5.4). It under-counts
+3.2k against 8.1k, PEAK 4.8k against 13.3k, from 137.15.5.4). It under-counts
 the two-box frames and the lay's arithmetic per box. So read the today column
 as a ratio, and A4R's addition, which is the model's own work, as absolute.
 
@@ -260,10 +260,10 @@ A/B:
 
 | # | story | verified by |
 |---|---|---|
-| A0.1 [x] | **The binding model, from the part.** `bbcourse.occ_model(part, wx, wy, z, m)` reads the front cells to `OCCDEPTH` (4) through ROWTAB from the RAM form's cells. It takes the corners from `z0`/`sx`/`sy` and each top edge as two screen segments, and builds each line's coverage. It passes over a cell with `OBS`, a kind 4 - 6 cell and a `FL_FLOAT` cell (A0.3), and dithers its masks as `K`'s are. It reads nothing the guest cannot read | `--selfcheck` item 15 (new), at the reach lattice of every course: against the prototype's owner-render model (`occproto.Analytic`), and against the rule. WRONG-HIDE is reported and bounded: past `OCC_WRONG_MAX` (0.25% of ball pixels) it is refused; **DONE** (branch `bounce-bonanza-av`, SPEC.md 130.29.2): `bbcourse.AGrid` and `amodel_*`, read from the RAM form; the edge is the top polygon's first line exactly (a tie rule on the right half), WRONG-HIDE 0.0000 - 0.0005% MEASURED. Checked against the TILES' spans rather than the prototype's owner render |
-| A0.2 [x] | **The residual records**: `_occluders` over the pixels the rule lays and the model does not, at every query of `block_queries`, then today's merge, bounds, dither and `R`/`K`/`I`/`O`. Behind `--occ void` (AV) and `--occ all` (A4R), default off | item 15's COMPLETENESS proof, after `merge_exact`: at every block query, the rule's pixels are a subset of the union of the model's and the residual's. Red arms, each red at item 15: the residual dropped; depth 3 (BENCH's void positions); a sloped cell read as flat (TRIAL's ramp); the dither left off the model's masks (item 11 red too); **DONE** (130.29.3): `av_records`, `--occ void` (the default) and `--occ off`; `--occ all` NOT built (A3's). Completeness and the red arms in item 15, all red |
-| A0.3 [x] | **Floating cells** are marked in the grid (`FL_FLOAT`, flags bit 4 on a non-goal cell; a floating GOAL is refused), so the model passes over them. This covers the PLAYGROUND's platform and the pathway | items 14 (GROUND) and 15, on the PLAYGROUND and on `path.bbc`; **DONE, amended** (130.29.4): `FL_FLOAT` is flags bit **6**, not 4 (bits 4 - 5 stay RESERVED for `edge`); a course with a floating GOAL gets no `GF_ANA` instead of being refused. It changes 0 - 4 ball pixels on today's lattices: the flag guards later courses |
-| A0.4 [x] | **The bytes and the error, MEASURED with the binding model**, both formats, on every course, the pathway and the title, under `--occ void` and `--occ all` | `--sizes`; the report's tables re-taken in a new report. **The owner rules here on AV first, and on A4R or A4R-V for later**; **DONE for AV** (130.29.6, MEASURED): the seven -5,670 LZB, -7,071 LZ4, -27,704 RAM, records 12,403 -> 5,981; the pathway unchanged, the title -444 LZB. Figures in SPEC.md rather than a new report; `--occ all` not measured |
+| A0.1 [x] | **The binding model, from the part.** `bbcourse.occ_model(part, wx, wy, z, m)` reads the front cells to `OCCDEPTH` (4) through ROWTAB from the RAM form's cells. It takes the corners from `z0`/`sx`/`sy` and each top edge as two screen segments, and builds each line's coverage. It passes over a cell with `OBS`, a kind 4 - 6 cell and a `FL_FLOAT` cell (A0.3), and dithers its masks as `K`'s are. It reads nothing the guest cannot read | `--selfcheck` item 15 (new), at the reach lattice of every course: against the prototype's owner-render model (`occproto.Analytic`), and against the rule. WRONG-HIDE is reported and bounded: past `OCC_WRONG_MAX` (0.25% of ball pixels) it is refused; **DONE** (branch `bounce-bonanza-av`, SPEC.md 137.29.2): `bbcourse.AGrid` and `amodel_*`, read from the RAM form; the edge is the top polygon's first line exactly (a tie rule on the right half), WRONG-HIDE 0.0000 - 0.0005% MEASURED. Checked against the TILES' spans rather than the prototype's owner render |
+| A0.2 [x] | **The residual records**: `_occluders` over the pixels the rule lays and the model does not, at every query of `block_queries`, then today's merge, bounds, dither and `R`/`K`/`I`/`O`. Behind `--occ void` (AV) and `--occ all` (A4R), default off | item 15's COMPLETENESS proof, after `merge_exact`: at every block query, the rule's pixels are a subset of the union of the model's and the residual's. Red arms, each red at item 15: the residual dropped; depth 3 (BENCH's void positions); a sloped cell read as flat (TRIAL's ramp); the dither left off the model's masks (item 11 red too); **DONE** (137.29.3): `av_records`, `--occ void` (the default) and `--occ off`; `--occ all` NOT built (A3's). Completeness and the red arms in item 15, all red |
+| A0.3 [x] | **Floating cells** are marked in the grid (`FL_FLOAT`, flags bit 4 on a non-goal cell; a floating GOAL is refused), so the model passes over them. This covers the PLAYGROUND's platform and the pathway | items 14 (GROUND) and 15, on the PLAYGROUND and on `path.bbc`; **DONE, amended** (137.29.4): `FL_FLOAT` is flags bit **6**, not 4 (bits 4 - 5 stay RESERVED for `edge`); a course with a floating GOAL gets no `GF_ANA` instead of being refused. It changes 0 - 4 ball pixels on today's lattices: the flag guards later courses |
+| A0.4 [x] | **The bytes and the error, MEASURED with the binding model**, both formats, on every course, the pathway and the title, under `--occ void` and `--occ all` | `--sizes`; the report's tables re-taken in a new report. **The owner rules here on AV first, and on A4R or A4R-V for later**; **DONE for AV** (137.29.6, MEASURED): the seven -5,670 LZB, -7,071 LZ4, -27,704 RAM, records 12,403 -> 5,981; the pathway unchanged, the title -444 LZB. Figures in SPEC.md rather than a new report; `--occ all` not measured |
 
 **A0's rows (named, not run)**: `bonanzacourse`.
 
@@ -271,10 +271,10 @@ A/B:
 
 | # | story | verified by |
 |---|---|---|
-| A1.1 [x] | **`bz_amodel`** in `bzvideo.inc`. At `.key`, on a part whose `BZG1` FLAGS has `GF_ANA` (bit 5, new): when the ball's cell is VOID, or on every cell when `GF_ANAALL` (bit 6) is set, it puts the front cells' coverage into `bz_omsk` for each covered word and block row. Each line's mask comes from two 8-entry edge tables, with the checker ORed in. Then today's walk over the part's records ANDs into the same mask, with one `bz_olay` a word | unicorn: `bz_occ` on every course's AV and A4R parts against `occ_model`, at 300 positions a course (as 130.15.5.2's D/C proof): the same box bytes and the same laid words. Red arm `amodel` (one edge-table entry wrong) is red there; **DONE** (130.29.5): `bz_amodel` runs AFTER the walk and lays its own words (two lays compose to the AND), so the walk is untouched; `tests/bonanza_av.py`, 400 positions on each of nine parts, every byte equal; red arm `amodel` red |
-| A1.2 [x] | **The price, MEASURED**: the executed instructions of `bz_occ` per frame on the demos' positions (unicorn), today's part against AV's and A4R's; the package image and its bss; the launch-time front bitmap (section 4) priced with and without | written into the new section 130.29 as MEASURED; **the owner sees A4R's figure before wave A3**; **DONE for AV** (130.29.5, 130.29.9): PRICED +8.8k - +10.1k median a fall frame, MEASURED on MartyPC +12k - +19k median, +31k - +58k worst, both cards; image +1,031, bss +107. The front bitmap not priced; A4R not priced. **The speed pass** (branch `bounce-bonanza-av2`, 130.29.5): the model computed once a CELL and kept (the cell's cache) and the halves a flat parent shadows never computed; MEASURED on MartyPC +3.2k - +8.4k mean, +0.8k - +3.9k median, +19k - +43k worst, both cards; image +541 more, bss +236 more. **The neighbour** (built, 130.29.5) and **the merge** (130.29.11): MEASURED against the merged tree +3.0k - +8.1k mean, +0.7k - +4.6k median, +19k - +47k worst; the fold held (`BOUNCE-BONANZA-PLAN.md` T13) |
+| A1.1 [x] | **`bz_amodel`** in `bzvideo.inc`. At `.key`, on a part whose `BZG1` FLAGS has `GF_ANA` (bit 5, new): when the ball's cell is VOID, or on every cell when `GF_ANAALL` (bit 6) is set, it puts the front cells' coverage into `bz_omsk` for each covered word and block row. Each line's mask comes from two 8-entry edge tables, with the checker ORed in. Then today's walk over the part's records ANDs into the same mask, with one `bz_olay` a word | unicorn: `bz_occ` on every course's AV and A4R parts against `occ_model`, at 300 positions a course (as 137.15.5.2's D/C proof): the same box bytes and the same laid words. Red arm `amodel` (one edge-table entry wrong) is red there; **DONE** (137.29.5): `bz_amodel` runs AFTER the walk and lays its own words (two lays compose to the AND), so the walk is untouched; `tests/bonanza_av.py`, 400 positions on each of nine parts, every byte equal; red arm `amodel` red |
+| A1.2 [x] | **The price, MEASURED**: the executed instructions of `bz_occ` per frame on the demos' positions (unicorn), today's part against AV's and A4R's; the package image and its bss; the launch-time front bitmap (section 4) priced with and without | written into the new section 137.29 as MEASURED; **the owner sees A4R's figure before wave A3**; **DONE for AV** (137.29.5, 137.29.9): PRICED +8.8k - +10.1k median a fall frame, MEASURED on MartyPC +12k - +19k median, +31k - +58k worst, both cards; image +1,031, bss +107. The front bitmap not priced; A4R not priced. **The speed pass** (branch `bounce-bonanza-av2`, 137.29.5): the model computed once a CELL and kept (the cell's cache) and the halves a flat parent shadows never computed; MEASURED on MartyPC +3.2k - +8.4k mean, +0.8k - +3.9k median, +19k - +43k worst, both cards; image +541 more, bss +236 more. **The neighbour** (built, 137.29.5) and **the merge** (137.29.11): MEASURED against the merged tree +3.0k - +8.1k mean, +0.7k - +4.6k median, +19k - +47k worst; the fold held (`BOUNCE-BONANZA-PLAN.md` T13) |
 | A1.3 [x] | **AV becomes the default**: `--occ void`. Every identity moves, because the RAM form changed. So `moon.bzd`, `summit.bzd` and `playground.bzd` are written again by `bbcourse.py author`; only their `ident` lines change, and physics does not move. The pathway and the title follow only if A0.4's error holds on them | the build's demo checks; `--selfcheck`; `make bonanzadisk`, with `BONANZA.O88` and the clusters of `bonanza360.img` before and after; **DONE**: the three demos' `ident` lines only; `BONANZA.O88` 117,392 -> 112,173, `bonanza360.img` 123 -> 118 clusters |
-| A1.4 [x] | **kern_mega and the Hercules**: the model reads the part through `bz_cseg` as the walk does, and the masks do not depend on the card (two bits a game pixel). So nothing differs | the A1.1 unicorn run on the Hercules arm's box; **DONE by reading and by MartyPC's Hercules measurement** (130.29.10): no `PKG_MEGA` arm; `bonanzamega` not run |
+| A1.4 [x] | **kern_mega and the Hercules**: the model reads the part through `bz_cseg` as the walk does, and the masks do not depend on the card (two bits a game pixel). So nothing differs | the A1.1 unicorn run on the Hercules arm's box; **DONE by reading and by MartyPC's Hercules measurement** (137.29.10): no `PKG_MEGA` arm; `bonanzamega` not run |
 | A1.5 [ ] | **The final pass for AV** | the rows below, once; **OPEN**: the rows below, the final pass's |
 
 **A1's rows**: `bonanzacourse`, `bonanzaassets`, `bonanzaring` (its
@@ -288,7 +288,7 @@ the pass's span on the VOID frames), `bonanzawheel` (MILL), `bonanzapath`,
 | # | story | verified by |
 |---|---|---|
 | A3.1 [ ] | `--occ all` becomes the default, with `GF_ANAALL` set and the demos written again | as A1.3 |
-| A3.2 [ ] | **The smoothness A/B**, 130.15.5.4's rule verbatim: `bonanzaperf --occ-ab`, MILL's and PEAK's demos, both cards, six runs a build, the A4R build against AV's at one commit. Red arm `occslow` (the model padded about 25k) is red at the rate clause | the rule holds on both cards, or A4R does not ship and AV stays |
+| A3.2 [ ] | **The smoothness A/B**, 137.15.5.4's rule verbatim: `bonanzaperf --occ-ab`, MILL's and PEAK's demos, both cards, six runs a build, the A4R build against AV's at one commit. Red arm `occslow` (the model padded about 25k) is red at the rate clause | the rule holds on both cards, or A4R does not ship and AV stays |
 | A3.3 [ ] | **The final pass** | A1's rows, once |
 
 **The alternative, wave V**, replaces A0 - A3 if the owner prefers it. It puts
@@ -296,28 +296,28 @@ the ghost height in the VOID cell's flag nibble, draws the ghosted sprite and
 keeps no VOID record. `--selfcheck` holds every VOID cell's `H` to the rule:
 no record lays at or above it. Red arm: `H` one step low. Rows: as A1's.
 
-## 6. What section 130.29 of SPEC.md would say
+## 6. What section 137.29 of SPEC.md would say
 
-- 130.29.1 the decisions;
-- 130.29.2 the model: the front cells, the edges, the pass-over rule, the
+- 137.29.1 the decisions;
+- 137.29.2 the model: the front cells, the edges, the pass-over rule, the
   dither;
-- 130.29.3 the residual: completeness, and the merge and bounds unchanged;
-- 130.29.4 `GF_ANA`, `GF_ANAALL`, `FL_FLOAT`, and what a part holds;
-- 130.29.5 the guest: `bz_amodel`, its place in `bz_occ`, its price
+- 137.29.3 the residual: completeness, and the merge and bounds unchanged;
+- 137.29.4 `GF_ANA`, `GF_ANAALL`, `FL_FLOAT`, and what a part holds;
+- 137.29.5 the guest: `bz_amodel`, its place in `bz_occ`, its price
   MEASURED;
-- 130.29.6 the bytes, MEASURED;
-- 130.29.7 `--selfcheck` item 15 and the red arms;
-- 130.29.8 the rows;
-- 130.29.9 kern_mega, kern_small, the Hercules.
+- 137.29.6 the bytes, MEASURED;
+- 137.29.7 `--selfcheck` item 15 and the red arms;
+- 137.29.8 the rows;
+- 137.29.9 kern_mega, kern_small, the Hercules.
 
 It amends three earlier subsections:
-- 130.10.4.4: a record is now the RESIDUAL;
-- 130.11.4: the bounds are refused on the residual;
-- 130.15.5: the record's form is unchanged.
+- 137.10.4.4: a record is now the RESIDUAL;
+- 137.11.4: the bounds are refused on the residual;
+- 137.15.5: the record's form is unchanged.
 
-## 7. What it buys the two-segment courses (130.28)
+## 7. What it buys the two-segment courses (137.28)
 
-What binds a long course is a part's 65,024 bytes of RAM (130.15.8,
+What binds a long course is a part's 65,024 bytes of RAM (137.15.8,
 `PARTMAX`). PEAK today uses 48,129 of them: **339 bytes a block row** over 142
 rows. Each option's figure, and what one part then holds at PEAK's density:
 

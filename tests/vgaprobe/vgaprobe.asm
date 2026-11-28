@@ -205,7 +205,7 @@ vp_main:
     cli                             ;   with nothing in between: an IRQ0
     call vp_vsrise                  ;   here would put the panning past the
     call pit_now                    ;   frame's top (BONANZA's arm takes its
-    mov [vp_t0], ax                 ;   rise the same way, SPEC.md 130.4)
+    mov [vp_t0], ax                 ;   rise the same way, SPEC.md 137.4)
     cmp byte [vp_pend], 0           ; split order: the panning the last
     je .np                          ;   start went with, at the rise
     mov byte [vp_pend], 0

@@ -1,4 +1,4 @@
-# Water Test - BONANZA's WATER test course (SPEC.md 130.36), built only by the BZWATER=1 knob, as
+# Water Test - BONANZA's WATER test course (SPEC.md 137.36), built only by the BZWATER=1 knob, as
 # shapes.bbc is by BZSHAPES=1.  It is NOT a shipped course: the knob adds it to BZ_COURSES and makes it the
 # pathway's pad 0, so a new game rests on it (title, Play Game, Enter).  Not on the TOUR.
 #
@@ -19,7 +19,7 @@
 #    rolled off it falls 4 units - a shatter on stone, landed whole on the water;
 #  - the finish (exit 0) on the yard below the first arch; exit 1, the walkway's far end, goes on to FIRST.
 course WATER "Water Test"
-music fairway    # a test course: SPEC.md 130.50.3, every course names its song
+music fairway    # a test course: SPEC.md 137.50.3, every course names its song
 width  128
 ball   rubber
 uses   water

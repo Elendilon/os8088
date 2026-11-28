@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbmusic - Bounce Bonanza's music and effects (SPEC.md 130.20).
+"""bbmusic - Bounce Bonanza's music and effects (SPEC.md 137.20).
 
 The songs are plain-text MML (apps/bonanza/music/*.bmu, TITHE's grammar -
 its SPEC's 125.10.1 on tithe-new - with a note volume) over one bank of
@@ -15,7 +15,7 @@ render is the guest's notes exactly, and only the synthesis is approximate.
     python3 tools/bbmusic.py sizes                     # bytes a part, a phrase
 
 THE CLOCK is the physics SUB-TICK, 54.6 Hz (BZ_SUB = 21,845 PIT counts,
-three to a system tick, SPEC.md 130.20.1). A PITCH is a word: the note
+three to a system tick, SPEC.md 137.20.1). A PITCH is a word: the note
 (MIDI numbering, A4 = 69) in the high byte, 1/256 semitone in the low.
 
 The WAV renders want numpy and, for the AdLib, pyopl (DOSBox's OPL2);
@@ -29,7 +29,7 @@ import re
 import struct
 import sys
 
-# The data ROOT (SPEC.md 130.58.11): the checkout, or the `data/` folder beside this file in the
+# The data ROOT (SPEC.md 137.58.11): the checkout, or the `data/` folder beside this file in the
 # course builder's bundle (`make bbeditbundle`), whose tools sit at its top with their working files under it.
 ROOT = (os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
         if os.path.isdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "apps"))
@@ -37,17 +37,17 @@ ROOT = (os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 MUSDIR = os.path.join(ROOT, "apps", "bonanza", "music")
 BANK = os.path.join(MUSDIR, "bank.bmb")
 # THE MANIFEST: song S is SONGS[S]. Every course NAMES its song with `music`
-# (SPEC.md 130.50.3: no song by position any more); 5 the finish's fanfare and
-# 8 TIME'S UP are no course's; 6 the TITLE SCREEN's one-shot (SPEC.md 130.23.1:
+# (SPEC.md 137.50.3: no song by position any more); 5 the finish's fanfare and
+# 8 TIME'S UP are no course's; 6 the TITLE SCREEN's one-shot (SPEC.md 137.23.1:
 # the title course's `music attract`); 7 First Roll's and 9 Little Hop's own; 10 Kite Hill's,
 # 11 Lodestone Gorge's and 12 Clockwork Keep's; 13 Castle Climb's.
 # APPEND, never insert: a song's number is its part's place in the build.
 SONGS = ["fairway.bmu", "trial.bmu", "windmill.bmu",
          "moonlit.bmu", "summit.bmu",
-         "victory.bmu",              # wave 8R (130.22.9): the finish's fanfare; APPEND, never insert
-         "attract.bmu",              # SPEC.md 130.23.1: the title screen's
+         "victory.bmu",              # wave 8R (137.22.9): the finish's fanfare; APPEND, never insert
+         "attract.bmu",              # SPEC.md 137.23.1: the title screen's
          "firstroll.bmu",            # First Roll's own, by its `music firstroll` (NON_COURSE)
-         "timeup.bmu",               # SPEC.md 130.22.9.1: the timeout's tune; APPEND, never insert
+         "timeup.bmu",               # SPEC.md 137.22.9.1: the timeout's tune; APPEND, never insert
          "littlehop.bmu",            # Little Hop's own, by its `music littlehop` (NON_COURSE)
          "kitehill.bmu",             # courses 5 - 7's own (2026-11-25), each by its course's `music`: Kite Hill's,
          "lodestone.bmu",            # Lodestone Gorge's
@@ -55,12 +55,12 @@ SONGS = ["fairway.bmu", "trial.bmu", "windmill.bmu",
          "castleclimb.bmu"]          # Castle Climb's own, by its `music castleclimb` (NON_COURSE)
 
 # songs no course may be built around by default: the finish's tunes (which no course
-# may NAME), the title screen's and the courses' own (SPEC.md 130.50.3: every course
+# may NAME), the title screen's and the courses' own (SPEC.md 137.50.3: every course
 # names its song, so this list is now only what bbcourse's `music` refuses and reports)
 NON_COURSE = ("victory", "attract", "firstroll", "timeup", "littlehop", "kitehill", "lodestone", "clockwork",
               "castleclimb")
 
-# SPEC.md 130.23.1: the TITLE SCREEN's song is a ONE-SHOT as long as a title
+# SPEC.md 137.23.1: the TITLE SCREEN's song is a ONE-SHOT as long as a title
 # demo (bbcourse.TITLE_STEPS, BZ_TSTEPS): its order rows before `loop` play
 # exactly this many sub-ticks, and its loop row is silence
 ATTRACT = "attract"
@@ -77,7 +77,7 @@ KNAME = {v: k for k, v in KINDS.items()}
 # a channel's FM voices: lead 0, bass 1, chord 2 - 4, drums 5; effects 6, 7
 CH_VOICES = {CH_LEAD: [0], CH_BASS: [1], CH_CHORD: [2, 3, 4], CH_DRUM: [5]}
 NVOICE = 6
-# THE ADLIB'S CHANNELS (130.20.4): voices 0 - 4 on channels 0 - 4, the drum
+# THE ADLIB'S CHANNELS (137.20.4): voices 0 - 4 on channels 0 - 4, the drum
 # voice on 5 - or on 6 for an instrument marked `alt` (the snare's family), so
 # a hit never re-patches - and the effect on 7. Channel 8 is the tone tier's.
 FX_CH = 7
@@ -85,13 +85,13 @@ FX_CH = 7
 EV_REST, EV_INST, EV_SHAPE, EV_VOL, EV_SLUR, EV_END = 0x00, 0x80, 0xA0, 0xC0, 0xD0, 0xFF
 NOTE_PC = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
 
-# THE EVENTS (SPEC.md 130.20.5), in the event map's column order
+# THE EVENTS (SPEC.md 137.20.5), in the event map's column order
 EVENTS = ["LAND", "BOUNCE", "WALL", "BUMPER", "KNOCK", "STUN", "SHATTER",
-          "HOP", "FALL", "TUBE", "GOAL", "BOOST",      # BOOST: wave 6, rubber's (130.16.4.4)
-          "FLAG", "PAD", "LIP", "SPRING", "RETURN",     # wave 7 (SPEC.md 130.18.6): wave 4's counters
+          "HOP", "FALL", "TUBE", "GOAL", "BOOST",      # BOOST: wave 6, rubber's (137.16.4.4)
+          "FLAG", "PAD", "LIP", "SPRING", "RETURN",     # wave 7 (SPEC.md 137.18.6): wave 4's counters
           "TICK", "LOW", "TIMEOUT",                     # ...and the clock's seconds
-          "ARRIVE", "GATE", "LIFE", "OVER",             # wave 8R (130.22.9): the pathway's shell
-          "PICKUP"]                                     # wave 9 (130.25.19): a family's event, PICKUPS' take
+          "ARRIVE", "GATE", "LIFE", "OVER",             # wave 8R (137.22.9): the pathway's shell
+          "PICKUP"]                                     # wave 9 (137.25.19): a family's event, PICKUPS' take
 MATS = ["rubber", "steel", "glass"]
 SONG_FLAG_SPKBASS = 1
 SONG_FLAG_SPKRING = 2
@@ -99,7 +99,7 @@ BZI_RING = 0x10                         # an instrument's +14 bit 4: its macro l
 
 OPL_SLOT = [0, 1, 2, 8, 9, 10, 16, 17, 18]
 OPL_OPREG = [0x20, 0x40, 0x60, 0x80, 0xE0]
-FMCAP = 8                                # BZS_FMCAP: registers a frame (130.20.4)
+FMCAP = 8                                # BZS_FMCAP: registers a frame (137.20.4)
 
 
 class ScoreError(Exception):
@@ -107,7 +107,7 @@ class ScoreError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# THE PITCH TABLES (SPEC.md 130.20.3): a word a note, 0 - 127
+# THE PITCH TABLES (SPEC.md 137.20.3): a word a note, 0 - 127
 # ---------------------------------------------------------------------------
 
 # ONE OCTAVE EACH, shifted per octave on the guest (bzs_hzn, bzs_opn): the
@@ -680,7 +680,7 @@ def pack_phrase(kind, evs, song, iidx, shapes):
 
 
 def build_song(s, bank):
-    """-> the song part's bytes (SPEC.md 130.20.3)"""
+    """-> the song part's bytes (SPEC.md 137.20.3)"""
     names = list(bank.insts)
     iidx = {n: i for i, n in enumerate(names)}
     shapes = [(0, 0)]                   # shape 0: a single note
@@ -726,7 +726,7 @@ SND_HEAD = 16
 
 
 def build_snd(bank):
-    """-> the sound part's bytes (SPEC.md 130.20.3)"""
+    """-> the sound part's bytes (SPEC.md 137.20.3)"""
     names = list(bank.insts)
     iidx = {n: i for i, n in enumerate(names)}
     sfxn = list(bank.sfx)
@@ -791,12 +791,12 @@ def load_all():
         return bank, [parse_song(ONLY, bank)]
     songs = [parse_song(os.path.join(MUSDIR, f), bank) for f in SONGS]
     if any(x.desk for x in songs):
-        raise ScoreError("no song is the desktop's since SPEC.md 130.26.5 (the window is silent)")
+        raise ScoreError("no song is the desktop's since SPEC.md 137.26.5 (the window is silent)")
     return bank, songs
 
 
 # ---------------------------------------------------------------------------
-# THE SEQUENCER - bzsound.inc's, step for step (SPEC.md 130.20)
+# THE SEQUENCER - bzsound.inc's, step for step (SPEC.md 137.20)
 # ---------------------------------------------------------------------------
 
 def u8(p, o):
@@ -1027,7 +1027,7 @@ class Seq:
         return self.lfsr & 0xFF
 
     def trigger(self, mat, ev, strength=0):
-        """an event (SPEC.md 130.20.5) -> its effect into a slot"""
+        """an event (SPEC.md 137.20.5) -> its effect into a slot"""
         n = self.p[u16(self.p, 12) + mat * len(EVENTS) + ev]
         if n == 0xFF:
             return
@@ -1164,7 +1164,7 @@ class Seq:
 
 class Chip:
     """The guest's FM arm: a shadow a CHANNEL, the logical voices served in
-       the guest's order (130.20.4).  write(reg, val) is the OPL."""
+       the guest's order (137.20.4).  write(reg, val) is the OPL."""
     ORDER = [6, 0, 5, 1, 2, 3, 4]
 
     def __init__(self, seq, write):
@@ -1420,9 +1420,9 @@ def emit(outdir):
             f.write(sp)
     lines = [
         "; GENERATED by tools/bbmusic.py from apps/bonanza/music/ - do not edit.",
-        "; SPEC.md 130.20.3, 130.50: the sound part BZSND.BIN rides the resident bundle with VICTORY and",
+        "; SPEC.md 137.20.3, 137.50: the sound part BZSND.BIN rides the resident bundle with VICTORY and",
         "; TIME'S UP; each course's song (BZM<S>.BIN, the tool's intermediate) is section S of its course part.",
-        "BZS_NSONG       equ %d        ; songs: the courses', the fanfare and the title screen's (130.26.5)"
+        "BZS_NSONG       equ %d        ; songs: the courses', the fanfare and the title screen's (137.26.5)"
         % len(parts),
         "BZS_NEV         equ %d        ; events, the event map's columns" % len(EVENTS),
     ]
@@ -1430,9 +1430,9 @@ def emit(outdir):
         lines.append("BZS_E_%-9s equ %d" % (e, i))
     for si, sg in enumerate(songs):     # a song's index, by its id (wave 8R: the finish's tune)
         if sg.id == "victory":
-            lines.append("BZ_SONG_VICTORY  equ %d        ; the finish's fanfare (130.22.9)" % si)
+            lines.append("BZ_SONG_VICTORY  equ %d        ; the finish's fanfare (137.22.9)" % si)
         if sg.id == "timeup":
-            lines.append("BZ_SONG_TIMEUP   equ %d        ; the timeout's tune (130.22.9.1)" % si)
+            lines.append("BZ_SONG_TIMEUP   equ %d        ; the timeout's tune (137.22.9.1)" % si)
     lines += [
         "BZS_NINST       equ %d" % len(bank.insts),
         "BZS_NFX         equ %d" % len(bank.sfx),
@@ -1491,7 +1491,7 @@ def source_notes(s, bank):
 
 
 def boost_problems(bank):
-    """wave 6 (SPEC.md 130.16.4.4): rubber's BOOST effect present and not
+    """wave 6 (SPEC.md 137.16.4.4): rubber's BOOST effect present and not
     its HOP's (by name or by content); steel's and glass's absent, since
     they never boost"""
     out = []
@@ -1511,7 +1511,7 @@ def boost_problems(bank):
 
 
 FIN_STEPS = 110                         # BZ_FIN_STEPS: the finish sequence's 2 s at 54.6 Hz
-# the shell events' length bounds in sub-ticks (SPEC.md 130.22.9)
+# the shell events' length bounds in sub-ticks (SPEC.md 137.22.9)
 SHELL_FX = {"ARRIVE": (1, 16), "GATE": (24, 30), "LIFE": (12, 32), "OVER": (75, 90)}
 
 
@@ -1657,7 +1657,7 @@ def selfcheck():
             else:
                 if any((r & 0xF0) == 0xB0 and (r & 0x0F) > 7 for regs in acts for r, v in regs):
                     bad("%s: a write to voice 8 (the tone tier's)" % s.id)
-    # 3b. the title screen's song (SPEC.md 130.23.1): one pass to its loop row of exactly ATTRACT_STEPS
+    # 3b. the title screen's song (SPEC.md 137.23.1): one pass to its loop row of exactly ATTRACT_STEPS
     # sub-ticks, and the loop row SILENT - a one-shot that ends with the demo
     for s in songs:
         if s.id != ATTRACT:
@@ -1677,7 +1677,7 @@ def selfcheck():
         for ei, e in enumerate(EVENTS[:5]):
             others = [bank.emap.get((o, e)) for o in MATS if o != m]
             if bank.emap.get((m, e)) in others:
-                bad("%s's %s effect is another ball's (SPEC.md 130.20.5)" % (m, e))
+                bad("%s's %s effect is another ball's (SPEC.md 137.20.5)" % (m, e))
     for msg in boost_problems(bank):
         bad(msg)
     ctl = parse_bank()                        # the control: rubber's BOOST made its HOP's
@@ -1689,7 +1689,7 @@ def selfcheck():
         acts = run(snd, parts[-1], arm, nt, evs, music=False)
         if arm == "spk" and not any(a and a[0] for a in acts):
             bad("the effects never sound on the speaker")
-    # 4b. wave 8R (SPEC.md 130.22.9): the shell's four events and the VICTORY tune
+    # 4b. wave 8R (SPEC.md 137.22.9): the shell's four events and the VICTORY tune
     for msg in shell_problems(snd, parts, bank, songs):
         bad(msg)
     for msg in seg_problems(bank):

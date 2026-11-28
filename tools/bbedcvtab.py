@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SPEC.md 130.58.55 and 130.58.56: the Course tab keeps what was typed until it is applied; an error shows in the tab it was made in. Drives the real window, so it needs
+"""SPEC.md 137.58.55 and 137.58.56: the Course tab keeps what was typed until it is applied; an error shows in the tab it was made in. Drives the real window, so it needs
 a Python with Tk and a display:  xvfb-run -a python3 tools/bbedcvtab.py  (exit 1 on a failure)"""
 import os
 import shutil
@@ -34,7 +34,7 @@ chk("Apply writes the field and the tab is clean", '"Second"' in app.doc.text() 
 app.cv_width.set("not-a-number"); r.update()
 app.apply_course(); r.update()
 chk("a refused Apply keeps what was typed, still not applied", app.cv_width.get() == "not-a-number" and app.cv_dirty)
-# SPEC.md 130.58.56: an error from a tab shows IN that tab - the window's banner, over the notebook
+# SPEC.md 137.58.56: an error from a tab shows IN that tab - the window's banner, over the notebook
 def banner_in(tabname):
     r.update()
     return bool(app.banner.winfo_ismapped()) and app.nb.tab(app.nb.select(), "text") == tabname

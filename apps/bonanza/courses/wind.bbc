@@ -1,4 +1,4 @@
-# Wind Test - BONANZA's WIND test course (SPEC.md 130.34), built only by the BZWIND=1 knob.  NOT a shipped
+# Wind Test - BONANZA's WIND test course (SPEC.md 137.34), built only by the BZWIND=1 knob.  NOT a shipped
 # course: the knob adds it to BZ_COURSES and makes it the pathway's pad 0, so a new game rests on it (title,
 # Play Game, Enter).  Not on the TOUR.
 #
@@ -6,7 +6,7 @@
 #  - the WALKWAY (wy 6): plain floor, the route;
 #  - the CRUMBLING BRIDGE (wy 9): five cracked tiles, a GUSTING blower beside it at (9, 8) blowing +y across
 #    the bridge - 64 steps on in every 256 (about 1.2 s in 4.7): cross between gusts, glass above all, which
-#    it blows twice as hard as rubber.  Its squiggles (a WISP, SPEC.md 130.34.11) are over the bridge only
+#    it blows twice as hard as rubber.  Its squiggles (a WISP, SPEC.md 137.34.11) are over the bridge only
 #    while it blows, and its fan spins while the ball is in its wind;
 #  - the THIN LOWER PATH (wy 12): down a ramp to 1 unit, three cells one wide, up again; a STEADY blower on
 #    its first cell blows +y, hard - rubber and glass go over the side, steel holds its line.  Static
@@ -18,7 +18,7 @@
 # second goal (22, 7), so one clock serves both finishes (two clocks and two fans in one window are 7 pose
 # changes a step).
 course WIND "Wind Test"
-music fairway    # a test course: SPEC.md 130.50.3, every course names its song
+music fairway    # a test course: SPEC.md 137.50.3, every course names its song
 width  128
 origin 256
 ball   rubber

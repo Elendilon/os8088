@@ -1,4 +1,4 @@
-"""SPEC.md 130.29.12 research: per VOID position and whole height, what the model's work is (counting half-edges
+"""SPEC.md 137.29.12 research: per VOID position and whole height, what the model's work is (counting half-edges
 over the footprint, near and far) and whether the ball is FULLY hidden there (the cover threshold Kc).
 usage: avcover.py course [farpickle]"""
 import sys, os, pickle, collections

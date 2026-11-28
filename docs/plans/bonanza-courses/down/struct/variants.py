@@ -6,7 +6,7 @@ the sketch itself: it imports ../sketch.py as it stands, adds ONE option's state
 
 Every statement is in SKETCH coordinates (the engine's less 4) and is added AFTER the sketch has laid the course,
 so an option is a pure addition to the text.  Options A - C are `float` alone: the picture's and nothing else's
-(SPEC.md 130.27.2 - no grid byte, no physics, no route).  D and E touch the grid on cells no route goes near and
+(SPEC.md 137.27.2 - no grid byte, no physics, no route).  D and E touch the grid on cells no route goes near and
 are priced as such in STRUCT.md."""
 import importlib.util
 import os
@@ -54,7 +54,7 @@ def opt_B():
 
 def opt_C():
     """the glass leg's web maze as FLOATING islands: every 3 x 3 island and the banks float; the one-cell membrane
-    links stay as they are (a `thick` on a crack would re-lane it, 130.27.2.1), so each reads as a bridge"""
+    links stay as they are (a `thick` on a crack would re-lane it, 137.27.2.1), so each reads as a bridge"""
     isl = [(39, 22), (39, 18), (35, 18), (35, 22), (31, 22), (39, 26), (31, 18)]
     L = ["# STRUCT C: the web maze's islands float (the links do not)"]
     L += [flt(x, y, x + 3, y + 3) for x, y in isl]
@@ -64,7 +64,7 @@ def opt_C():
 
 def opt_D():
     """CHAMFERED corners: the outer corners of the bounce landing L and the hub's free front corner cut on the
-    diagonal (a `hole half`, SPEC.md 130.24.4) - corners no route and no autopilot way goes near"""
+    diagonal (a `hole half`, SPEC.md 137.24.4) - corners no route and no autopilot way goes near"""
     cuts = [(34, 10, "up"), (38, 10, "right"), (34, 14, "left"), (38, 14, "down"),     # L's four corners
             (42, 16, "left")]                                                           # the hub's front-left
     return ["# STRUCT D: chamfered corners (half holes) on the bounce landing and the hub"] + \
@@ -73,7 +73,7 @@ def opt_D():
 
 # free-standing WALL pillars in the black BEHIND the bounce landing and the hub (lower s than anything near them,
 # so nothing on the route is ever drawn behind one): three tiles and more (Chebyshev) from every floor and rail, so
-# no ball reaches one (a wall is never a reachable cell, 130.10.4.1); heights stepping down the hill; screen
+# no ball reaches one (a wall is never a reachable cell, 137.10.4.1); heights stepping down the hill; screen
 # columns kept clear of the hub clock's (other agents' art)
 PILLARS = [(32, 1, 40 - 12), (36, 3, 40 - 16), (39, 5, 40 - 20)]
 

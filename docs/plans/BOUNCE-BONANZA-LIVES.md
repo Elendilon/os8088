@@ -15,7 +15,7 @@ art from the compiled pathway and draws each option in its place).
 |---|---|---|
 | A | the crystal ball kept, LIVES beside it at its height | liked; NOT the black box round the digit - black on the checker reads fine on the Hercules, and without the box the digit looks like part of the art rather than a BIOS number pasted on top |
 | B | a signboard on two posts, the title's plaque style, LIVES over the digit | liked |
-| C | LIVES over the player's marble on a plinth, "x" and the digit | **CHOSEN** (SPEC.md 130.22.2's `lives` frame) |
+| C | LIVES over the player's marble on a plinth, "x" and the digit | **CHOSEN** (SPEC.md 137.22.2's `lives` frame) |
 | D | the lives AS marbles resting on the crystal tile, one a life (5 at most), LIVES above, no digit | liked - **PARKED, below** |
 
 ## D, parked: a marble that breaks when a life is lost
@@ -27,7 +27,7 @@ if the release becomes two disks there may be room for it.
 
 What it would take (ESTIMATED from the tree on 2026-11-17, not built):
 
-- **The counter as a SIGN lane** (SPEC.md 130.22.4.1) per page instead of a
+- **The counter as a SIGN lane** (SPEC.md 137.22.4.1) per page instead of a
   clock digit: its poses the counts 0 - 5 as pictures, posed from `bz_lives`
   by `bz_nset` (bz_tdset's pathway branch goes). A few hundred bytes of
   the pathway part (pose blocks are shared), a handful of code bytes.

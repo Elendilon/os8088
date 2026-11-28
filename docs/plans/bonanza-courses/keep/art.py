@@ -13,7 +13,7 @@ sketch.py imports `lines()` (the course's `art` statements) and `GATES` (each ga
 course keeps its art.  The castle's stone is the scene's own MAGENTA face with black joints and a white line of
 light along its tops; what moves in it (a grille, a door's leaves, bars) is black and white, so every frame reads
 on the Hercules, where the scene's cyan and magenta are one grey.  The course's whole language is three GLYPHS, drawn
-LARGE - black on a white plaque, as the engine draws them on its plates and keys (SPEC.md 130.41.5):
+LARGE - black on a white plaque, as the engine draws them on its plates and keys (SPEC.md 137.41.5):
 the PLUS on the portcullis's keystone, the RING the door's knocker, the CROSS the strongroom's lock."""
 import math
 import os
@@ -32,7 +32,7 @@ GLYPH = {"plus": ("..###..", "..###..", "#######", "#######", "#######", "..###.
          "cross": ("##...##", "###.###", ".#####.", "..###..", ".#####.", "###.###", "##...##")}
 
 
-# ---- the gates (SPEC.md 130.41.12): four elevations each, shut to open ---------------------------------------
+# ---- the gates (SPEC.md 137.41.12): four elevations each, shut to open ---------------------------------------
 def _stone(cells):
     """dressed stone over CELLS (a set of (u, v)): MAGENTA courses as the castle's own faces are (white stone is
     lost on the white and cyan floor behind it), a black joint every 5 lines, a black line round the whole"""
@@ -98,7 +98,7 @@ def portcullis():
     return A.gate_bba(GATES["portcullis"], frames, 2,
                       "CLOCKWORK KEEP's PORTCULLIS (docs/plans/bonanza-courses/keep/art.py writes this file):\n"
                       "a stone gate arch with battlements over two cells, the PLUS on a plaque on its keystone,\n"
-                      "and an iron grille that rises into the arch (SPEC.md 130.41.12) - drawn for `along x`;\n"
+                      "and an iron grille that rises into the arch (SPEC.md 137.41.12) - drawn for `along x`;\n"
                       "frame 0 shut, 3 open.")
 
 
@@ -149,7 +149,7 @@ def door():
     return A.gate_bba(GATES["door"], frames, 1,
                       "CLOCKWORK KEEP's DOOR (docs/plans/bonanza-courses/keep/art.py writes this file): two\n"
                       "iron-bound plank leaves under a round stone head, the RING on its keystone; they slide\n"
-                      "apart into the jambs, so frame 3 is an empty doorway (SPEC.md 130.41.12) - drawn for\n"
+                      "apart into the jambs, so frame 3 is an empty doorway (SPEC.md 137.41.12) - drawn for\n"
                       "`along x`; frame 0 shut, 3 open.")
 
 
@@ -179,10 +179,10 @@ def vault():
     return A.gate_bba(GATES["vault"], frames, 1,
                       "CLOCKWORK KEEP's TREASURY GRILLE (docs/plans/bonanza-courses/keep/art.py writes this\n"
                       "file): heavy bars under a round stone head, the CROSS on its keystone, sliding aside into\n"
-                      "one jamb (SPEC.md 130.41.12) - drawn for `along x`; frame 0 shut, 3 open.")
+                      "one jamb (SPEC.md 137.41.12) - drawn for `along x`; frame 0 shut, 3 open.")
 
 
-# ---- the signs and decals (SPEC.md 130.23.2's `art`) ------------------------------------------------------------
+# ---- the signs and decals (SPEC.md 137.23.2's `art`) ------------------------------------------------------------
 _HOURGLASS = (".KKKKKKK.", ".KWWWWWK.", "..KWWWK..", "...KWK...", "..KCWCK..", ".KCCWCCK.", ".KWWWWWK.", ".KKKKKKK.")
 _THRONE = ("....K.....K.....K....", "...KWK...KWK...KWK...", "...KWWK.KWWWK.KWWK...", "...KWWWKWWWWWKWWWK...",
            "...KWWWWWWWWWWWWWK...", "...KWMMMMMMMMMMMWK...", "...KWMMMMMMMMMMMWK...", "...KWMMMMMWMMMMMWK...",

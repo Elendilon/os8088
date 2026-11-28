@@ -6,7 +6,7 @@ function, fitted to the engine's constraints. `apps/bonanza/courses/kite.bbc` sa
 `guide` and passes every check a shipped course is held to (section 10). **IN THE
 DEFAULT BUILD since the pathway step of 2026-11-25** (`BZ_COURSES`' course K 8; the
 pathway's pad 8, on WINDMILL LANE's old cell, DOWNHILL DECISION's exit 0, by the
-owner's order of that day: SPEC.md 130.22.11 and [pathway/README.md](pathway/README.md),
+owner's order of that day: SPEC.md 137.22.11 and [pathway/README.md](pathway/README.md),
 "The journey" - section 7 below is the sheet's earlier pencil, not what shipped). `kite/sketch.py`
 draws the pictures and writes the course (`--bbc`). Distances are tiles and heights are
 units; the cells are the engine's own. A number marked MEASURED was run on the tool's
@@ -179,7 +179,7 @@ own cycle, every 4th or 8th tried.*
     put the natural lines (over the brow and left; off the bridge to the cliff; in off
     the windbreaks, across the plaza to its corner) in the middle of their windows, and
     make the long flight one that cannot pan at all.
-  - **The camera's guarantees** (SPEC.md 130.17.6.5, `--camcheck`): section 10.
+  - **The camera's guarantees** (SPEC.md 137.17.6.5, `--camcheck`): section 10.
 
 ## 3. The pace
 
@@ -245,7 +245,7 @@ is wired: `path.bbc` and `BZ_COURSES` are a later step's.
 | **the gusting blower** (`prop blower ... gust`) | a hazard with a rhythm: a crossing that is safe for part of every cycle | on a WIDE walk whose downwind edge is railed, at a strength over 8, so the first gust pins the ball and loses nothing | easy: wide, railed, a pennant or squiggles in plain view, a long calm. Hard: 1 wide, no rail, a short calm, a second timer under it (crumbling tiles) | a fan the player cannot see from the walk; a strength at or under 8 that reads as "the controls feel off" rather than as wind; a gust across the START; a calm sold as "long enough to dash" that is not (11 tiles want 2.7 s) |
 | **the cracked tile** (`prop crack`) | a floor that may not be stood on | five in a row on a bridge, a flag before the first, the cracks drawn | easy: a short run with firm ground either end. Hard: with a gust; or a long run that only a ball already at speed crosses | a cracked tile where the player has to wait for something (it punishes the patience the gust asks for), unless that is the puzzle; a way point of the autopilot's route on or just past one (it brakes for it, and falls through) |
 | **the thermal** (an updraft with `lift`, strength over 24 so rubber is launched) | a lift with no machine: up a cliff, to where no jump goes | at a cliff's foot in a railed plaza, with nothing that kills near it. The ball rises in FRONT of the cliff's face, so it is seen all the way | easy: the region the WHOLE foot of the cliff between two rails and 2 deep, the cliff's edge open: the ball cannot slide out of the column or be left hanging at a rail. Hard: a short column; a landing to one side; two columns with dead air between | a region shorter than the cliff (a ball that comes in at an angle slides along the face and out of the air part-way up: MEASURED in refinement on a 2 x 3 region, 5 units up); a rail on the cliff's edge above the region's ends (the ball hangs under it for ever); a top more than a unit over the landing (`top` is whole units: put the landing half a unit under it and the bounce is short); a region over a ledge the ball should land on (it never comes down there); steel anywhere before it with no rubber pad between |
-| **the glide** (an updraft over a pit) | a gap crossed by floating, and height gained on the way | after the thermal has taught "this air carries me" | easy: straight up the screen (one arrow, and the camera cannot pan), the take-off tile inside the region, ground on the pit's far sides, a second way round. Hard: open void beside the lane, a turn in the air, a dead tile, no second way | a flight ACROSS the screen longer than about 5 tiles (it leaves the camera's 200 px band whatever the framing: G3); a take-off tile outside the region (a ball that leaves it sideways is never caught); `lift` on a region that holds the take-off tile (it becomes a launch pad); a pit wider than 4 tiles with no solid cell inside it: void more than 2 tiles from any floor kills at once (SPEC.md 130.10.4.3), which is why the fan stands on a pillar in the middle |
+| **the glide** (an updraft over a pit) | a gap crossed by floating, and height gained on the way | after the thermal has taught "this air carries me" | easy: straight up the screen (one arrow, and the camera cannot pan), the take-off tile inside the region, ground on the pit's far sides, a second way round. Hard: open void beside the lane, a turn in the air, a dead tile, no second way | a flight ACROSS the screen longer than about 5 tiles (it leaves the camera's 200 px band whatever the framing: G3); a take-off tile outside the region (a ball that leaves it sideways is never caught); `lift` on a region that holds the take-off tile (it becomes a launch pad); a pit wider than 4 tiles with no solid cell inside it: void more than 2 tiles from any floor kills at once (SPEC.md 137.10.4.3), which is why the fan stands on a pillar in the middle |
 
 ## 9. The art and music wishlist
 
@@ -295,7 +295,7 @@ section 17 is what the course carries now and what room it has left. What follow
     about 30 lines higher over its tile than the summit's refuses the course.
   - **the wheel's list**: the windows round the FAN PLAZA hold 3 fans (the bridge's,
     the thermal's, the windbreaks') and the plaza clock's 2 digits: 5 lanes on their
-    own clocks of the 6 a window may have (SPEC.md 130.19.10 item 14). A frame with a
+    own clocks of the 6 a window may have (SPEC.md 137.19.10 item 14). A frame with a
     third digit lane, or an always-animated decal there, is one too many.
   - **the origin**: `origin 528` frames every flight (section 2). A picture that needs
     more room takes `width`, which moves nothing; the origin moves by 64 or not at all.
@@ -327,10 +327,10 @@ section 17 is what the course carries now and what room it has left. What follow
 |---|---|
 | the compile (`bbcourse.py -o DIR kite.bbc`, alone: about 22 s) | passes; no warning, nothing `accept`ed |
 | the part | ONE part, **53,959 bytes** of 65,024 (11,065 to spare): map 23,040, 637 blocks, 1,558 occluder records, **178 masks** of 256, grid 8,321, props 2,528 |
-| the course budget (reported, never refused: SPEC.md 130.27.5) | LZ4 **13,614** against the 60 s class's 12,550 (1,064 over) and its 1.5x 18,825; as the package stores it (LZB) 11,198, under. Every shipped course is over its class (ROLL 11,460 of 6,275, HOP 11,713 of 6,275, DOWN 20,750 of 12,550, MILL 23,537 of 18,825); KITE is the nearest to it |
+| the course budget (reported, never refused: SPEC.md 137.27.5) | LZ4 **13,614** against the 60 s class's 12,550 (1,064 over) and its 1.5x 18,825; as the package stores it (LZB) 11,198, under. Every shipped course is over its class (ROLL 11,460 of 6,275, HOP 11,713 of 6,275, DOWN 20,750 of 12,550, MILL 23,537 of 18,825); KITE is the nearest to it |
 | the occluder pass | at most 4 records in a block (the limit), 30,560 clocks (bound 50,050), 33 in a block row (128) |
 | WIND's elements | 7 of 7 (`WD_NMAX`): the lesson 1 (flagged), the bridge 2, the thermal 1, the windbreaks 2, the glide 1 |
-| the windows' bounds (130.19.10) | at most 3 FAST lanes of 6; 5 own-clock lanes of 6 (the fan plaza's windows: 3 fans, 2 digits); 6 pose changes on one step (reported) |
+| the windows' bounds (137.19.10) | at most 3 FAST lanes of 6; 5 own-clock lanes of 6 (the fan plaza's windows: 3 fans, 2 digits); 6 pose changes on one step (reported) |
 | the finish's reach (`finish_reach_rule`) | all 9 finish cells reachable past 4 clock posts - with NO compile aid: the rule follows a thermal since this step (section 12, K1) |
 | the finish's clock (`finish_clock_rule`) | every goal cell sees clock 3 |
 | NO TRAP | the start and each of the 3 flags |
@@ -340,14 +340,14 @@ section 17 is what the course carries now and what room it has left. What follow
 | `--pans` (LATTICE, the route demo) | 54 columns (2.02 a second) and 345 rows on the CGA, 57 and 172 on the Hercules; 0 reversals, 0 stalls, 0 column runs |
 | the camera's guarantees (`--camcheck`, the eight shipped and nine test courses with KITE in the list) | **13 items green, none red**: guarantees 1 - 3 over 54 runs (91,575 frames), the two-row check, every tube exit, the side check, MILL's ramp bottom, and the DITHER MAP - 0 of 1,403, 1,389 and 1,336 samples reverse a pan at taps of 8, 15 and 25 steps - with all seven controls red. (Before the brow: 1 of 1,338 at 25 steps, KITE's, section 12 K13) |
 | `--selfcheck` on this course alone (20 sections: `courses`, `gaps`, `routes`, `camcheck`, `clockvis`, `flags`, `hud`, `demos4`, `inc`, `compact`, `dither`, `budget`, `clockrule`, `av`, `guard`, `kit`, `width`, `blocks`, `camstop`, `reachpath`) | **160 items green**, every one that reads the course (52 name it: the picture and its Hercules translation, the grid and SAFE, OCC and OCCG, the merge exact over every query, the composites, every pose of its 23 lanes, the flags' records, the demo, the stored form's in-place expansion, the dithered masks, the ground faces, AV's completeness and WRONG-HIDE, the kit). The 9 red are the list's, not the course's: each names a shipped course a one-course list has not got (TRIAL's and MOON's clock controls, MILL's stop, an AUTHOR course, a lift, the pathway's ROLL, a demo that leaves the tightened reach) |
-| `--gaps` | 23 candidates, none marked (`gap` is marked by hand, SPEC.md 130.57: the owner's or the art's) |
+| `--gaps` | 23 candidates, none marked (`gap` is marked by hand, SPEC.md 137.57: the owner's or the art's) |
 | in a private build with the eight shipped courses (`make BUILD=<dir> BZ_COURSES="<the eight> kite.bbc" bonanzadisk`, against the same build without it) | course 8 of that build, `BZ8.BIN` the part above. `BONANZA.O88` 177,606 -> **189,190** (+11,584). `bonanza.bin` 53,650 both (the tables are `BZ_CRS_MAX` wide already); `BZ_PROPMAX` 50, `BZ_PROPALL` 68, `BZ_FSTB` 22 and `BZ_CRS_MAXCLAIM` 8,256 paragraphs all unmoved: no bss and no claim grows. The four disks verify: 1.44MB 360 -> 383 clusters of 2,847, 1.2MB 360 -> 383 of 2,371, 720KB 182 -> 193 of 713, 360KB 182 -> **193 of 354**. Every shipped course's part and demo, the pathway, the title and the kit are byte-identical in the two builds |
 
 **Not run here, named for the pass that wires the course in** (they are emulator or
 soak rows): `bonanzacourse` (the whole selfcheck with KITE in `BZ_COURSES`),
 `bonanzaphyshost` (its poisoned plays and `wind_host`), `bonanzaexit`, `bonanzaring`
 and `bonanzaperf` (a step on KITE walks 7 WIND elements wherever the ball is: about
-twice PLAYGROUND's 4, PREDICTED from SPEC.md 130.34.14, never measured), `bbgame`.
+twice PLAYGROUND's 4, PREDICTED from SPEC.md 137.34.14, never measured), `bbgame`.
 
 ## 11. What refinement changed, and why
 
@@ -382,7 +382,7 @@ one shove" answer is the lean.
 
 | | risk | outcome |
 |---|---|---|
-| **K1** | the tool cannot prove a climb: `finish_reach_rule` closed the reach over rolls, Hops and bounces alone | **RESOLVED in the tool**, and the compile aid deleted. `finish_reach_rule`'s closure takes an updraft that carries one of the course's balls (`updraft_carries`, `reach_closure(updrafts=)`; SPEC.md 130.34.5). It can only add reach: its verdict on all 37 course files is the same line before and after (MEASURED). `--selfcheck` section `wind` has its item and red arm (`nowindreach`); the section is 34 green |
+| **K1** | the tool cannot prove a climb: `finish_reach_rule` closed the reach over rolls, Hops and bounces alone | **RESOLVED in the tool**, and the compile aid deleted. `finish_reach_rule`'s closure takes an updraft that carries one of the course's balls (`updraft_carries`, `reach_closure(updrafts=)`; SPEC.md 137.34.5). It can only add reach: its verdict on all 37 course files is the same line before and after (MEASURED). `--selfcheck` section `wind` has its item and red arm (`nowindreach`); the section is 34 green |
 | **K2** | seven WIND elements, the family's limit | **ACCEPTED**: still exactly 7. No eighth is possible without the limit raised (an engine change, the owner's) |
 | **K3** | G10: the launch and summit clocks | **RESOLVED** for the default frame (232 lines together, 32 to spare); the art agent's frames re-check it (section 9) |
 | **K4** | G3 refused on both flights | **RESOLVED by re-laying both legs**, no exemption asked: 0 columns panned in either flight on both cards (section 2) |
@@ -393,13 +393,13 @@ one shove" answer is the lean.
 | **K9** | `guide` not declared | **DONE** |
 | **K10** | the camera across, a pan at each turn | **RESOLVED**: three pans across in the course on either card, all on the ground; from the first rise to the top of the thermal the window does not move across |
 | **K11** | the visibility of air over a chasm | **ANSWERED by the tool's previews, both cards**: a steady updraft's squiggles over void cells are drawn where those cells are, and here they fall on the summit's and the wing's faces behind the pit, where they read better than on black. Not looked at on an emulator (section 13) |
-| **K12** | pose changes in one window | **MEASURED**: 5 own-clock lanes of 6 in the worst window (the fan plaza's: three fans and the clock's two digits), 6 changes on one step (reported, not refused since 130.19.10 item 14) |
+| **K12** | pose changes in one window | **MEASURED**: 5 own-clock lanes of 6 in the worst window (the fan plaza's: three fans and the clock's two digits), 6 changes on one step (reported, not refused since 137.19.10 item 14) |
 
 **Found in refinement** (not on the pen-in's list):
 
 | | what | outcome |
 |---|---|---|
-| **K13** | **The camera's dither map on a CLIMB.** `--camcheck` (the selfcheck's `camcheck` section, so the `bonanzacourse` row) asserts over every shipped demo that a ball braked and tapped back for 8, 15 or 25 steps never reverses a pan (SPEC.md 130.17.6.5 item 4). Every shipped course goes DOWN its ramps. KITE is the first to climb one, and at the first rise's flat top one sample of 1,338 did: the tap put the ball back on the ramp, it rolled down all 6 tiles, and the camera followed it down. The check was right about what the camera did, and whether it caught the sample hung on the picture's `Y0` | **RESOLVED in the course**: the BROW. A ball on the walk cannot roll back onto the rise, so no tap at its top carries it away: 0 reversing samples at 8, 15 and 25 steps on both cards. It costs a 1-unit hop at the top of the rise (1.2 s of bouncing onto the walk), and the pocket's rails (section 11). Section 14 has the alternative, which is the owner's |
+| **K13** | **The camera's dither map on a CLIMB.** `--camcheck` (the selfcheck's `camcheck` section, so the `bonanzacourse` row) asserts over every shipped demo that a ball braked and tapped back for 8, 15 or 25 steps never reverses a pan (SPEC.md 137.17.6.5 item 4). Every shipped course goes DOWN its ramps. KITE is the first to climb one, and at the first rise's flat top one sample of 1,338 did: the tap put the ball back on the ramp, it rolled down all 6 tiles, and the camera followed it down. The check was right about what the camera did, and whether it caught the sample hung on the picture's `Y0` | **RESOLVED in the course**: the BROW. A ball on the walk cannot roll back onto the rise, so no tap at its top carries it away: 0 reversing samples at 8, 15 and 25 steps on both cards. It costs a 1-unit hop at the top of the rise (1.2 s of bouncing onto the walk), and the pocket's rails (section 11). Section 14 has the alternative, which is the owner's |
 | **K14** | **G1's margin.** The autopilot's run is 26.6 s by `--guide`, 1.6 s over the floor | **ACCEPTED** (MILL's pen-in measured 27.2 s). Section 3 |
 
 ## 13. For the owner's playtest
@@ -547,7 +547,7 @@ them; `kite/art.py` draws the `.bba` files). The studies, with every picture on 
 
 ![the course with its art, in its own palette](kite/picture-cga.png)
 
-- **Clocks: `sock`, the WINDSOCK** (SPEC.md 130.18.5.2; the owner's pick of the two concepts studied, 2026-11-25:
+- **Clocks: `sock`, the WINDSOCK** (SPEC.md 137.18.5.2; the owner's pick of the two concepts studied, 2026-11-25:
   *"the windsock is probably better; just because kites themselves don't have a reason to be in that spot, and
   we'll have kite art"*). A banded pole, a hoop, the digits on the sock's first band; the wind fills it up the
   hill. The kite frames (`kite1` - `kite4`) stay in the tool.

@@ -2,11 +2,11 @@
 
 The owner, 2026-11-19 (experimental, on its own branch `bb-quarter`): heights moved in half units (4 px), so
 the step after the one every ball rolls up was a whole unit - a hard Hop - and course design had too few
-rungs. The contract is [SPEC.md 130.48](../../SPEC.md); the diary's 2026-11-19 entry is how it was built.
+rungs. The contract is [SPEC.md 137.48](../../SPEC.md); the diary's 2026-11-19 entry is how it was built.
 
 Stories, each with what proves it:
 
-- [x] **Q1 The contract** - SPEC.md 130.48: quarter units in every height byte, the rebase, the range
+- [x] **Q1 The contract** - SPEC.md 137.48: quarter units in every height byte, the rebase, the range
   (60.75 units of floors and walls), the CELLS rule's bias, the families' fields. *Proof*: `checkdocs`.
 - [x] **Q2 The tool** - `bbcourse.py`: heights a multiple of 0.25; the rebase (`parse`, `rebase_units`);
   every byte through `zq()`; the model (`Physics`, the families, `AGrid`, the CELLS rule, the WAYS form) in
@@ -25,5 +25,5 @@ Stories, each with what proves it:
 - [ ] **Q7 The final pass** - the bonanza soak rows (`bonanzacourse`, `bonanzaphys`, `bonanzareplay`,
   `bonanzademo`, `bonanzaexit`, `bonanzaperf`), scoped, in the background (fork rule 10).
 
-What this does NOT do: lift the occluder records' 255 px span of tops (SPEC.md 130.15.5), which still bounds a
+What this does NOT do: lift the occluder records' 255 px span of tops (SPEC.md 137.15.5), which still bounds a
 course's height at about 32 units - that is the occluder session's.

@@ -1,7 +1,7 @@
-"""SPEC.md 130.29.12 research: a per-position COST PROXY of bz_amodel's ENTERING frame (the frame that reads V's
+"""SPEC.md 137.29.12 research: a per-position COST PROXY of bz_amodel's ENTERING frame (the frame that reads V's
 front and computes the footprint's words: today's worst), today against (A) the far list and (B) the cheap float.
 The proxy, from the guest's own instructions priced (price.py on bz_arange's half and bz_ahalf's column, and the
-sketch sk_far.asm): 14 x 670 for the front reads (130.29.5's measured), each COUNTING half not shadowed (the
+sketch sk_far.asm): 14 x 670 for the front reads (137.29.5's measured), each COUNTING half not shadowed (the
 guest's flat parent shadow) whose columns meet the footprint's words 780 + 111 a column, each far entry 1,360,
 each float read +150 (B's slab bottom).  The ball centred in the cell.  usage: avproxy.py course [farpickle]"""
 import sys, os, pickle, collections
@@ -44,7 +44,7 @@ def table(wx, wy):
 
 
 def shadows(t):
-    """the guest's flat parent shadow: {(d, i): bits} 1 right half, 2 left half (130.29.5)"""
+    """the guest's flat parent shadow: {(d, i): bits} 1 right half, 2 left half (137.29.5)"""
     sh = {}
     for (d, i), (H, X, Y, sx, sy, isf, _b) in t.items():
         v = 0

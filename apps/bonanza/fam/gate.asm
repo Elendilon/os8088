@@ -1,6 +1,6 @@
 ; =============================================================================
 ; apps/bonanza/fam/gate.asm - BONANZA's SWITCHES, KEYS, GATES and DRAWBRIDGE
-; family (SPEC.md 130.41, the props round's P6 and P7), held equal to
+; family (SPEC.md 137.41, the props round's P6 and P7), held equal to
 ; bbcourse.GateFamily at every step.
 ;
 ; Four kinds, each a FLAT FLOOR cell of the grid with OBS:
@@ -22,7 +22,7 @@
 ; when in the window.  POSE: a plate 1 pressed, a key 1 not taken, a gate 1
 ; shut, a bridge 1 up.
 ;
-; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss
+; A FAMILY PART (SPEC.md 137.25.6.2), linked against the package's bss
 ; (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the package,
 ; AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -39,7 +39,7 @@ GT_GKD      equ 20              ; a bridge's grid +2 byte
 GT_ON       equ 21              ; a timed bridge's timer
 GT_MASK     equ 22
 GT_SEED     equ 23
-GT_ART      equ 24              ; SPEC.md 130.41.12: a gate's or bridge's ART (no lane of
+GT_ART      equ 24              ; SPEC.md 137.41.12: a gate's or bridge's ART (no lane of
                                 ; its own); an art LANE (kind BZ_FK_GALANE): +19 its channel
 GT_AFR      equ 4               ; an art's frames: the cell opens at the last
 %if BZ_FK_KEY != BZ_FK_PLATE + 1 || BZ_FK_GATE != BZ_FK_PLATE + 2 || BZ_FK_BRIDGE != BZ_FK_PLATE + 3 || BZ_FK_GATELANE != BZ_FK_PLATE + 4
@@ -55,13 +55,13 @@ GT_AFR      equ 4               ; an art's frames: the cell opens at the last
     db 0
     dw gt_reset, 0, gt_contact, gt_step, gt_pose, gt_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 137.25.6.2)"
 %endif
 
 ; RESET: the course's timed bridges counted
 gt_reset:
     call gt_slot
-    call gt_walk                ; (the family's own records: 130.25.6.10)
+    call gt_walk                ; (the family's own records: 137.25.6.10)
     xor dx, dx
     jcxz .x
 .l:
@@ -130,8 +130,8 @@ gt_contact:
 ; window refilled when it is in it
 gt_step:
     call gt_slot
-    mov word [bz_fwkk], 4000h   ; (130.25.6.11: the nearest wake, a distance)
-    mov al, [bz_nstep]          ; SPEC.md 130.41.12 A5: channel c's art frame
+    mov word [bz_fwkk], 4000h   ; (137.25.6.11: the nearest wake, a distance)
+    mov al, [bz_nstep]          ; SPEC.md 137.41.12 A5: channel c's art frame
     test al, 1                  ; steps on n AND 7 = 2 c
     jnz .t
     and al, 7
@@ -218,7 +218,7 @@ gt_step:
     dec cx
     jmp short .l
 .x:
-    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (130.25.6.11)
+    mov ax, [bz_fwkk]           ; THE WAKE: n + the nearest (137.25.6.11)
     add ax, [bz_nstep]
     call gt_setwk
     retf
@@ -255,7 +255,7 @@ gt_pose:
 ; CELL: a shut gate's cell a WALL; a bridge's written from its record
 gt_cell:
     call gt_slot                ; DI = the slot
-    xor ax, ax                  ; (a new window: the STEP runs next, 130.25.6.11)
+    xor ax, ax                  ; (a new window: the STEP runs next, 137.25.6.11)
     call gt_setwk
     call gt_walk                ; ES = the course, BP its list, CX its count
     mov bp, bx
@@ -285,7 +285,7 @@ gt_cell:
     jne .dn
     mov al, dl
     cbw
-    shl ax, 1                   ; 2 DECK px (quarter units, SPEC.md 130.48.4)
+    shl ax, 1                   ; 2 DECK px (quarter units, SPEC.md 137.48.4)
     cmp [bz_gz + 1], ax
     jl .up
 .dn:
@@ -308,7 +308,7 @@ gt_cell:
 
 ; ES:SI = a gate's or switched bridge's record, DI = the slot -> ZF clear (and
 ; AL 1) when it is OPEN: its channel's bit, or for an ART element its channel's
-; frame at the last (SPEC.md 130.41.12 A6).  Clobbers CL, AL.
+; frame at the last (SPEC.md 137.41.12 A6).  Clobbers CL, AL.
 gt_open:
     mov cl, [es:si + GT_CH]
     cmp byte [es:si + GT_ART], 0

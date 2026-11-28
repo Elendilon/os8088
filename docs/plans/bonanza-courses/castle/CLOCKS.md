@@ -1,7 +1,7 @@
 # CASTLE CLIMB: clock options (2026-11-25, for the owner to pick)
 
 **INSTALLED for the pick: A, `beacon`** - the tool's `bcn0`, `bcn1`, `bcn2` and `bcn3` (`_clock_beacon` in
-`tools/bbcourse.py`, SPEC.md 130.18.5.2), named on the four `clock` lines of `apps/bonanza/courses/castle.bbc`.
+`tools/bbcourse.py`, SPEC.md 137.18.5.2), named on the four `clock` lines of `apps/bonanza/courses/castle.bbc`.
 Those four words are the only change to the owner's lines; no clock moved. B, `banner`, and C, `turret`, are
 kept here as scratch frames.
 
@@ -93,7 +93,7 @@ mask.
 
 ## What the tool says about the clocks
 
-- **The gate's clock hides a ball behind it** (a WARNING the course already had, SPEC.md 130.18.5.4): a ball
+- **The gate's clock hides a ball behind it** (a WARNING the course already had, SPEC.md 137.18.5.4): a ball
   rolled behind the clock at (39, 30) is wholly hidden for 25 ground units in a row, against a bound of 16.
   With the default frame it is 26, so the beacon is not the cause: the clock stands on a 5.5-high floor right
   beside the low corridor behind the gate. It is the owner's to settle. A `noocclude` on the corridor's cells
@@ -115,4 +115,4 @@ mask.
 
 `beacon` costs no guest byte: it is picture. To take `banner` or `turret` instead, copy its `_clock_*` from
 `clocks/frames.py` into `tools/bbcourse.py` beside `_clock_beacon`, add its four names to `CLOCK_STYLES` and
-`_CLOCK_DRAW`, a paragraph to SPEC.md 130.18.5.2, and name them on the four `clock` lines.
+`_CLOCK_DRAW`, a paragraph to SPEC.md 137.18.5.2, and name them on the four `clock` lines.

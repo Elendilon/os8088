@@ -1,6 +1,6 @@
-# THE TEST MAP (SPEC.md 130.54.6, 2026-11-20): the BZDEV=1 build's pathway in place of path.bbc - the rows'
+# THE TEST MAP (SPEC.md 137.54.6, 2026-11-20): the BZDEV=1 build's pathway in place of path.bbc - the rows'
 # map, never shipped (`test`: bbcourse.py -o refuses it without --dev).  Its pads play the TEST courses
-# (130.54) besides the two shipped ones, so bonanzapath's legs walk a map built for them and depend neither on
+# (137.54) besides the two shipped ones, so bonanzapath's legs walk a map built for them and depend neither on
 # the shipped map's shape (which is redrawn as real courses ship) nor on a prototype course.  Each route is
 # one feature the rows need:
 #
@@ -19,7 +19,7 @@
 # back is Left alone).  A screen direction is a ground step: +x down-right, -x up-left, +y down-left, -y
 # up-right; both axes at once (equal amounts) down, up, left or right.
 course PATH "The Test Map"
-test                                        # SPEC.md 130.54.6: a TEST MAP - the BZDEV=1 build's alone, its pads
+test                                        # SPEC.md 137.54.6: a TEST MAP - the BZDEV=1 build's alone, its pads
                                             # may play test courses
 width  64
 ball   rubber

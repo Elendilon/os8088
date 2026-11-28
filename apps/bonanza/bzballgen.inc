@@ -1,4 +1,4 @@
-; bzballgen.inc - the ball parts GENERATED AT FETCH (SPEC.md 130.25.5, wave 9
+; bzballgen.inc - the ball parts GENERATED AT FETCH (SPEC.md 137.25.5, wave 9
 ; story 9.4).
 ;
 ; The ball part on the disk is BZB3: BZB2's header, then ZEROS, and a small
@@ -12,7 +12,7 @@
 ; them), and the tool proves it by running THIS routine under an emulated 8086
 ; on the stored file (tools/bzballchk.py, `make bonanza-check`).
 ;
-; THE SPEED (130.25.5.1): a row is 2 bits a pixel, five bytes at its shift.
+; THE SPEED (137.25.5.1): a row is 2 bits a pixel, five bytes at its shift.
 ; A roll frame's row is BASE | (P & TEX): BASE the template's colours, TEX its
 ; texture pixels (both spread to 2 bits at the frame's shift, built once a
 ; shift), P the INK, one entry of a per-phase MASK TABLE: ink at column x of
@@ -425,7 +425,7 @@ bg_shape:
     ret
 
 ; bg_ent - an entry (squash 0 or 1, the stretch): SI = its shape table; ES:DI
-; gets its four shifts, one line-parity copy each (SPEC.md 130.38.10), each
+; gets its four shifts, one line-parity copy each (SPEC.md 137.38.10), each
 ; (16 mask rows, 16 frame rows), and DI is left past it.  Row y of the shape: I = the interior (all
 ; four neighbours in), the ring = S and not I is BLACK, glass's checker K = I
 ; and (x + y even) is see-through, so opaque = S xor K and coloured = I xor K;
@@ -465,7 +465,7 @@ bg_ent:
     call bg_sp                  ; the mask row: the clear pixels kept
     mov cx, 0C0FFh
     mov di, [BG_EDI]
-    mov bp, BZ_BAL_ENT          ; (one parity copy, SPEC.md 130.38.10)
+    mov bp, BZ_BAL_ENT          ; (one parity copy, SPEC.md 137.38.10)
     call bg_put4
     pop bp
     mov ax, bp
@@ -500,7 +500,7 @@ bg_ent:
     cmp bp, 32
     jb .y
     pop di
-    add di, BZ_BAL_SHIFTS * BZ_BAL_ENT ; (one parity copy, SPEC.md 130.38.10)
+    add di, BZ_BAL_SHIFTS * BZ_BAL_ENT ; (one parity copy, SPEC.md 137.38.10)
     ret
 
 ; bg_shd - the shadow masks: parity p, shift s, row r (6): the ellipse's row

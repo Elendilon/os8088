@@ -1,12 +1,12 @@
 ; =============================================================================
-; apps/bonanza/fam/seesaw.asm - BONANZA's SEE-SAW FAMILY (SPEC.md 130.42, the
+; apps/bonanza/fam/seesaw.asm - BONANZA's SEE-SAW FAMILY (SPEC.md 137.42, the
 ; props round's P9), held equal to bbcourse.TiltFamily at every step.
 ;
 ; A see-saw is a TILT PLATE of NX x NY cells (2, 4 or 6 along its axis, 1 - 2
 ; across) on a pivot at its middle, in three POSES: 0 its rest, 1 FLAT, 2 its
 ; other end down.  Pose P's slope is s = (1 - P), negated when its REST has
 ; the plus end down; its cell k along the axis is a slope cell at
-; z0 = PZ + 2 s (k - L / 2) quarter units (SPEC.md 130.48.4), its slopes byte
+; z0 = PZ + 2 s (k - L / 2) quarter units (SPEC.md 137.48.4), its slopes byte
 ; s along the axis.
 ;   the PLATE's record: +16 FSB (a BYTE of bz_fst, the pose: RESPAWN class, so
 ;          a respawn puts it at rest), +18 NX, +19 NY, +20 TLF_AXY (its axis
@@ -23,7 +23,7 @@
 ; The slot (bz_fsl + BZF_SLOT AL): +0 the plate the count is for (its element
 ; + 1, 0 none), +1 the COUNT.
 ;
-; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 137.25.6.2), linked against the package's bss as the
 ; probe is (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the
 ; package, AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -41,7 +41,7 @@ TL_PZ       equ 21
 TL_PLATE    equ 18              ; a lane's: its plate
 TLF_AXY     equ 1               ; +20's flags: the axis is y,
 TLF_PLUS    equ 2               ; ...the rest has the plus end down,
-TLF_TIME    equ 4               ; ...it is TIMED (SPEC.md 130.42.11):
+TLF_TIME    equ 4               ; ...it is TIMED (SPEC.md 137.42.11):
 TL_MASK     equ 22              ; +22 its period less 1,
 TL_FLAT     equ 23              ; +23 its steps FLAT each half period,
 TL_SEED     equ 24              ; +24 its seed
@@ -61,7 +61,7 @@ TL_SEED     equ 24              ; +24 its seed
     db 0
     dw tl_reset, 0, 0, tl_step, tl_pose, tl_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 137.25.6.2)"
 %endif
 
 ; RESET: the slot zeroed; each TIMED plate's byte its pose on this step (the
@@ -71,7 +71,7 @@ tl_reset:
     xor ax, ax
     mov [di], ax
     mov [di + 2], al
-    call tl_walk                ; (the family's own records: 130.25.6.10)
+    call tl_walk                ; (the family's own records: 137.25.6.10)
 .r:
     jcxz .m
     call tl_recp
@@ -136,7 +136,7 @@ tl_cell:
     retf
 
 ; STEP: the ball's weight on a plate; then each TIMED plate to its pose on the
-; next step (SPEC.md 130.42.11): on a change its byte, the refill, its lanes
+; next step (SPEC.md 137.42.11): on a change its byte, the refill, its lanes
 ; MARKED, and a ball grounded on it CARRIED
 tl_step:
     push ax
@@ -308,7 +308,7 @@ tl_carry:
     and bx, 15
     cbw
     mov dl, cl                  ; (DL = s)
-    mov cl, 3                   ; (8 z0: z0 quarter units, SPEC.md 130.48.4)
+    mov cl, 3                   ; (8 z0: z0 quarter units, SPEC.md 137.48.4)
     shl ax, cl
     or dl, dl
     jz .h
@@ -362,7 +362,7 @@ tl_cellz:
 .k:
     shr bh, 1
     sub bl, bh                  ; BL = k - L / 2
-    shl bl, 1                   ; ...in quarter units (SPEC.md 130.48.4)
+    shl bl, 1                   ; ...in quarter units (SPEC.md 137.48.4)
     mov al, [es:si + TL_PZ]     ; AL = PZ + 2 s (k - L / 2)
     or ah, ah
     jz .z

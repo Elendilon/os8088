@@ -1,5 +1,5 @@
 ; =============================================================================
-; apps/bonanza/bzshell.asm - BONANZA's SHELL PART (SPEC.md 130.19.2, wave 8a)
+; apps/bonanza/bzshell.asm - BONANZA's SHELL PART (SPEC.md 137.19.2, wave 8a)
 ;
 ; The desktop code a play never needs - today the FACE (bzface.inc) - out of
 ; the resident image and into a lazy, compressed OP_SEG part of BONANZA.O88,
@@ -33,8 +33,8 @@ bzh_v2: jmp near bzh_line       ; BZH_LINE
     times ($ - $$) - BZH_VEC - BZH_VECB * BZH_NVEC db 0
 
 bzh_face:                       ; the PLAYER's face, or with the harness byte
-%ifdef BZDEV                    ; set the instruments' (SPEC.md 130.26.6; the
-    cmp byte [bz_dev], 0        ; BZDEV build's alone, 130.26.6.1)
+%ifdef BZDEV                    ; set the instruments' (SPEC.md 137.26.6; the
+    cmp byte [bz_dev], 0        ; BZDEV build's alone, 137.26.6.1)
     jne .dev
 %endif
     call bz_wface
@@ -64,7 +64,7 @@ bzh_line:                       ; AH = the line
 %endif
     retf
 
-; --- the package's helpers the face reads, copied (SPEC.md 130.19.2) ---------
+; --- the package's helpers the face reads, copied (SPEC.md 137.19.2) ---------
 %ifdef BZDEV
 ; ZF = 1 when [bz_rlog] holds a log (bonanza.asm's bz_rhave)
 bz_rhave:
@@ -75,7 +75,7 @@ bz_rhave:
     ret
 %endif
 
-; AL = 1 CGA, 2 Hercules, 3 VGA, 0 none (bonanza.asm's bz_adapter, 130.46.2)
+; AL = 1 CGA, 2 Hercules, 3 VGA, 0 none (bonanza.asm's bz_adapter, 137.46.2)
 bz_adapter:
     push bx
     push dx
@@ -109,6 +109,6 @@ bz_adapter:
     pop bx
     ret
 
-%include "bzwin.inc"            ; the window's art (tools/bzwinart.py, SPEC.md 130.26.2)
+%include "bzwin.inc"            ; the window's art (tools/bzwinart.py, SPEC.md 137.26.2)
 %include "bzface.inc"
 %include "bzwface.inc"

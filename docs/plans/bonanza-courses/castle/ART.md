@@ -35,7 +35,7 @@ are one grey, so colour carries nothing here.
 | UP, over the tube | `castle_up.bba`, 13 x 16 | the keep's wall above the tube's mouth at (12, 10), over the windmill | the tube's mouth is a black arch behind a windmill at the foot of a wall 18 units high, and the goal is on top of that wall. The arrow says the hole is the way up |
 | the keep's PENNANT | `castle_flag.bba`, 22 x 26 | on the keep's west corner turret, (4, 6), the highest thing in the picture; the void is behind it | the goal is a chequered floor inside four walls and is not seen until the ball is in it. A flag on the keep says where the climb ends |
 
-Art has no depth of its own (SPEC.md 130.23.2): the plaques and the arrow on the wall are part of the faces
+Art has no depth of its own (SPEC.md 137.23.2): the plaques and the arrow on the wall are part of the faces
 they are painted on, the floor marks part of their tiles, and the ball is drawn over the pennant.
 
 ## What it costs (MEASURED: compiles of the course in this step)
@@ -57,7 +57,7 @@ The whole course as `bbcourse.py -o` builds it, song included:
 | | part in RAM | LZ4 (budget 18,825 for a 90 s course) | route demo |
 |---|---|---|---|
 | before (`music fairway`) | 59,031 | 17,309 | 1,062 bytes, 56.87 s, COMPLETE |
-| after (`music castleclimb`, set by the song's own step meanwhile) | 60,333 | 18,901: **76 over the budget**, reported and not refused (SPEC.md 130.27.5) | 1,062 bytes, 56.87 s, COMPLETE: the same 523 runs; only its two bytes of course identity (offset 14) differ, the part having changed |
+| after (`music castleclimb`, set by the song's own step meanwhile) | 60,333 | 18,901: **76 over the budget**, reported and not refused (SPEC.md 137.27.5) | 1,062 bytes, 56.87 s, COMPLETE: the same 523 runs; only its two bytes of course identity (offset 14) differ, the part having changed |
 
 Of the 1,592 LZ4 bytes between the two rows, 1,031 are this step's and 561 the new song's. The part is 4,691
 bytes under its 65,024 and has 77 masks to spare.

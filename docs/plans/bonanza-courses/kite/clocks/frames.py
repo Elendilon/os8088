@@ -8,7 +8,7 @@
 #   sock   A WINDSOCK on a pole, the digits on its first band; the wind fills it up the hill: limp at the meadow,
 #          half out at the fan plaza, straight out at the launch plaza, taut and fluttering on the summit.
 #          THE OWNER'S PICK (2026-11-25) and the course's: tools/bbcourse.py's `sock1` .. `sock4` (`_clock_sock`,
-#          SPEC.md 130.18.5.2) - named here, drawn there.
+#          SPEC.md 137.18.5.2) - named here, drawn there.
 #   kite   A KITE on its string, the digits on its sail; its TAIL grows a bow a clock (1, 2, 3, then a full
 #          streaming tail of 5) and it leans the way the course goes next.  Not picked for this course, kept in
 #          the tool: `kite1` .. `kite4` (`_clock_kite`).

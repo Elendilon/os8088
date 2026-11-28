@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""t_bbgame - ADD TO THE GAME (SPEC.md 130.58.17, 130.58.36): tools/bbgame.py composes BONANZA.O88 from the
+"""t_bbgame - ADD TO THE GAME (SPEC.md 137.58.17, 137.58.36): tools/bbgame.py composes BONANZA.O88 from the
 shipped build's own pieces (`make bbgamebin`: the pieces and their map, no variants) with no assembler:
 
  1. THE SHIPPED LIST: composed with no added course, the package is build/bonanza.o88 byte for byte

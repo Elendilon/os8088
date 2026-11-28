@@ -1,4 +1,4 @@
-# OVER: the WALKABLE PIPE's test course (SPEC.md 130.12.3.7) - not shipped, on no disk, in no tour: compiled by
+# OVER: the WALKABLE PIPE's test course (SPEC.md 137.12.3.7) - not shipped, on no disk, in no tour: compiled by
 # `bbcourse.py --selfcheck`'s section `pipeover` and by tests/bonanza_phys.py's crossing scenes (the guest's archway
 # part against the model).  A CROSSING: one KEEP tube along row 12 with `top`, its two end legs walls one unit over
 # the floor and its middle leg (x 10 - 16) a pipe hanging `column 1` deep, two units over the floor - so the ball

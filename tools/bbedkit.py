@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""bbedkit - THE COURSE BUILDER'S KIT VIEWS (SPEC.md 130.58.52): what of a course comes from THE STANDARD KIT
-(SPEC.md 130.37), and what is in the kit.
+"""bbedkit - THE COURSE BUILDER'S KIT VIEWS (SPEC.md 137.58.52): what of a course comes from THE STANDARD KIT
+(SPEC.md 137.37), and what is in the kit.
 
 - **The Kit overlay** (the Iso view, `KitView`): over the picture, every 8 x 8 picture BLOCK whose bytes are a kit
   piece washed green, the course's own blocks amber (the black block, every course's block 0, left plain); every
@@ -43,7 +43,7 @@ def _ink(rgb):
 
 
 def summary(kd, kk=None):
-    """the overlay's line (SPEC.md 130.58.52.2): each class from the kit against the course's, and the bytes the kit
+    """the overlay's line (SPEC.md 137.58.52.2): each class from the kit against the course's, and the bytes the kit
     saves this course (its stored form, before packing) against its own pieces'; KK the K account (occ.json's
     `kit`), or None while the masks are not cut"""
     if not kd.get("play"):
@@ -96,7 +96,7 @@ class KitView(object):
         ttk.Checkbutton(row, text="own blocks too", variable=self.own, command=self.toggled).pack(side="left")
         ttk.Checkbutton(row, text="Masks (K)", variable=self.masks, command=self.toggled).pack(side="left")
         self.label = ttk.Label(row, text="", foreground="#1d5e33", justify="left")
-        app.wrap_to(self.label, row, 40)                        # (the row's width, not a fixed 900: 130.58.54)
+        app.wrap_to(self.label, row, 40)                        # (the row's width, not a fixed 900: 137.58.54)
 
     # -- the job --------------------------------------------------------------
     def wanted(self):
@@ -188,7 +188,7 @@ class KitView(object):
         sp = small.load()
         own = self.own.get()
         for i, j in enumerate(d["map"]):
-            if j == 0:                  # (the black block: every course's block 0 and the kit's piece 0, 130.10.4)
+            if j == 0:                  # (the black block: every course's block 0 and the kit's piece 0, 137.10.4)
                 continue
             if j < nb:
                 sp[i % cols, i // cols] = KIT_TINT
@@ -355,7 +355,7 @@ def tile_mask(hexs, z):
 
 
 def tile_table(hexs, z):
-    """a kit FIELD table (17 x 17 relative heights, SPEC.md 130.28.2) as a Z-times height thumbnail, low dark"""
+    """a kit FIELD table (17 x 17 relative heights, SPEC.md 137.28.2) as a Z-times height thumbnail, low dark"""
     from PIL import Image
     b = bytes.fromhex(hexs)
     lo, hi = min(b), max(b)
@@ -389,11 +389,11 @@ class KitTab(object):
         nb.add(f, text="Kit")
         self.frame = f
         louter, left, _cv = app.scroll_column(f, 384, padding=8)     # (it scrolls: the list of what is stale
-        louter.pack(side="left", fill="y")                          # ran off the bottom, SPEC.md 130.58.54)
+        louter.pack(side="left", fill="y")                          # ran off the bottom, SPEC.md 137.58.54)
         ttk.Label(left, text="The standard kit", font=("TkDefaultFont", 12, "bold")).pack(anchor="w")
         ttk.Label(left, wraplength=360, justify="left", foreground="#444", text=(
             "Picture blocks (B), occluder masks (K) and FIELD shape tables (F) held ONCE, in BZKIT.BIN, instead of "
-            "once a course: a course NAMES the kit's pieces and they are copied in at its load (SPEC.md 130.37). "
+            "once a course: a course NAMES the kit's pieces and they are copied in at its load (SPEC.md 137.37). "
             "Each piece shows its index and how many pool courses use it; ringed green when this course does, red "
             "when no pool course does any more.")).pack(anchor="w", pady=(2, 6))
         bf = ttk.Frame(left)
@@ -517,7 +517,7 @@ class KitTab(object):
                           if mi[t])))
         if st:
             st.append("A stale kit costs bytes, never correctness: a re-cut (python3 tools/bbcourse.py kit) is the "
-                      "owner's call (SPEC.md 130.37.2, 130.37.12).")
+                      "owner's call (SPEC.md 137.37.2, 137.37.12).")
         else:
             st.append("Not stale: every piece is used and nothing shared is missing.")
         return tot, "\n".join(st)

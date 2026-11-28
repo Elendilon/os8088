@@ -7,7 +7,7 @@
 > art step is therefore 65 masks, 3,031 LZ4 bytes and 16,873 part bytes.
 >
 > **After the second merge of 2026-11-25** (the branch's autopilot now gets ON a pressure
-> plate, SPEC.md 130.14.7.4.7): the route demo is **1,802** steps (32.99 s, it was 1,805)
+> plate, SPEC.md 137.14.7.4.7): the route demo is **1,802** steps (32.99 s, it was 1,805)
 > and the treasury's run is **2,671** steps (48.6 s, it was 2,416), 3 flights, none panned,
 > its longest stretch with no clock in view 8.3 s on CGA and 12.6 s on Hercules. Both
 > still pass `--guide`. With its own song the part is 48,287 bytes.
@@ -24,7 +24,7 @@ function, fitted to the engine's constraints. `apps/bonanza/courses/keep.bbc` sa
 `guide` and passes every check a shipped course is held to (section 10). **IN THE
 DEFAULT BUILD since the pathway step of 2026-11-25** (`BZ_COURSES`' course K 10; the
 pathway's pad 10, after CASTLE CLIMB; its exit 0 leads on and its hidden exit 1 is the map's secret shortcut, by the
-owner's order of that day: SPEC.md 130.22.11 and [pathway/README.md](pathway/README.md),
+owner's order of that day: SPEC.md 137.22.11 and [pathway/README.md](pathway/README.md),
 "The journey" - section 7 below is the sheet's earlier pencil, not what shipped). `keep/sketch.py`
 draws the pictures and writes the course (`--bbc`); `keep/measure.py` makes section 3's
 numbers. Distances are tiles and heights are units; the cells are the engine's own. A
@@ -46,7 +46,7 @@ opens the treasury: the course's second exit, a secret.
 | world | a castle on floating islands (`float`, the pathway's crystal look), compact: the whole of it is two windows across |
 | ball | RUBBER from start to finish. No pad |
 | finishes | TWO: the THRONE (exit 0), and the TREASURY (exit 1, `hidden`: a secret finish), behind a gate only the second key opens |
-| families | `gate spike seesaw turntable`, all four RESIDENT: the limit of 3 a course is on FETCHED families (`FAM_MAX`, SPEC.md 130.25.6.9), and the course has none |
+| families | `gate spike seesaw turntable`, all four RESIDENT: the limit of 3 a course is on FETCHED families (`FAM_MAX`, SPEC.md 137.25.6.9), and the course has none |
 | new to the pathway | the whole GATE family (a plate, two keys, three gates, two timed drawbridges); POP-UP SPIKES; the TIMED see-saw; the turntable as a 2 x 2 CHAIN |
 | target time | 50 - 60 s by the throne on a first clear, 75 s with the treasury (`target 90`'s class, `limit 99`): PREDICTED. MEASURED on the model: the route demo **33.0 s** (1,805 steps), no fall and no Hop; the run to the treasury 44.2 s (section 3) |
 | palette | the default (cyan, magenta, white) on black: grey stone needs white. The owner's call |
@@ -123,7 +123,7 @@ opens the treasury: the course's second exit, a secret.
   There is no flag in the courtyard (the pen-in's flag 0): nothing between the
   drawbridge and the first spikes kills, and a flag stands only before what can. A key
   is kept through a respawn (the family's channels latch for the attempt, SPEC.md
-  130.41.1 D3), so a fall never undoes a fetch. NO TRAP passes from the start and each
+  137.41.1 D3), so a fall never undoes a fetch. NO TRAP passes from the start and each
   flag.
 - **Clocks (3)**, positions FINAL (section 9 says what is behind each):
 
@@ -164,7 +164,7 @@ opens the treasury: the course's second exit, a secret.
     of 267. Over the whole run all three share the window on 292 CGA frames. A player
     who stops in the west half of the yard has all three for as long as they stand
     there. (At `origin 480` it would be 500 frames - and the drop would pan.)
-  - **The camera's guarantees** (SPEC.md 130.17.6.5, `--camcheck`): section 10.
+  - **The camera's guarantees** (SPEC.md 137.17.6.5, `--camcheck`): section 10.
 
 ## 3. What was MEASURED on the model
 
@@ -290,7 +290,7 @@ watching.
 KEEP takes pad 6, where the test course PLAYGROUND stands in today, after LODESTONE
 GORGE (`route 5 6 exit 0`). It has **two exits**. Nothing of this is wired: `path.bbc`
 and `BZ_COURSES` are a later step's. **What the pathway has to add** (`path.bbc`'s
-grammar, SPEC.md 130.22.2):
+grammar, SPEC.md 137.22.2):
 
 - `pad 6 KEEP <wx> <wy>` in PLAYGROUND's place, and its `icon` (section 9).
 - **exit 0, the throne**: the route that leaves pad 6 today, `route 6 7 exit 0 gate ...
@@ -298,7 +298,7 @@ grammar, SPEC.md 130.22.2):
 - **exit 1, the treasury**: one more route keyed (KEEP, 1):
   `route 6 <B> exit 1 secret path <pad 6's cell> ... <pad B's cell>`.
   - `secret` is allowed because the course's second goal says `hidden` (a secret
-    finish, SPEC.md 130.19.4: counted in "found n of m", drawn on the map only once
+    finish, SPEC.md 137.19.4: counted in "found n of m", drawn on the map only once
     found). The tool refuses a secret route keyed to an exit that is not hidden, and a
     `gate` on a secret route.
   - B is the pathway's to choose. The tool then prints which kind it is: a SHORTCUT (B
@@ -344,7 +344,7 @@ grammar, SPEC.md 130.22.2):
   19.4, on the key at 20.1, through the door at 23.9, on the island at 28.7, on the dais
   at 31.7 and in the goal at 33.0.
 
-**C12, the facts** (read off SPEC.md 130.20.1 and `apps/bonanza/bzsound.inc`,
+**C12, the facts** (read off SPEC.md 137.20.1 and `apps/bonanza/bzsound.inc`,
 `bzphys.inc`, `bzgame.inc`; nothing was run):
 
 - **The song's clock and the timers' clock are the same clock, counted twice.** Both
@@ -399,13 +399,13 @@ the brief as it was written.*
   | tower | (18, 18) | the north-west TOWER's two near faces (its block stands a tile up and left: magenta, the right one dithered) and the edge of its top | the battlements' corner rails at its foot; flag 1's merlon two tiles down the west walk |
   | throne | (40, 22) | **the void alone** (the pit north of the second cog): a standard frame can stand here | the dais's back and west rails at its foot; the treasury's gate one tile to its right; the second cog below it |
 
-- **Gates** (each a `.bba` of 4 frames, SPEC.md 130.41.12). C13, as the course stands:
+- **Gates** (each a `.bba` of 4 frames, SPEC.md 137.41.12). C13, as the course stands:
   - the PORTCULLIS, 2 tiles, `art portcullis`: the gate lab's file
     (`courses/gates/portcullis.bba`). WANTS its own: the castle's stone, the plus on its
     keystone;
   - the keep's DOOR, 1 tile, `art door`: the gate lab's (`gates/door.bba`). WANTS its
     own: iron-bound planks, the ring as its knocker. The lab's open frame is a leaf swung
-    back and reads weakest of its four (SPEC.md 130.41.12.6): draw the way visibly clear;
+    back and reads weakest of its four (SPEC.md 137.41.12.6): draw the way visibly clear;
   - the TREASURY's gate, 1 tile: the PRESET grille (no `art`, no `style`), 15 px wide. It
     is the least castle-like thing in the picture and the smallest. WANTS its own: a
     strongroom's bars with the cross on the lock plate, sliding aside;
@@ -413,9 +413,9 @@ the brief as it was written.*
     every gate with `gateart`. `gates/crumble.bba` is the lab's third and is not used.
 - **The drawbridges**: `style picket` on the first (a planked deck). The traitor's
   bridge has no style (the plain seam): a timed bridge takes a preset `style` and no
-  `art` (SPEC.md 130.41.12 A3). One plank wide and visibly rickety is a style's job, if
+  `art` (SPEC.md 137.41.12 A3). One plank wide and visibly rickety is a style's job, if
   one is added.
-- **The plate**: its plus is drawn into its top (SPEC.md 130.41.13), white with a black
+- **The plate**: its plus is drawn into its top (SPEC.md 137.41.13), white with a black
   edge, black when pressed. LOOKED AT in the previews on both cards: it reads.
 - **Signs and decals** (a sign says what to do next, where it is done):
   - on the barbican before the bridge: a bridge with an hourglass, or "WAIT" - the one
@@ -445,7 +445,7 @@ the brief as it was written.*
     32. A frame that moves a clock's digits by less than that keeps them apart.
   - **the masks**: the course names **183 occluder masks of one table's 256** (73 to
     spare). A clock frame and a gate's art are solid things a ball can be behind, so
-    they move the count; the way out past 256 is `masks banded` (SPEC.md 130.52), not a
+    they move the count; the way out past 256 is `masks banded` (SPEC.md 137.52), not a
     smaller clock.
   - **the budget**: LZ4 15,523 against the 90 s class's 18,825: **3,302 bytes of room**
     before the class is crossed, and 12,714 before its 1.5x line. The part is 47,703
@@ -455,7 +455,7 @@ the brief as it was written.*
     two lanes and the door's two stand a tile from the plate's and the flag's now.
   - **the timers' pictures**: 11 pose changes can fall due on one step in the courtyard's
     window (the stair's 5 lanes, a clock's 2 digits, a gate's art, a cog, an event), the
-    wheel lists 6 a frame and the rest are drawn a frame later (SPEC.md 130.19.10 item
+    wheel lists 6 a frame and the rest are drawn a frame later (SPEC.md 137.19.10 item
     14). The pen-in had the same 11. Art that adds lanes to the stair's window adds to
     it: section 12, C7.
 
@@ -465,13 +465,13 @@ the brief as it was written.*
 |---|---|
 | the compile (`bbcourse.py -o DIR keep.bbc`, alone: about 30 s) | passes, and under `--strict` (the same part, byte for byte); no warning, nothing `accept`ed |
 | the part | ONE part, **47,703 bytes** of 65,024 (17,321 to spare): map 15,104, 700 blocks, 2,208 occluder records, **183 masks** of 256 (no `masks banded`, no `noocclude`), grid 5,184 |
-| the course budget (reported, never refused: SPEC.md 130.27.5) | LZ4 **15,523** against the 90 s class's 18,825: UNDER its class (3,302 to spare), where every shipped course is over its own; as the package stores it (LZB) 12,943 |
+| the course budget (reported, never refused: SPEC.md 137.27.5) | LZ4 **15,523** against the 90 s class's 18,825: UNDER its class (3,302 to spare), where every shipped course is over its own; as the package stores it (LZB) 12,943 |
 | the occluder pass | at most 6 records in a block, 29,530 clocks (bound 50,050), 100 in a block row (128) |
 | the families | four, all resident, none fetched (the limit of 3 is on fetched ones). Elements: GATE 22 (a plate, 2 keys, 4 gate cells, 11 bridge cells, 4 art lanes), SPIKE 4, SEESAW 1 plate and 5 lanes, TURNTABLE 8 cells; 40 of the course's 51 props (the rest 5 flags and 6 clock digits), 47 lanes |
-| the windows' bounds (130.19.10) | no FAST lane; 28 lanes in the worst CGA window, 31 in the worst Hercules one (unbounded); 11 pose changes that can fall on one step (6 listed a frame, the rest a frame late: reported, not refused) |
+| the windows' bounds (137.19.10) | no FAST lane; 28 lanes in the worst CGA window, 31 in the worst Hercules one (unbounded); 11 pose changes that can fall on one step (6 listed a frame, the rest a frame late: reported, not refused) |
 | the finish's reach (`finish_reach_rule`) | all 6 finish cells reachable past the 3 clock posts |
 | the finish's clock (`finish_clock_rule`) | every goal cell of both exits sees clock 2 |
-| NO TRAP | the start and each of the 5 flags, with the channels remembered and the drawbridge waited for (SPEC.md 130.14.4.1.4): 2,004,352 steps of the model, 3,461 states |
+| NO TRAP | the start and each of the 5 flags, with the channels remembered and the drawbridge waited for (SPEC.md 137.14.4.1.4): 2,004,352 steps of the model, 3,461 states |
 | visibility | 0 marks below, 0 hidden stretches over 0.5 s on either run; the ball over half hidden on 23 of the route demo's 1,805 steps and 24 of the treasury run's 2,416, never wholly |
 | `--guide`, the route demo and the treasury's run (`--log BZDKEEP.BIN --log BZDKEEP-VAULT.BIN`), both cards | G1 33.0 s and 44.2 s (it prints 32.8 and 43.9: it divides by 55); G3 2 flights and 4, 0 panned; G9; G10 3 clocks; G11 none touched; G12 8.3 s / 3.0 s and 8.3 s / 8.5 s |
 | the route demo | 1,805 steps (33.05 s), rubber, COMPLETE, exit 0, 0 falls, 0 returns, 0 Hops, 3 of 5 flags, 1,252 bytes |
@@ -480,7 +480,7 @@ the brief as it was written.*
 | the camera's guarantees (`--camcheck`, the eight shipped and nine test courses with KITE, LODE and KEEP in the list) | **13 items green, none red**: guarantees 1 - 3 over 62 runs (105,787 frames), the two-row check, every tube exit, the side check, MILL's ramp bottom, and the DITHER MAP - 0 of 1,632, 1,612 and 1,550 samples reverse a pan at taps of 8, 15 and 25 steps - with all seven controls red. The stair is a climbed slope with a flat top (KITE's K13) and does not trip it |
 | `--selfcheck` on this course alone (24 sections: `courses`, `gaps`, `routes`, `camcheck`, `clockvis`, `flags`, `hud`, `demos4`, `inc`, `compact`, `dither`, `budget`, `clockrule`, `av`, `guard`, `kit`, `width`, `blocks`, `camstop`, `reachpath`, `gate`, `spike`, `tilt`, `turn`) | **268 items green**. The 10 red are the list's, not the course's: each names a shipped course a one-course list has not got (TRIAL's and MOON's clock controls, MILL's two stops, an AUTHOR course, a lift, a course with moving air, a pre-clock demo, the pathway's ROLL, and the reach's red arm) |
 | `--selfcheck` with the eight shipped, KITE, LODE, KEEP and the nine test courses, 25 sections (the ones above with `grammar` and `hopplan`, less `camcheck`) | **1,126 items green, none red** (section 12, K18, is what `courses` said of a gate's art before): all 11 shipped and candidate demos inside their reach and the red arm left by HOP's, `grammar`'s new item with both red arms red, `hopplan`'s new item 8 with its red arm red |
-| `--gaps` | 15 candidates, none marked (`gap` is marked by hand, SPEC.md 130.57: the owner's or the art's) |
+| `--gaps` | 15 candidates, none marked (`gap` is marked by hand, SPEC.md 137.57: the owner's or the art's) |
 | in a private build with the eight shipped courses, KITE and LODE (`make BUILD=<dir> BZ_COURSES="<the eight> kite.bbc lode.bbc keep.bbc" bonanzadisk`, against the same build without KEEP) | course 10 of that build, `BZ10.BIN` the part above (in a row the package already reserves: 46 part rows in both). `BONANZA.O88` 203,126 -> **216,662** (+13,536). `bonanza.bin` 53,650 both (19 bytes of its tables differ; they are `BZ_CRS_MAX` wide already); `BZ_PROPMAX` 50, `BZ_PROPALL` 68, `BZ_FSTB` 22 and `BZ_CRS_MAXCLAIM` 8,256 paragraphs all unmoved: **no bss and no claim grows**, though the four families are new to a shipped list (KEEP has 47 lanes and 51 props; the largest course of the build has 50 and 68, and its claim is the larger). Their parts are in the resident bundle in both (`bzfbun.bin` 36,128 bytes, byte-identical; `bzf-gate.bin`, `bzf-spike.bin`, `bzf-seesaw.bin` and `bzf-turntable.bin` too), so KEEP's launch fetches no family. The four disks verify: 1.44MB 410 -> 437 clusters of 2,847, 1.2MB 410 -> 437 of 2,371, 720KB 207 -> 220 of 713, 360KB 207 -> **220 of 354**. Every other course's part and demo, the pathway, the title and the kit are byte-identical in the two builds (the four lists - `bzcourse.inc`, `bzparts.lst`, `bzdemo.lst`, `bzlink.inc` - and the shell part's course table are what differ) |
 
 **Not run here, named for the pass that wires the course in** (they are emulator or
@@ -513,7 +513,7 @@ risks (section 12 here). What a player would notice:*
 | **the bridges' phases** | both on one timer, both down from step 0 | the drawbridge whole for steps 40 - 192, the traitor's for 160 - 253 | C2: they are the design's now, not the check's |
 | **the treasury's goal** | exit 1 | exit 1 `hidden` | the pathway's `secret` route needs the word (section 7) |
 | **the picture** | 1,024 x 464 px, 45,359 bytes, 181 masks, LZ4 14,736 | 1,024 x 472, 47,703 bytes, 183 masks, LZ4 15,523 | one more row of yard, a deeper barbican, the passage, 15 more rails |
-| **the route demo** | 31.6 s: 4 Hops (two on the spot, to pass the time at the stair and the door), 3 flags by luck | 33.0 s: no Hop; it stands and waits at each timer | C5: SPEC.md 130.14.7.4.6. Searched the same way, the pen-in is a 27.4 s course (and G3 refused it) |
+| **the route demo** | 31.6 s: 4 Hops (two on the spot, to pass the time at the stair and the door), 3 flags by luck | 33.0 s: no Hop; it stands and waits at each timer | C5: SPEC.md 137.14.7.4.6. Searched the same way, the pen-in is a 27.4 s course (and G3 refused it) |
 | **the compile** | 66 s | 30 s | K17 |
 
 **Not changed**: the lock and its order, the key in line with its door, the plate one
@@ -537,11 +537,11 @@ and make the finale three rides (section 13).
 
 | | risk | outcome |
 |---|---|---|
-| **C1** | NO TRAP forgets a key | **RESOLVED in the tool** (SPEC.md 130.14.4.1.4). The check was wrong about the engine: a channel latches for the attempt and a respawn keeps it, and the search's state had no channels in it. A state is (cell, material, open channels) now; a run starts with its state's channels open and every state it reaches carries the ones open then. They only open, so the search is as finite as it was. **Sound**: a key BEHIND its own door is still refused, and a key in a nook round the corner from its door is refused again with the channels forgotten (`--selfcheck`'s `grammar`, red arm `_TRAPNOCHAN`). **Bounded**: KEEP's proof is 2.0 million steps of the model (32 s on one core, 10 s of its compile on four); PLAYGROUND, the biggest course with a gate, +6.8%. **Nothing else moves**: each of the 39 other course files compiled alone under the tool before and after gives the same files byte for byte and the same verdict, and the build's own run over the eight shipped, KITE, LODE and the nine test courses writes 37 files, all identical. **What the layout does with it**: nothing has to move. The key is in line with its door and the plate one tile from its gate because that is the help this course gives (section 6), and KEEP.md's pen-in said both read well; they are no longer the check's conditions. Measured: with the ring key three tiles south (out of the door's line) the pen-in was REFUSED from the start, and the same file passes now. The art, the owner and the builder can move a key |
+| **C1** | NO TRAP forgets a key | **RESOLVED in the tool** (SPEC.md 137.14.4.1.4). The check was wrong about the engine: a channel latches for the attempt and a respawn keeps it, and the search's state had no channels in it. A state is (cell, material, open channels) now; a run starts with its state's channels open and every state it reaches carries the ones open then. They only open, so the search is as finite as it was. **Sound**: a key BEHIND its own door is still refused, and a key in a nook round the corner from its door is refused again with the channels forgotten (`--selfcheck`'s `grammar`, red arm `_TRAPNOCHAN`). **Bounded**: KEEP's proof is 2.0 million steps of the model (32 s on one core, 10 s of its compile on four); PLAYGROUND, the biggest course with a gate, +6.8%. **Nothing else moves**: each of the 39 other course files compiled alone under the tool before and after gives the same files byte for byte and the same verdict, and the build's own run over the eight shipped, KITE, LODE and the nine test courses writes 37 files, all identical. **What the layout does with it**: nothing has to move. The key is in line with its door and the plate one tile from its gate because that is the help this course gives (section 6), and KEEP.md's pen-in said both read well; they are no longer the check's conditions. Measured: with the ring key three tiles south (out of the door's line) the pen-in was REFUSED from the start, and the same file passes now. The art, the owner and the builder can move a key |
 | **C2** | NO TRAP reads one timer phase and never waits | **RESOLVED in the tool, for timed bridges** (the same section): a run that meets a timed drawbridge is run from eight phases 32 steps apart, as one that meets a lift is. A 4-cell bridge up at step 0 passes and is refused again at one phase (red arm `_TRAPNOWAIT`); a 7-cell bridge down 16 steps of 256 is refused at every phase. **What the layout does with it**: (1) the DRAWBRIDGE is up at the start (section 11): the course's opening is the change this bought. (2) the TRAITOR'S BRIDGE is off the drawbridge's timer (whole for steps 160 - 253). (3) **its window stays a third of the period, not the quarter the design wanted**: MEASURED, from rest on its flag a quarter is crossed only by a ball that set off 0.1 - 0.5 s BEFORE the bridge appeared; a third leaves 0.6 s after it lays down. The check does not decide this (it finds a quarter passable, and worse: section 14). Pop-up spikes, the see-saw and the cogs are still read at step 0 by NO TRAP, which passes them by the Hop |
 | **C3** | lanes collide near a see-saw | **KEPT as a rule of thumb** (section 8): nothing with a lane within a tile of a plate. Flag 0 and its merlon are two tiles from the stair's west end, as the pen-in's flag was |
 | **C4** | a spiked cell may not stand beside a lower floor | **KEPT**: the north row's inner cell is beside the stair's parapet, the west row's beside a 2-tile buttress in the yard's corner |
-| **C5** | the autopilot Hops the timers | **RESOLVED in the tool** (SPEC.md 130.14.7.4.6): on a `guide` course the route search STANDS before every timed element (a timed drawbridge, a popspike, a timed see-saw, and beside its raised end), as it did for a turntable alone. No Hop in either run. Only `guide` courses, and none had a timed element: nothing else moves (the same two builds). The search is under a second where it was 45 |
+| **C5** | the autopilot Hops the timers | **RESOLVED in the tool** (SPEC.md 137.14.7.4.6): on a `guide` course the route search STANDS before every timed element (a timed drawbridge, a popspike, a timed see-saw, and beside its raised end), as it did for a turntable alone. No Hop in either run. Only `guide` courses, and none had a timed element: nothing else moves (the same two builds). The search is under a second where it was 45 |
 | **C6** | a floating face is at most 3 units | **ACCEPTED**: the towers are 3 units over the battlements (2 in front). Taller wants a taller `thick`: section 14 |
 | **C7** | many lanes in the courtyard's window | **OPEN, MartyPC's to measure** (`bonanzaperf`). The count is the pen-in's: 47 lanes, 28 in the worst CGA window, 11 pose changes that can fall on one step against the 6 the wheel lists a frame. It is a sum of worst cases (the stair's 5 lanes turn together; 2 clock digits; a gate's art; a cog; an event), reported and never refused: the lanes past the sixth are drawn a frame later. If the stair's picture tears: a 2-lane stair (2 x 1, as MILL's) or the tower clock a tile further from it |
 | **C8** | `guide` is not declared | **RESOLVED**: declared, and G1, G3, G9 - G12 pass on both exits' runs (section 10) |
@@ -559,7 +559,7 @@ and make the finale three rides (section 13).
 | **K15** | **The pen-in's "run to the treasury" finished at the throne.** The branch's way points reached a goal, so the tool called it a finish: it was exit 0, and the cross key had never been touched (a way is taken 12 px short of its tile; a key is one cell) | **RESOLVED**: the throne is off the cogs' line, the branch's way is the tile PAST the cross key, and `keep/measure.py` prints each run's exit (1) and channels |
 | **K16** | **G11**: the route brushed the tower clock's cell | **RESOLVED**: section 11 |
 | **K17** | **45 s of every compile** went to the route search's flag pass. Flag 3 was within 3 cells of the throne's route, so the pass ran, and it takes a goal only with EVERY flag touched: flag 4 is on the turret | **RESOLVED in the course**: the bridge and its flag are 4 tiles from the key. (A flag pass that asked only for the flags near the route would be the tool's fix: section 14) |
-| **K18** | **`--selfcheck`'s `courses` section FAILED on any course with a gate's art**: the record that owns an art gate's first cell is its art's lane (kind 76, laid before the gate), and item 4 asked for the gate's own. GATE, the lab, fails it under the tool as it was; only a knob build lists GATE. KEEP is the first real course with a gate's art, and `bonanzacourse` would have gone red when it was wired in | **RESOLVED in the tool**, the check's expectation only (SPEC.md 130.41.12.1): no compile reads it, the guest equals the model on GATE's art scenes, and a lane of any other element still fails. GATE passes `courses` now |
+| **K18** | **`--selfcheck`'s `courses` section FAILED on any course with a gate's art**: the record that owns an art gate's first cell is its art's lane (kind 76, laid before the gate), and item 4 asked for the gate's own. GATE, the lab, fails it under the tool as it was; only a knob build lists GATE. KEEP is the first real course with a gate's art, and `bonanzacourse` would have gone red when it was wired in | **RESOLVED in the tool**, the check's expectation only (SPEC.md 137.41.12.1): no compile reads it, the guest equals the model on GATE's art scenes, and a lane of any other element still fails. GATE passes `courses` now |
 | **K19** | **Flags a ball rolls past**: a flag is one cell, and three of the pen-in's five stood in one lane of a wider walk | **RESOLVED**: section 2 |
 | **K20** | **The drawbridge dropped a ball that set off 0.5 s after the start** | **RESOLVED**: section 11 |
 
@@ -602,7 +602,7 @@ and make the finale three rides (section 13).
   with the same period and seed, it lets the player read the machine from across the
   yard. A POSE hook on the step counter and nothing else: PREDICTED about 30 bytes of
   `fam/gate.asm` and one kind.
-- **A warning before a timed bridge folds** (SPEC.md 130.41.10's open question 3): the
+- **A warning before a timed bridge folds** (SPEC.md 137.41.10's open question 3): the
   turntable has one (a seam, 16 steps). Any timed bridge drops a ball that set off in
   the last second of its window, and nothing on the screen says so. One pose.
 - **NO TRAP and a human's window.** The check passes a bridge that is down 8 steps of
@@ -758,7 +758,7 @@ writes them; `keep/art.py` draws the `.bba` files). The studies, with every pict
 
 ![the course with its art](keep/picture-cga.png)
 
-- **Clocks: `hour`** (SPEC.md 130.18.5.2), of two concepts studied (the other the shield of section 9). An
+- **Clocks: `hour`** (SPEC.md 137.18.5.2), of two concepts studied (the other the shield of section 9). An
   hourglass in a turned stand, the digits in its upper bulb.
 
   | clock | cell | frame | the sand | the stand's finial | digits |
@@ -767,7 +767,7 @@ writes them; `keep/art.py` draws the `.bba` files). The studies, with every pict
   | tower | (18, 18) | `hourk` | half run: under the digits, a mound below | a KEY | white, on the glass (`ink white`) |
   | throne | (40, 22) | `hourc` | run out: the lower bulb full | a CROWN | white, on the glass (`ink white`) |
 
-- **Gates** (SPEC.md 130.41.12.7; `gates/keep_port.bba`, `keep_door.bba`, `keep_vault.bba`: the course's own,
+- **Gates** (SPEC.md 137.41.12.7; `gates/keep_port.bba`, `keep_door.bba`, `keep_vault.bba`: the course's own,
   GATE's lab art untouched): a stone gate arch with battlements whose grille RISES, the PLUS on its keystone;
   the keep's door, two iron-bound leaves that SLIDE apart, the RING on its keystone; the treasury's bars,
   sliding ASIDE, the CROSS on its keystone. The glyphs are 7 x 7 on upright plaques. The traitor's bridge takes
@@ -791,7 +791,7 @@ writes them; `keep/art.py` draws the `.bba` files). The studies, with every pict
 | `--guide`, both logs, both cards | 32.8 s and 48.6 s; 2 and 3 flights, 0 panned; G9; G10; no clock touched; G12 8.3 s / 3.0 s and 8.3 s / 12.6 s | the same |
 
 **Room left**: **16 masks** (the gates took 32, the hourglasses 17), 14,321 part bytes, **592 LZ4 bytes** to
-the class. The next solid thing the course carries wants `masks banded` (SPEC.md 130.52) or a piece struck;
+the class. The next solid thing the course carries wants `masks banded` (SPEC.md 137.52) or a piece struck;
 paint (a sign, a decal) costs blocks and no mask. The courtyard's window had 11 pose changes that can fall on
 one step (section 9): the portcullis's art is 2 lanes and the door's 2, as the lab art's were, and the
 treasury's art is 1 lane where its preset bars were 1, so that count has not grown; no sign or decal is a lane.

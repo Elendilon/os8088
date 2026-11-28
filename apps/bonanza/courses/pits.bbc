@@ -1,4 +1,4 @@
-# Pits and Banks - BONANZA's second FIELD-cell test course (SPEC.md 130.28), built only by the BZSHAPES=1
+# Pits and Banks - BONANZA's second FIELD-cell test course (SPEC.md 137.28), built only by the BZSHAPES=1
 # knob beside shapes.bbc (whose head says why there are two).  Not shipped; not on the TOUR; the pathway
 # reaches it from SHAPE's exit 1.
 #
@@ -10,7 +10,7 @@
 #    and radius 2, 8 px, with NO hole - a dish to circle in.  A fall through the hole respawns on the
 #    plate beside it.
 course PITS "Pits and Banks"
-music fairway    # a test course: SPEC.md 130.50.3, every course names its song
+music fairway    # a test course: SPEC.md 137.50.3, every course names its song
 width  128
 origin 480
 ball   rubber
@@ -25,7 +25,7 @@ start 5 4
 goal  tile 30 27  flat 2
 clock 28 27
 target 60
-# the ROUTE (SPEC.md 130.28.10): the autopilot through both chutes, across the dish's middle, and across the
+# the ROUTE (SPEC.md 137.28.10): the autopilot through both chutes, across the dish's middle, and across the
 # deep pit left to right on row 22, the line that misses its hole (its rim it cannot ride: no run-up)
 way 5 4
 way 5 6

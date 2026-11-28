@@ -108,7 +108,7 @@ p.popspikes([(SX - 3, CY0 - 3), (SX - 3, CY0 - 2)], 128, 64, seed=0)
 p.wall(CX0 - 2, CY0 - 1, CX0 - 1, CY0, ZW + 0.5, col=STONE, note="a merlon: the flag's lane is the inner one, beside the parapet")
 p.flag(CX0 - 1, CY0 - 1, name="flag 1")
 p.popspikes([(CX0 - 2, CY0 + 1), (CX0 - 1, CY0 + 1)], 128, 64, seed=64)
-p.wall(CX0, CY0, CX0 + 1, CY0 + 2, ZW + 0.5, col=STONE, note="a buttress: a spiked cell may not stand beside a LOWER floor (SPEC.md 130.38.4)")
+p.wall(CX0, CY0, CX0 + 1, CY0 + 2, ZW + 0.5, col=STONE, note="a buttress: a spiked cell may not stand beside a LOWER floor (SPEC.md 137.38.4)")
 p.key(CX0 - 1, KY, "ring")
 # 7. THE DOOR, the keep's passage and the COG HALL: two quarter-turn tables over a pit, an island, the throne ----
 p.floor("K", DX, KY, DX + 2, KY + 1, ZC, "the door's sill and the keep's passage")
@@ -156,11 +156,11 @@ p.floor("Z", TX, KY - 6, TX + 3, KY - 3, ZC, "the TREASURY, 3 x 3")
 p.guard(TX, KY - 6, TX + 3, KY - 3, sides=["-x", "-y", "+x"])
 p.guard(TX, KY - 4, TX + 1, KY - 3, sides=["+y"])
 p.guard(TX + 2, KY - 4, TX + 3, KY - 3, sides=["+y"])
-p.goal(TX + 1, KY - 6, TX + 2, KY - 4, ZC, exit=1, hidden=True)   # a SECRET finish (SPEC.md 130.19.4): the pathway's `secret` route needs the word
+p.goal(TX + 1, KY - 6, TX + 2, KY - 4, ZC, exit=1, hidden=True)   # a SECRET finish (SPEC.md 137.19.4): the pathway's `secret` route needs the word
 p.float_all(CX0 - 10, CY0 - 7, TX + 5, GY + 14)
 
-# the clocks are HOURGLASSES (keep/CLOCKS.md; SPEC.md 130.18.5.2): the sand runs out along the course, and the
-# finial is a padlock, a key, a crown.  White digits where the sand is below them (SPEC.md 130.18.5.6)
+# the clocks are HOURGLASSES (keep/CLOCKS.md; SPEC.md 137.18.5.2): the sand runs out along the course, and the
+# finial is a padlock, a key, a crown.  White digits where the sand is below them (SPEC.md 137.18.5.6)
 p.clock(GX - 2, GY + 9, ZC, "start: full, a padlock", frame="hourp")
 p.clock(CX0 - 2, CY0 - 3, ZW, "tower: half run, a key", frame="hourk ink white")
 p.clock(TX, KY - 2, ZC, "throne: run out, a crown", frame="hourc ink white")                  # the dais's back-left corner: only the void is behind its head

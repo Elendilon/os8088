@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """bzballchk - the ball generator, bz_ballgen (apps/bonanza/bzballgen.inc), run
 under an emulated 8086 (unicorn) on the STORED part, in place: the result must
-equal tools/bonanza_assets.py's build_ball2, every byte (SPEC.md 130.25.5).
+equal tools/bonanza_assets.py's build_ball2, every byte (SPEC.md 137.25.5).
 
     python3 tools/bzballchk.py            # the check; exit 77 without unicorn
     python3 tools/bzballchk.py --clocks   # + the 8088 price of one generation
@@ -52,7 +52,7 @@ def assemble(patch=None, listing=False):
 
 def run(code, stored, trace=None, probe=None):
     """the routine on the stored part; probe = {} also records what the call
-    must keep (SPEC.md 130.25.5.1: AX and ES, the ball's selector never left in
+    must keep (SPEC.md 137.25.5.1: AX and ES, the ball's selector never left in
     ES; DS, SP, DF) and every write outside the part, bz_boxbuf's 1,024 bytes
     and the stack (kern_mega: the claim is written only through ES)"""
     from unicorn import Uc, UC_ARCH_X86, UC_MODE_16, UC_HOOK_CODE, UC_HOOK_MEM_WRITE

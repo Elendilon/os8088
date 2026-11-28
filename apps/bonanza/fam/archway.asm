@@ -1,12 +1,12 @@
 ; =============================================================================
-; apps/bonanza/fam/archway.asm - BONANZA's ARCHWAY FAMILY (SPEC.md 130.39, the
+; apps/bonanza/fam/archway.asm - BONANZA's ARCHWAY FAMILY (SPEC.md 137.39, the
 ; props round's P10): an arch over a path that a ball ROLLS UNDER - a CEILING -
 ; held equal to bbcourse.ArchFamily at every step.
 ;
 ; An archway cell is a FLAT FLOOR in the grid with NO OBS (its record is no
 ; owner: a pad may stand under the arch); its record's +18 is its CLEARANCE C,
 ; a signed word of whole px - the highest the ball's contact may be inside it.
-; With `top` (SPEC.md 130.12.3.7: +21 bit 0 set; else +20 - +22 zero) +20 is
+; With `top` (SPEC.md 137.12.3.7: +21 bit 0 set; else +20 - +22 zero) +20 is
 ; T, the TOP's height as the window holds it (z0, a byte: 2 px a step) - the
 ; lintel's or the pipe's top, a FLOOR the ball lands and rolls on - and +22 FZ
 ; the cell's own z0 in the grid (the floor under it), for CELL's write-back.
@@ -33,7 +33,7 @@
 ; No RESET: a play's start and a respawn place the ball and refill (bz_place),
 ; which runs CELL before any STEP reads the slot.
 ;
-; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 137.25.6.2), linked against the package's bss as the
 ; others are (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the
 ; package, AL = the slot, AH = the argument; `retf`.
 ; =============================================================================
@@ -58,7 +58,7 @@ AR_FZ       equ 22              ; ...with a top, its cell's z0 in the grid (0 no
     db 0
     dw 0, 0, 0, ar_step, 0, ar_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 137.25.6.2)"
 %endif
 
 ; CELL: the window's archway cells topped above the ball's band, the slot's
@@ -68,7 +68,7 @@ ar_cell:
     mov ax, 7fffh
     mov [di + 2], ax
     mov [di + 4], ax
-    call ar_walk                ; the family's own records (130.25.6.10):
+    call ar_walk                ; the family's own records (137.25.6.10):
     mov bp, bx                  ; BP the list, CX its count
     jcxz .x
 .r:
@@ -97,14 +97,14 @@ ar_cell:
     mov dh, BZ_AR_FLOOR         ; under C the FLOOR the grid holds, written
     cmp [bz_gz + 1], ax         ; back - bz_win9i KEEPS window cells, so one
     jle .o                      ; walled or topped for the last window's Z
-    cmp ax, [di]                ; must not stay so (SPEC.md 130.12.3.7 T11)
+    cmp ax, [di]                ; must not stay so (SPEC.md 137.12.3.7 T11)
     jle .t                      ; Z > C: LO = max(LO, C)
     mov [di], ax
 .t:
     mov dl, [es:si + AR_TOP]    ; the TOP: a FLOOR at T, its surface and
-    test byte [es:si + AR_TF], 1 ; flags kept (SPEC.md 130.12.3.7), the
+    test byte [es:si + AR_TF], 1 ; flags kept (SPEC.md 137.12.3.7), the
     jnz .k                      ; centre's CC left open
-    mov dh, BZ_AR_WALL          ; no TOP: a WALL (130.39.4), CC = C
+    mov dh, BZ_AR_WALL          ; no TOP: a WALL (137.39.4), CC = C
     jmp short .c
 .o:
     cmp ax, [di + 2]            ; Z <= C: HI = min(HI, C)
@@ -125,7 +125,7 @@ ar_cell:
     inc bp
     loop .r
 .x:
-    xor ax, ax                  ; (130.25.6.11: an archway in the window, its
+    xor ax, ax                  ; (137.25.6.11: an archway in the window, its
     cmp word [di], 8000h        ; STEP every step; none - LO, HI and CC still
     jne .w                      ; 8000h, 7FFFh, 7FFFh - no STEP until the next
     cmp word [di + 2], 7fffh    ; window)

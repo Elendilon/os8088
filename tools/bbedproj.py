@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbedproj - THE COURSE BUILDER'S MODEL (SPEC.md 130.58.2, 130.58.3).
+"""bbedproj - THE COURSE BUILDER'S MODEL (SPEC.md 137.58.2, 137.58.3).
 
     python3 tools/bbedproj.py check COURSE.bbc [--strict] [--json]
     python3 tools/bbedproj.py show  COURSE.bbc [--json]          # the statements, their lines and kinds
@@ -7,7 +7,7 @@
     python3 tools/bbedproj.py set   COURSE.bbc LINE 'floor rect 6 9 11 14 flat 16'
     python3 tools/bbedproj.py move  COURSE.bbc LINE DX DY
     python3 tools/bbedproj.py remove COURSE.bbc LINE
-    python3 tools/bbedproj.py shift COURSE.bbc DX DY [--prove]   # the WHOLE course (SPEC.md 130.58.57)
+    python3 tools/bbedproj.py shift COURSE.bbc DX DY [--prove]   # the WHOLE course (SPEC.md 137.58.57)
 
 A `.bbc` course is its TEXT. Every edit rewrites only the lines it is about:
 a changed statement keeps its indentation and its trailing comment, a new one
@@ -31,10 +31,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bbcourse as B  # noqa: E402
 
-# The statements whose first operand is a SHAPE (SPEC.md 130.10.3, 130.24.4).
+# The statements whose first operand is a SHAPE (SPEC.md 137.10.3, 137.24.4).
 SHAPED = ("floor", "wall", "goal", "hole", "surface", "float", "guard", "water", "noocclude", "archway", "gap")
 MATERIALS = ("rubber", "steel", "glass")
-# prop kinds that take a rectangle, not a cell (SPEC.md 130.38, 130.41)
+# prop kinds that take a rectangle, not a cell (SPEC.md 137.38, 137.41)
 RECT_PROPS = ("spikes", "membrane", "bridge")
 
 
@@ -106,7 +106,7 @@ def coord_slots(toks):
             out.extend([(i, "x"), (i + 1, "y")])
 
     def shape(i):
-        if i + 1 < len(toks) and toks[i] in ("half", "quarter"):     # `half right tile ...` (130.24.4)
+        if i + 1 < len(toks) and toks[i] in ("half", "quarter"):     # `half right tile ...` (137.24.4)
             i += 2
         if i >= len(toks):
             return i
@@ -171,9 +171,9 @@ def coord_slots(toks):
 
 
 def world_slots(toks):
-    """SPEC.md 130.58.57: EVERY world cell a statement names - coord_slots' positions, and the two kinds of cell
-    that are not a part's position and so never move with a part: an `accept`'s cell (130.58.5) and a camera
-    stop's `over` span (130.45.6). What a whole-course shift moves. -> [(index, axis)]"""
+    """SPEC.md 137.58.57: EVERY world cell a statement names - coord_slots' positions, and the two kinds of cell
+    that are not a part's position and so never move with a part: an `accept`'s cell (137.58.5) and a camera
+    stop's `over` span (137.45.6). What a whole-course shift moves. -> [(index, axis)]"""
     out = list(coord_slots(toks))
     if not toks:
         return out
@@ -195,9 +195,9 @@ def shifted_code(code, dx, dy, slots=None):
     return join_tokens(toks)
 
 
-GRID_LO, GRID_HI = 3, 252       # every SOLID cell inside 3 .. 252 on both axes (bbcourse.build_tiles, 130.10.3)
+GRID_LO, GRID_HI = 3, 252       # every SOLID cell inside 3 .. 252 on both axes (bbcourse.build_tiles, 137.10.3)
 _GRID_ERR = re.compile(r"tile \((-?\d+), (-?\d+)\) is solid outside 3 \.\. 252")
-# statements a course holds once (or that are the course's settings): never copied (SPEC.md 130.58.57)
+# statements a course holds once (or that are the course's settings): never copied (SPEC.md 137.58.57)
 CLIP_SINGLE = ("start",)
 
 
@@ -262,7 +262,7 @@ class Document(object):
         self.saved_text = text
         self.listeners = []
         self._analysis = None
-        self.auto_mouth = set()     # SPEC.md 130.58.41: the tube statements whose mouth HEIGHT the builder wrote
+        self.auto_mouth = set()     # SPEC.md 137.58.41: the tube statements whose mouth HEIGHT the builder wrote
 
     # -- files --------------------------------------------------------------
     @classmethod
@@ -278,7 +278,7 @@ class Document(object):
         return t + self.eol if self.final_eol else t
 
     def changed_on_disk(self):
-        """True when the file is not what was loaded or last saved (SPEC.md 130.58.3)"""
+        """True when the file is not what was loaded or last saved (SPEC.md 137.58.3)"""
         return self.path is not None and self.stamp is not None and file_stamp(self.path) != self.stamp
 
     def save(self, path=None, force=False):
@@ -392,7 +392,7 @@ class Document(object):
         return self._commit(label or "edit line %d" % line, new)
 
     def set_text(self, text, label=None):
-        """the whole course replaced by TEXT (the Source tab's Apply, SPEC.md 130.58.38) as ONE edit; its line
+        """the whole course replaced by TEXT (the Source tab's Apply, SPEC.md 137.58.38) as ONE edit; its line
         ends are the file's own whatever TEXT uses"""
         body = text.replace("\r\n", "\n")
         if body.endswith("\n"):
@@ -412,7 +412,7 @@ class Document(object):
             self._carry_mouth(st.code, code.strip())
         return self._commit(label or "edit %d lines" % len(codes), new)
 
-    # -- SPEC.md 130.58.41: a mouth height the builder wrote, not the author ---------------------------------
+    # -- SPEC.md 137.58.41: a mouth height the builder wrote, not the author ---------------------------------
     def _carry_mouth(self, old, new):
         """a statement rewritten in place (moved, reshaped): when its mouth height was the builder's and stays the
         same, the new text's is the builder's too - a height changed is the author's"""
@@ -473,7 +473,7 @@ class Document(object):
         return after + 1
 
     def auto_uses(self):
-        """add the family a refusal names (`uses NAME`, SPEC.md 130.25.6.4) to the course's `uses` line, as
+        """add the family a refusal names (`uses NAME`, SPEC.md 137.25.6.4) to the course's `uses` line, as
         often as the refusals name one - and take out a family whose last element the edit removed; part of
         the edit that needed it (one undo step). -> names added (a removed one as -NAME)"""
         import re
@@ -515,7 +515,7 @@ class Document(object):
             self._notify("uses " + " ".join(added).replace("-", "no more "))
         return added
 
-    # -- the ground as ONE LAYER of cells (SPEC.md 130.58.13) ---------------------
+    # -- the ground as ONE LAYER of cells (SPEC.md 137.58.13) ---------------------
     def _ground_shape(self, st):
         """(index, (x0, y0, x1, y1) end-exclusive) of a statement's `tile` or `rect` shape - one a piece can be
         cut out of - or None (a band, a box, a half or a quarter: never split)"""
@@ -568,7 +568,7 @@ class Document(object):
     def _cut(self, lines, area, cut_kinds, skip=None):
         """LINES with AREA cut out of every statement of CUT_KINDS; -> (lines, the index after the last
         ground statement). SKIP (a set of 1-based line numbers in LINES) are left whole, and are renumbered into
-        the result in place (SPEC.md 130.58.57: a moved block is not cut by its own landing)"""
+        the result in place (SPEC.md 137.58.57: a moved block is not cut by its own landing)"""
         ax0, ay0, ax1, ay1 = area[0], area[1], area[2] + 1, area[3] + 1
         new = []
         last_ground = 0
@@ -617,7 +617,7 @@ class Document(object):
         return new, last_ground
 
     def auto_band(self):
-        """SPEC.md 130.58.13: a course whose floors (and the flight past their edges) leave its picture - the
+        """SPEC.md 137.58.13: a course whose floors (and the flight past their edges) leave its picture - the
         diagonal band its `width` (word columns, 64 - 160 in 8s) and `origin` draw - gets the `origin` that
         centres them; failing that the SMALLEST wider `width` that holds them, centred. Never past 160 (1,280
         px): then it is left refused, for the author. Folded into the edit that needed it. -> what was done,
@@ -669,7 +669,7 @@ class Document(object):
             return " and ".join(done) or None
         return None
 
-    # -- SPEC.md 130.58.57: the whole course moved, a block moved, copy and paste ------------------------------
+    # -- SPEC.md 137.58.57: the whole course moved, a block moved, copy and paste ------------------------------
     def shifted_lines(self, dx, dy, lines=None):
         """LINES (default the document's) with every world cell of every statement moved by (DX, DY)
         (world_slots: positions, an accept's cell, a stop's span) and the picture's `origin` moved back by
@@ -732,7 +732,7 @@ class Document(object):
 
     def shift_needed(self):
         """the smallest whole-cell (dx, dy) that brings every solid cell inside 3 .. 252, preferring an EVEN
-        dx + dy (the floor's checker is by cell parity, so an odd shift swaps its two colours: SPEC.md 130.58.57).
+        dx + dy (the floor's checker is by cell parity, so an odd shift swaps its two colours: SPEC.md 137.58.57).
         -> (dx, dy), (0, 0) when it is inside already, or the reason there is no room, in words"""
         ext = self.grid_extent()
         if ext is None:
@@ -763,7 +763,7 @@ class Document(object):
         return dx, dy
 
     def auto_shift(self):
-        """SPEC.md 130.58.57: an edit that put a solid cell past the grid's edge (3 .. 252) moves the WHOLE course
+        """SPEC.md 137.58.57: an edit that put a solid cell past the grid's edge (3 .. 252) moves the WHOLE course
         back inside, by shift_needed's offset, when there is room - folded into the edit that needed it (one undo
         step). A pathway (path.bbc) is never moved. -> None (nothing to do), {"moved": (dx, dy)} or
         {"refused": the reason in words}"""
@@ -783,10 +783,10 @@ class Document(object):
         return {"moved": n}
 
     def move_block(self, lines, dx, dy, label=None):
-        """SPEC.md 130.58.57: several statements (LINES, with whatever rides with them) moved together by
+        """SPEC.md 137.58.57: several statements (LINES, with whatever rides with them) moved together by
         (DX, DY) as ONE edit: each rewritten in its own place, and the ground they land on (floor, wall, goal,
         hole and paint not in the block) cut away under the block's floors, walls, goals and holes, so the
-        block lies on top - the ground is one layer (130.58.13). -> the block's codes after the move"""
+        block lies on top - the ground is one layer (137.58.13). -> the block's codes after the move"""
         lines = sorted(set(lines))
         new = list(self.lines)
         codes, areas = [], []
@@ -827,7 +827,7 @@ class Document(object):
         return sorted(out)
 
     def copy_codes(self, lines):
-        """SPEC.md 130.58.57: what Copy takes of LINES - each statement's code, comments left behind - and what it
+        """SPEC.md 137.58.57: what Copy takes of LINES - each statement's code, comments left behind - and what it
         leaves: a course's settings (no position) and what it holds once (the start). -> (codes, [skipped kind])"""
         codes, skipped = [], []
         for ln in sorted(set(lines)):
@@ -842,7 +842,7 @@ class Document(object):
         return codes, skipped
 
     def paste_plan(self, text, at=None):
-        """SPEC.md 130.58.57: TEXT (statements, a line each: this builder's copy, or any course's text) made ready
+        """SPEC.md 137.58.57: TEXT (statements, a line each: this builder's copy, or any course's text) made ready
         to paste: settings and singletons left out, a route BRANCH renamed to a name this course does not use (the
         pasted points are a branch of their own), a pathway pad refused - then moved so the set's first part
         in reading order (topmost, then leftmost) has its top-left on AT (a cell), or else by (k, k), the smallest k >= 1 that puts no statement exactly where one
@@ -889,7 +889,7 @@ class Document(object):
         if not codes:
             return [], (0, 0), notes
         if at is not None:
-            # SPEC.md 130.58.60: the FIRST PART in reading order (the topmost, then the leftmost of those) lands
+            # SPEC.md 137.58.60: the FIRST PART in reading order (the topmost, then the leftmost of those) lands
             # on AT, the rest keeping their places around it. The set's bounding corner was the anchor, and for
             # a diagonal pair that corner is an empty cell, so nothing landed where the author pointed
             anchors = []
@@ -930,7 +930,7 @@ class Document(object):
         return list(codes)
 
     def tidy(self, near=None, label=None):
-        """SPEC.md 130.58.14: rejoin ground statements of ONE kind and the SAME clauses (a ramp's are its
+        """SPEC.md 137.58.14: rejoin ground statements of ONE kind and the SAME clauses (a ramp's are its
         plane, so its pieces rejoin too) into the fewest rectangles. Only statements with no comment of their
         own, laid by `tile` or `rect`, touching NEAR (cells x0, y0, x1, y1 inclusive, grown by one) when given,
         and whose cells no other ground statement covers. -> True when something was rejoined"""
@@ -998,7 +998,7 @@ class Document(object):
         return True
 
     def toggle_gap(self, cell, side, faces):
-        """SPEC.md 130.58.21, 130.57: mark or unmark ONE face (cell, side 'sw'|'se') for the gap band, as one undo
+        """SPEC.md 137.58.21, 137.57: mark or unmark ONE face (cell, side 'sw'|'se') for the gap band, as one undo
         step. FACES is every face the detector found (c.gap_faces as {((wx, wy), side)}): a statement naming the
         face loses it - rewritten as the fewest `gap rect` / `gap tile` lines that still name what it marked
         and that a face of FACES is in (a piece that would band nothing is dropped), deleted when nothing is
@@ -1044,14 +1044,14 @@ class Document(object):
             return "marked"
 
     def in_play(self):
-        """the cells `noocclude` may not name (SPEC.md 130.53): the start's and every route point's"""
+        """the cells `noocclude` may not name (SPEC.md 137.53): the start's and every route point's"""
         src = self.analysis()["src"]
         if src is None:
             return set()
         return ({tuple(src.start[0])} if src.start else set()) | {tuple(w) for w, _l in src.ways}
 
     def set_noocclude(self, add=(), remove=()):
-        """SPEC.md 130.58.32, 130.53: the `noocclude` cells changed as one undo step - ADD cells put in (the start's
+        """SPEC.md 137.58.32, 137.53: the `noocclude` cells changed as one undo step - ADD cells put in (the start's
         and the route points' left out: refused there), REMOVE cells taken out - and every `noocclude` statement
         rewritten as the fewest `noocclude rect` / `noocclude tile` lines over what is left, at the first one's
         place (its comment kept); none left, the lines go. -> (cells added, cells removed, cells refused)"""
@@ -1089,7 +1089,7 @@ class Document(object):
     WAY_ERR = re.compile(r"way \((-?\d+), (-?\d+)\) is on a (WALL|VOID) tile")
 
     def relocate_ways(self, reach=4, tries=40):
-        """SPEC.md 130.58.22: every route point an edit left on a WALL or on VOID moved to the nearest cell it may
+        """SPEC.md 137.58.22: every route point an edit left on a WALL or on VOID moved to the nearest cell it may
         stand on (a floor, goal or shaped floor, the nearest first, then the one nearest the route's next point),
         each a commit of its own - the caller folds them into its edit's undo step (merge_since). -> [(line,
         (x, y), (nx, ny))] moved; a point with no such cell within REACH cells is left (its edit is refused)"""
@@ -1125,7 +1125,7 @@ class Document(object):
             del self.undo_stack[n:]
             self.undo_stack.append((label or first[0], first[1]))
 
-    # -- what only made sense on the ground, and an error's identity (SPEC.md 130.58.38) -------------------------
+    # -- what only made sense on the ground, and an error's identity (SPEC.md 137.58.38) -------------------------
     LOC = re.compile(r"^[^\n]*?:(\d+): ")
 
     def err_key(self, err, lines=None):
@@ -1168,7 +1168,7 @@ class Document(object):
                 "stranded": {Statement(ln, self.lines[ln - 1]).code for _c, ln in a.get("stranded") or ()}}
 
     def drop_dependents(self, before):
-        """SPEC.md 130.58.38: after an edit, what only made sense on the ground it removed goes too, each a commit
+        """SPEC.md 137.58.38: after an edit, what only made sense on the ground it removed goes too, each a commit
         of its own (the caller folds them into the edit's undo step): a `float` that floats nothing now and did
         not before the edit (BEFORE: the analysis before it) - none of its cells hangs a face over the void, so it
         marks nothing - and a `surface` that painted ground before the edit and lies wholly off the ground now.
@@ -1195,7 +1195,7 @@ class Document(object):
 
     def paint_in(self, rect, skip=()):
         """the `float` and `surface` statements laid by tile or rect wholly inside RECT (x0, y0, x1, y1
-        end-exclusive) - a moved floor's paint and hang that are not its own shape's (SPEC.md 130.58.38) -> [line]"""
+        end-exclusive) - a moved floor's paint and hang that are not its own shape's (SPEC.md 137.58.38) -> [line]"""
         out = []
         for st in self.statements():
             if st.line in skip or st.kind not in ("float", "surface"):
@@ -1222,7 +1222,7 @@ class Document(object):
     GROUND = ("floor", "wall", "goal", "hole", "float", "surface")
 
     def riders(self, rect, skip=()):
-        """SPEC.md 130.58.34: what stands on RECT (x0, y0, x1, y1 end-exclusive) and rides when the ground under it
+        """SPEC.md 137.58.34: what stands on RECT (x0, y0, x1, y1 end-exclusive) and rides when the ground under it
         moves - every statement but ground and paint whose every world cell is inside (a rail, a flag, a route
         point, a prop, a pad, a clock, a tube with both ends on it), and the part inside of a `guard rect` that
         reaches past it -> ([(line, code)] wholly inside, [(line, inside code, [outside codes])] split)"""
@@ -1330,18 +1330,18 @@ class Document(object):
 # analysis: what the window draws (no compile: milliseconds)
 # ----------------------------------------------------------------------------
 
-# a split cell's pieces in the plan (u right, v down, the cell's corner T at (0, 0)): SPEC.md 130.24.3's halves -
+# a split cell's pieces in the plan (u right, v down, the cell's corner T at (0, 0)): SPEC.md 137.24.3's halves -
 # TB along T-B (A left, B right), LR along L-R (A up, B down) - and quarters N, E, S, W round the centre
 PIECE_POLY = {(B.KIND_TB, 0): ((0, 0), (0, 1), (1, 1)), (B.KIND_TB, 1): ((0, 0), (1, 0), (1, 1)),
               (B.KIND_LR, 0): ((0, 0), (1, 0), (0, 1)), (B.KIND_LR, 1): ((1, 0), (1, 1), (0, 1)),
               (B.KIND_Q, 0): ((0, 0), (1, 0), (.5, .5)), (B.KIND_Q, 1): ((1, 0), (1, 1), (.5, .5)),
               (B.KIND_Q, 2): ((1, 1), (0, 1), (.5, .5)), (B.KIND_Q, 3): ((0, 1), (0, 0), (.5, .5))}
-FLY = 4                         # diagonals a ball's flight reaches past a floor's edge (SPEC.md 130.58.13)
+FLY = 4                         # diagonals a ball's flight reaches past a floor's edge (SPEC.md 137.58.13)
 KIND_NAMES = {B.KIND_FLOOR: "floor", B.KIND_WALL: "wall", B.KIND_GOAL: "goal", B.KIND_FIELD: "field"}
 
 
 def reshape(toks, si, n, rect):
-    """SPEC.md 130.58.22: a statement's shape (its tokens SI .. SI + N) laid over RECT (x0, y0, x1, y1 end-exclusive)
+    """SPEC.md 137.58.22: a statement's shape (its tokens SI .. SI + N) laid over RECT (x0, y0, x1, y1 end-exclusive)
     instead - `tile` for one cell - and a ramp along x or y keeping its SLOPE: its span is the new extent along its
     run and its end heights follow at the same rate. -> the code"""
     x0, y0, x1, y1 = rect
@@ -1359,7 +1359,7 @@ def reshape(toks, si, n, rect):
 
 
 def shift_same(c0, c1, dx, dy):
-    """SPEC.md 130.58.57's proof that a whole-course shift moved only the course's POSITION: two compiled courses
+    """SPEC.md 137.58.57's proof that a whole-course shift moved only the course's POSITION: two compiled courses
     (bbcourse.compile_course), C1 the C0 course shifted by (DX, DY). -> [what differs] ([] for the same course):
     the picture pixel for pixel, every route point's place in it, the laid cells (one over), the occluder masks
     and records (their pixels; a record's depth s is wx + wy, so one over by dx + dy), the warnings (kind,
@@ -1427,11 +1427,11 @@ def analyse(text, fname="<course>"):
     if tiles and not out["error"]:
         try:                                # the props' own refusals (a family not named, a tube's body ...)
             props = B.build_props(src, tiles, fname)
-            out["stranded"] = B.float_stranded(src, tiles, props)   # SPEC.md 130.58.38: the compile's own
+            out["stranded"] = B.float_stranded(src, tiles, props)   # SPEC.md 137.58.38: the compile's own
             if out["stranded"]:                                     # rule, in the cheap check
                 ln = out["stranded"][0][1]
                 raise B.CourseError("%s:%d: float floats nothing: no cell of its shape hangs a face over the void "
-                                    "(SPEC.md 130.27.2)" % (fname, ln))
+                                    "(SPEC.md 137.27.2)" % (fname, ln))
         except B.CourseError as e:
             out["error"], out["error_line"] = str(e), _line_of(str(e))
         except Exception as e:
@@ -1482,7 +1482,7 @@ def analyse(text, fname="<course>"):
                 out["error"] = "%s:%d: way (%d, %d) is on a %s tile" % (fname, ln, wx, wy, "WALL" if d else "VOID")
                 out["error_line"] = ln
                 break
-    # the picture's band (SPEC.md 130.58.13): a cell is drawn when 16 (wx - wy) + x0 - 24 >= 0 and
+    # the picture's band (SPEC.md 137.58.13): a cell is drawn when 16 (wx - wy) + x0 - 24 >= 0 and
     # 16 (wx - wy) + x0 + 23 < 8 width (bbcourse.foot_x); the floors must lie inside it
     width = src.width or 64
     x0 = src.origin[0] if src.origin else width * 4
@@ -1515,7 +1515,7 @@ def analyse(text, fname="<course>"):
         item("Route point", "way", at, ln)
     for p in src.props:
         fam = B.PK_NAMES.get(p.get("kind"))
-        if p.get("fam"):                    # a family's element (SPEC.md 130.25.6.4): its kind's name
+        if p.get("fam"):                    # a family's element (SPEC.md 137.25.6.4): its kind's name
             fam = next((k["name"] for k in p["fam"]["kinds"] if k["kind"] == p["kind"]), p["fam"]["name"])
         fam = fam or "prop"
         at = p.get("at")
@@ -1576,7 +1576,7 @@ def _line_of(msg):
 
 
 def mouth_height(code):
-    """a DROP's or a raised LAUNCH's `height` word as written (SPEC.md 130.12.3.3), else None"""
+    """a DROP's or a raised LAUNCH's `height` word as written (SPEC.md 137.12.3.3), else None"""
     t = tokens(code) if code else []
     if t[:1] != ["tube"] or "height" not in t[1:-1]:
         return None
@@ -1609,7 +1609,7 @@ def at_cell(analysis, cell, frac=None):
         for p in c["pieces"]:
             if _inside(frac, p["poly"]) and p["line"] not in lines:
                 lines.append(p["line"])
-    src = analysis.get("src")                   # a GUARD RAIL on one of the cell's edges (SPEC.md 130.35: a rail
+    src = analysis.get("src")                   # a GUARD RAIL on one of the cell's edges (SPEC.md 137.35: a rail
     rails = getattr(src, "rails", None) if src is not None else None     # stands on a floor's edge)
     if rails:
         x, y = cell

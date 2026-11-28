@@ -5,8 +5,8 @@ index 86ecb616d..cac9eec54 100644
 @@ -570,6 +570,7 @@ VAR bz_obias,2                  ; that plus 8 x the block row's first line
  VAR bz_orw,2                    ; (bz_oprep)
  VAR bz_omsk,16                  ; bz_oand: a block word's laid masks, ANDed
- VAR bz_aE,128                   ; bz_amodel (SPEC.md 130.29.5): THE CELL'S CACHE -
-+VAR bz_aEh,128                  ; (130.29.13: each column's slab bottom, 128 on)
+ VAR bz_aE,128                   ; bz_amodel (SPEC.md 137.29.5): THE CELL'S CACHE -
++VAR bz_aEh,128                  ; (137.29.13: each column's slab bottom, 128 on)
  VAR bz_atb,16                   ; 8 words' 8 columns' least edge line (7FFFh
  VAR bz_awlo,16                  ; none) from the first word W0, each word's
  VAR bz_awhi,16                  ; least and greatest, a bit a word computed;
@@ -14,7 +14,7 @@ index 86ecb616d..cac9eec54 100644
  VAR bz_axed,1                   ; its cell's X and whether it is V's own
  VAR bz_axx,2
  VAR bz_axo,1
-+VAR bz_awmh,16                  ; SPEC.md 130.29.13: each word's least slab
++VAR bz_awmh,16                  ; SPEC.md 137.29.13: each word's least slab
 +VAR bz_afd,2                    ; bottom; FDEP (px); the table has a float;
 +VAR bz_aflt,1                   ; bz_afh's 2 d' + 1, Y, Y + 16 - 4 (sx + sy)
 +VAR bz_a2d,1                    ; + the depth, and F(k2)'s step x 32
@@ -23,7 +23,7 @@ index 86ecb616d..cac9eec54 100644
 +VAR bz_ad2,2
  VAR bz_omp,2                    ; bz_olay's mask in our segment: bz_omsk, or
                                  ; the model's (bz_amodel; bz_crshdr sets it)
- VAR bz_okt,1                    ; the 4-byte record (SPEC.md 130.15.5): bz_ozk
+ VAR bz_okt,1                    ; the 4-byte record (SPEC.md 137.15.5): bz_ozk
 diff --git a/apps/bonanza/bzvideo.inc b/apps/bonanza/bzvideo.inc
 index d6be8e2d8..4ce46d54b 100644
 --- a/apps/bonanza/bzvideo.inc
@@ -32,7 +32,7 @@ index d6be8e2d8..4ce46d54b 100644
      mov cl, 3
      sar ax, cl
      mov [es:bz_aw0], ax
-+    mov al, [bx + BZG_PADS]     ; SPEC.md 130.29.13: FDEP, +29 bits 4 - 7 its
++    mov al, [bx + BZG_PADS]     ; SPEC.md 137.29.13: FDEP, +29 bits 4 - 7 its
 +    and ax, 0f0h                ; half (0: every float passed over)
 +    shr ax, cl
 +    mov [es:bz_afd], ax
@@ -59,7 +59,7 @@ index d6be8e2d8..4ce46d54b 100644
      shl si, 1
      add si, bp                  ; SI = N's four bytes: a FLOOR, WALL or GOAL,
 -    push ax                     ; not OBS, not FL_FLOAT unless a GOAL
-+    push ax                     ; not OBS (a FLOAT: FDEP, 130.29.13)
++    push ax                     ; not OBS (a FLOAT: FDEP, 137.29.13)
      push cx
      mov ax, [si + 2]
      and al, 0fh
@@ -74,7 +74,7 @@ index d6be8e2d8..4ce46d54b 100644
      test ah, BZ_FL_FLOAT
 -    jnz .cno
 +    jz .cyes
-+    mov byte [es:di + 7], 0c0h  ; SPEC.md 130.29.13: a FLOAT hides down to its
++    mov byte [es:di + 7], 0c0h  ; SPEC.md 137.29.13: a FLOAT hides down to its
 +    test ah, BZ_FL_FDEF         ; slab's bottom - 0C0h in its slot the default
 +    jnz .cfl                    ; slab (3 units), 80h FDEP's (0: passed over);
 +    mov byte [es:di + 7], 80h   ; and the table's flag, for bz_arange's
@@ -84,7 +84,7 @@ index d6be8e2d8..4ce46d54b 100644
 +    mov byte [es:bz_aflt], 1
  .cyes:                          ; READABLE: X, the slopes, H / 2 = z0 +
      mov [es:di + 2], dx         ; 2 max(sx, 0) + 2 max(sy, 0) and Y = 8 (s + d)
-     mov al, [si + 1]            ; + Y0 - 2 z0 (z0 quarter units, 130.48)
+     mov al, [si + 1]            ; + Y0 - 2 z0 (z0 quarter units, 137.48)
 @@ -2375,8 +2392,9 @@ bz_amodel:
      ; is at or over N's in all 16 columns exactly when Y_P + 8 <= Y_N (F
      ; runs 0 .. 8 along a flat half, the two the other way round); and with
@@ -92,7 +92,7 @@ index d6be8e2d8..4ce46d54b 100644
 -    ; least in any column, and is never computed (bz_arange).
 -    mov byte [es:di + 7], 0
 +    ; least in any column, and is never computed (bz_arange).  A FLOAT P's
-+    ; interval ends at its slab's bottom, so it shadows nothing (130.29.13);
++    ; interval ends at its slab's bottom, so it shadows nothing (137.29.13);
 +    ; a float N under a whole P is shadowed as a whole cell is.
      cmp word [es:bz_ad], 1
      je .csh                     ; (row 1: its parents are not front cells)
@@ -119,7 +119,7 @@ index d6be8e2d8..4ce46d54b 100644
      jnz .mprep                  ; map row, once (bz_oprep; DI = MTAB)
      call bz_oprep
  .mprep:
-+    mov ax, [es:bz_awmh + bx]   ; SPEC.md 130.29.13: a slab's bottom over the
++    mov ax, [es:bz_awmh + bx]   ; SPEC.md 137.29.13: a slab's bottom over the
 +    cmp ax, [es:bz_are]         ; laid lines' end - the mask built
 +    jge .mpr1
 +    jmp .mbuild
@@ -140,7 +140,7 @@ index d6be8e2d8..4ce46d54b 100644
      ror dx, 1
  .mc2:
      loop .mcol
-+    cmp byte [bz_aflt], 0       ; SPEC.md 130.29.13: a column's [lo, hi) - its
++    cmp byte [bz_aflt], 0       ; SPEC.md 137.29.13: a column's [lo, hi) - its
 +    je .mh0                     ; pair toggled again at hi's line (at line 0
 +    add si, 128 - 16            ; with lo's when hi is over the first), so the
 +    mov cx, 8                   ; lines' running XOR is the interval
@@ -179,7 +179,7 @@ index d6be8e2d8..4ce46d54b 100644
      shl bx, cl
      mov cx, bx                  ; CX = the columns
      mov ax, 7fffh
-+    cmp byte [bz_aflt], 0       ; (SPEC.md 130.29.13: a table with a float -
++    cmp byte [bz_aflt], 0       ; (SPEC.md 137.29.13: a table with a float -
 +    je .h0                      ; each column's slab bottom too, bz_aEh,
 +    push di                     ; 128 bytes on)
 +    push cx
@@ -196,10 +196,10 @@ index d6be8e2d8..4ce46d54b 100644
      mov cx, bp
      inc cx                      ; CX = the columns
 -    test byte [si + 7], 8
--    jnz .rx                     ; (an extra slot: its own k, 130.49.2)
+-    jnz .rx                     ; (an extra slot: its own k, 137.49.2)
 +    test byte [si + 7], 88h
-+    jnz .rxf                    ; (an extra slot: its own k, 130.49.2; a
-+                                ; float, 130.29.13)
++    jnz .rxf                    ; (an extra slot: its own k, 137.49.2; a
++                                ; float, 137.29.13)
      mov bl, [si + 6]
      and bl, 0fh
      jnz .rk
@@ -210,7 +210,7 @@ index d6be8e2d8..4ce46d54b 100644
 +.rxf:
 +    test byte [si + 7], 80h
 +    jz .rx
-+    mov dx, 4                   ; A FLOAT's right half (130.29.13): + 4, DH 0
++    mov dx, 4                   ; A FLOAT's right half (137.29.13): + 4, DH 0
 +    call bz_afh
 +    pop dx
 +    jmp .left
@@ -245,7 +245,7 @@ index d6be8e2d8..4ce46d54b 100644
      mov di, ax
  .m2:
      loop .m
-+    mov bp, 7fffh               ; SPEC.md 130.29.13: the word's least slab
++    mov bp, 7fffh               ; SPEC.md 137.29.13: the word's least slab
 +    cmp byte [bz_aflt], 0       ; bottom (none without a float)
 +    je .mh
 +    add si, 128 - 16
@@ -271,7 +271,7 @@ index d6be8e2d8..4ce46d54b 100644
      shl dx, cl
      pop cx
      mov bp, ax
-+    cmp byte [bz_aflt], 0       ; SPEC.md 130.29.13: a table with a float
++    cmp byte [bz_aflt], 0       ; SPEC.md 137.29.13: a table with a float
 +    jne .g                      ; merges every half into [lo, hi)
  .c:
      mov ax, bp
@@ -299,14 +299,14 @@ index d6be8e2d8..4ce46d54b 100644
 +    loop .g
 +    ret
 +
- ; bz_ahalf4 - bz_ahalf with num / 16 (SPEC.md 130.49.2's centre edge): num is
+ ; bz_ahalf4 - bz_ahalf with num / 16 (SPEC.md 137.49.2's centre edge): num is
  ; carried x 16, so its high byte is num >> 4.
  bz_ahalf4:
 @@ -3037,6 +3145,117 @@ bz_ahalf4:
      mov cl, 4
      jmp short bz_ahalf.sh
  
-+; bz_afh - SPEC.md 130.29.13: a FLOATING front cell's half over CX columns
++; bz_afh - SPEC.md 137.29.13: a FLOATING front cell's half over CX columns
 +; from DI (bz_aE's; bz_aEh 128 bytes on), the slot at SI, AX = d' of the
 +; first column, DL the half's constant (+ 4 right, + 3 left), DH 0 for the
 +; right half.  E = Y + F(k1, d'), its own half's edge; B = Bc - F(k2, d'),
@@ -417,7 +417,7 @@ index d6be8e2d8..4ce46d54b 100644
 +.st1:
 +    ret
 +
- ; bz_axcell - SPEC.md 130.49.2: a SPLIT cell's pieces' HALF-EDGES into the
+ ; bz_axcell - SPEC.md 137.49.2: a SPLIT cell's pieces' HALF-EDGES into the
  ; extra slots (bz_axl .. bz_axe): SI = the cell's four bytes (DS = the world
  ; part), AL its kind (4 - 6), AH nonzero for V's OWN cell (its FRONT pieces
 diff --git a/apps/bonanza/demos/playground.bzd b/apps/bonanza/demos/playground.bzd
@@ -443,19 +443,19 @@ index 3a007e4ba..a5618069f 100644
  top) and, where the model runs (AGrid.runs: GF_ANA, the ball's cell VOID and not OBS), the model's mask -
 -each pixel at or under the least edge of the counting front cells in its column cleared, the checker ORed in
 +each pixel in its column's hidden lines (bbcourse.amodel_ivcols: at or under the counting front cells' least
-+edge, a floating cell's down to its slab's bottom, SPEC.md 130.29.13) cleared, the checker ORed in
- (130.15.10.1).  Laying a word twice under two masks is laying it once under their AND, so the order the
++edge, a floating cell's down to its slab's bottom, SPEC.md 137.29.13) cleared, the checker ORed in
+ (137.15.10.1).  Laying a word twice under two masks is laying it once under their AND, so the order the
  guest lays in cannot show.  ASSERTED at every position: the buffer EXACTLY the host's, [bz_nlay] moved by the
  records the host's verdicts lay, [bz_namod] by 1 exactly where the model runs, the stack balanced.
 @@ -31,6 +32,8 @@ top line or its left word inside it).
  (today's records, GF_ANA clear: the model never runs) at the same positions - the fall frames' cost, PRICED.
  --red amodel: the guest with the right half's + 4 made + 12 (every right-half edge a line low) must fail.
- --red aneigh: the guest's neighbour reuse (SPEC.md 130.29.5) keeping the old shadows on the new row 1 must fail.
+ --red aneigh: the guest's neighbour reuse (SPEC.md 137.29.5) keeping the old shadows on the new row 1 must fail.
 +--red afloat: a float's interval never closed at its slab's bottom, and --red afdef: the default slab 26 px deep, not
-+24 (SPEC.md 130.29.13), must fail on a course with floats (MILL, DOWN, PLAY).
++24 (SPEC.md 137.29.13), must fail on a course with floats (MILL, DOWN, PLAY).
  --red acache: the guest's cell cache not dropped when a front cell starts to count (the speed pass's cache,
- SPEC.md 130.29.5: the FALLS above are what reach it) must fail.
- SPEC.md 130.49's: --red lowfl (the low flight's margin left out), --red apick (a split V's pick ignored), --red
+ SPEC.md 137.29.5: the FALLS above are what reach it) must fail.
+ SPEC.md 137.49's: --red lowfl (the low flight's margin left out), --red apick (a split V's pick ignored), --red
 @@ -64,10 +67,16 @@ REDS = {
                  "    add ax, 12                  ; RED amodel"),
                 ("bzvideo.inc", "    add ax, 6                   ; (flat: 2 (2 d' + 1) + 4)",
@@ -466,7 +466,7 @@ index 3a007e4ba..a5618069f 100644
 -               ("bzvideo.inc", "    mov byte [bz_afl + BZ_AFL + 7], 0\n",
 +               ("bzvideo.inc", "    and byte [bz_afl + BZ_AFL + 7], 80h\n",
                  "    nop\n")],
-+    # SPEC.md 130.29.13: a float's interval never closed (the masks' second toggle, at its slab's bottom, left out:
++    # SPEC.md 137.29.13: a float's interval never closed (the masks' second toggle, at its slab's bottom, left out:
 +    # a float hides down to the ground plane); the default slab's depth 24 px made 26 (every such bottom 2 low)
 +    "afloat": [("bzvideo.inc", "    je .mh0                     ; pair toggled again at hi's line (at line 0",
 +                "    jmp .mh0                    ; RED afloat")],
@@ -474,13 +474,13 @@ index 3a007e4ba..a5618069f 100644
 +               "    test byte [si + 7], 40h")],
      "acache": [("bzvideo.inc", "    jl .count0                  ; a front cell counts that did not",
                  "    nop                         ; RED acache\n    nop")],
-     # SPEC.md 130.49: the low flight's margin left out; a split V's pick ignored (the model in every split
+     # SPEC.md 137.49: the low flight's margin left out; a split V's pick ignored (the model in every split
 @@ -222,11 +231,9 @@ class Pass:
          mkey = (gz >> 8) + (0 if air else BB.CLIMB)     # (the model's key: bz_air's - it runs over no floor)
          cell = BB.mcell(gx, gy)
          runs = self.ag.runs(*cell)
 -        emin = {}
-+        ivs = {}                                # (SPEC.md 130.29.13: each column's hidden lines [lo, hi))
++        ivs = {}                                # (SPEC.md 137.29.13: each column's hidden lines [lo, hi))
          if runs:
 -            fr = [f for f in self.ag.front(cell[0], cell[1]) if f[0] > mkey]
 -            for x, evs in BB.amodel_cols(fr, 8 * DL, 8 * DH + 7).items():
@@ -505,23 +505,23 @@ index 240005698..7d3b2aeb8 100644
 @@ -12434,10 +12434,16 @@ def merge_exact(raw, merged, q):
  
  GF_ANA = 64                   # BZG1 +28 bit 6: the part's records are AV's, the pass runs the model in VOID cells
- FL_FLOAT = 64                 # grid +3 bit 6: a FLOOR or WALL whole cell that FLOATS (130.27.2): the model passes over it
-+FL_FDEF = 128                 # ...and bit 7 with it: its slab is the default 3 units deep (FACE8), not FDEP (130.29.13)
+ FL_FLOAT = 64                 # grid +3 bit 6: a FLOOR or WALL whole cell that FLOATS (137.27.2): the model passes over it
++FL_FDEF = 128                 # ...and bit 7 with it: its slab is the default 3 units deep (FACE8), not FDEP (137.29.13)
  OCCDEPTH = 4                  # the front cells: (wx + i, wy + d - i), d = 1 .. OCCDEPTH, i = 0 .. d
  OCC_WRONG_MAX = 0.0025        # WRONG-HIDE's bound: 0.25% of the ball's lit pixels over a course's VOID lattice
  OCC_MODES = ("void", "off")   # --occ: AV (the default), or today's records everywhere (the A/B)
  OCC_MODE = "void"
-+PM_FDEP_SH = 4                # BZG1 +29 bits 4 - 7: FDEP, a FLOATING front cell's slab depth / 2 px (SPEC.md 130.29.13;
-+#                               0: the model passes over every float, 130.29's)
++PM_FDEP_SH = 4                # BZG1 +29 bits 4 - 7: FDEP, a FLOATING front cell's slab depth / 2 px (SPEC.md 137.29.13;
++#                               0: the model passes over every float, 137.29's)
 +AV_INF = 1 << 30              # (a whole cell's interval runs down to the picture's end: the guest's 7FFFh)
 +_AV_FDEP = None               # item 15's controls: None the part's FDEP; "ground" a float counted to the ground plane
-+#                               (the wrong hide's arm); 0 every float passed over (130.29's: the savings' arm)
++#                               (the wrong hide's arm); 0 every float passed over (137.29's: the savings' arm)
  _AV_FLAT = False              # item 15's controls: the model reading every cell as flat ...
  _AV_NODITHER = False          # ... and card_composite laying the model's masks without the checker
  
 @@ -12464,7 +12470,7 @@ FRONT_PIECES = ((KIND_LR, 1), (KIND_Q, Q_E), (KIND_Q, Q_S))     # keyed s + 1 (1
  def amodel_hedge(he, x):
-     """a HALF-EDGE's line in picture column x (SPEC.md 130.29.2's E; 130.49.2's centre edge), or None outside
+     """a HALF-EDGE's line in picture column x (SPEC.md 137.29.2's E; 137.49.2's centre edge), or None outside
      its 16 columns.  he = (H, X, Y, k, right, centre)"""
 -    _H, X, Y, k, right, cen = he
 +    _H, X, Y, k, right, cen = he[:6]
@@ -540,7 +540,7 @@ index 240005698..7d3b2aeb8 100644
              raise CourseError("AGrid: no BZG1 at %d" % g)
          self.nrows, self.smin, self.amin, self.kw, rt, self.x0, self.y0 = struct.unpack_from("<HhhHHhh", p, g + 4)
          self.gflags = p[g + 28]
-+        self.fdep = 2 * (p[g + 29] >> PM_FDEP_SH)   # (SPEC.md 130.29.13: FDEP, 0 on a part without GF_ANA)
++        self.fdep = 2 * (p[g + 29] >> PM_FDEP_SH)   # (SPEC.md 137.29.13: FDEP, 0 on a part without GF_ANA)
          rows = struct.unpack_from("<%dH" % self.nrows, p, rt)
          self._b = lambda r, k: struct.unpack_from("<bBBB", p, rows[r] + 4 * k)
  
@@ -570,18 +570,18 @@ index 240005698..7d3b2aeb8 100644
      def front(self, wx, wy, depth=None):
 -        """-> [(H, X, Y, k, right, centre)] the HALF-EDGES of the READABLE front cells of (wx, wy) and of their
 +        """-> [(H, X, Y, k, right, centre, fb)] the HALF-EDGES of the READABLE front cells of (wx, wy) and of their
-         pieces (SPEC.md 130.29.2, 130.49.2), whatever their height: H the highest corner (px; a piece's own,
+         pieces (SPEC.md 137.29.2, 137.49.2), whatever their height: H the highest corner (px; a piece's own,
 -        rounded up to 4), X the cell's apex column, Y its edge's apex line (a centre edge's: the centre's)"""
 -        out = []
 +        rounded up to 4), X the cell's apex column, Y its edge's apex line (a centre edge's: the centre's); FB
 +        None (the cell's faces reach the ground plane), or a FLOATING cell's (Bc, k2): its slab's bottom in a
-+        column is Bc less the other half's F (SPEC.md 130.29.13).  In the GUEST'S ORDER: the front table's
-+        (d, i), a cell's right half then its left, then the extra slots in the order they fill (130.49.3) -
++        column is Bc less the other half's F (SPEC.md 137.29.13).  In the GUEST'S ORDER: the front table's
++        (d, i), a cell's right half then its left, then the extra slots in the order they fill (137.49.3) -
 +        the order a column's interval is merged in, which a float makes matter (amodel_iv)"""
 +        out, ext = [], []
          self._nx = 0                                # (the extra slots filled, in the guest's order)
          s, a = wx + wy, wx - wy
-         if self.split:                              # V's own FRONT pieces (keyed s + 1, 130.24.6.3)
+         if self.split:                              # V's own FRONT pieces (keyed s + 1, 137.24.6.3)
 @@ -12596,7 +12610,7 @@ class AGrid:
                  kind = b[2] & 15
                  for i, rec in enumerate(self.pieces(wx, wy)):
@@ -606,13 +606,13 @@ index 240005698..7d3b2aeb8 100644
 +                fd = None
 +                if fl_:                             # (its slab: FL_FDEF's 3 units or FDEP; item 15's controls
 +                    fd = (FACE8 if fl & FL_FDEF else self.fdep) if _AV_FDEP is None else _AV_FDEP   # override)
-+                    if not fd:                      # (130.29's: a float passed over)
++                    if not fd:                      # (137.29's: a float passed over)
 +                        continue
                  H, X, Y, kr, kl = self.geom((z0, sl), sN, aN)
 -                out.append((H, X, Y, kr, True, False))
 -                out.append((H, X, Y, kl, False, False))
 -        return out
-+                if fl_ and fd != "ground":          # SPEC.md 130.29.13: a FLOAT hides down to its slab's bottom,
++                if fl_ and fd != "ground":          # SPEC.md 137.29.13: a FLOAT hides down to its slab's bottom,
 +                    sx, sy = (0, 0) if _AV_FLAT else (_nib(sl & 15), _nib(sl >> 4))     # its bottom corner B's
 +                    bc = Y + 16 - 4 * (sx + sy) + fd                                     # line and its depth
 +                    out.append((H, X, Y, kr, True, False, (bc, kl)))
@@ -629,7 +629,7 @@ index 240005698..7d3b2aeb8 100644
  
  
 +def amodel_bot(he, x):
-+    """a FLOATING half-edge's slab bottom in picture column x (SPEC.md 130.29.13): the first line under the cell's
++    """a FLOATING half-edge's slab bottom in picture column x (SPEC.md 137.29.13): the first line under the cell's
 +    bottom edge and FDEP (Bc), less the OTHER half's F at the same d' - the bottom edge under a right half runs
 +    from B up to R at the left half's slope, kl, and under a left half at kr - with the half's own constant"""
 +    bc, k2 = he[6]
@@ -640,7 +640,7 @@ index 240005698..7d3b2aeb8 100644
 +
 +
 +def amodel_iv(seq, key):
-+    """SPEC.md 130.29.13: a column's hidden lines [lo, hi) for KEY - the guest's merge, its halves in its order
++    """SPEC.md 137.29.13: a column's hidden lines [lo, hi) for KEY - the guest's merge, its halves in its order
 +    (SEQ [(E, B or None, H)]: B None a whole cell's, which runs to the picture's end, AV_INF), each counting
 +    one (H > KEY) merged into ONE interval: a ground half [E, INF) the union where it meets it, else itself
 +    (it reaches further down); a float [E, B) the union where it meets or touches it, itself where it is
@@ -660,7 +660,7 @@ index 240005698..7d3b2aeb8 100644
 +
 +
 +class AFCol:
-+    """a column a FLOAT half-edge covers (SPEC.md 130.29.13): its halves in the guest's order and, for each
++    """a column a FLOAT half-edge covers (SPEC.md 137.29.13): its halves in the guest's order and, for each
 +    count set (an interval of keys between two of its H), the hidden lines [lo, hi) - BANDS [(klo, khi, lo, hi)],
 +    klo -AV_INF for the set of every half"""
 +    __slots__ = ("seq", "bands")
@@ -686,7 +686,7 @@ index 240005698..7d3b2aeb8 100644
 -    """-> {x: [(E, H), ...] sorted by E} over columns xlo .. xhi: every half-edge's line there"""
 -    out = {}
 +    """-> {x: [(E, H), ...] sorted by E} over columns xlo .. xhi: every half-edge's line there - or, in a column
-+    a FLOATING half covers (SPEC.md 130.29.13), an AFCol (the order matters there)"""
++    a FLOATING half covers (SPEC.md 137.29.13), an AFCol (the order matters there)"""
 +    out, fx = {}, set()
      for he in front:
          X = he[1]
@@ -763,7 +763,7 @@ index 240005698..7d3b2aeb8 100644
 +
  def amodel_pix(course, cell, zb, air, px, py):
      """the footprint pixels (20 x 16 from px & ~3, as composite) the guest's model hides for a ball centred in
-     CELL at whole height zb (SPEC.md 130.29.2), read from the course's RAM form: an empty set where the model
+     CELL at whole height zb (SPEC.md 137.29.2), read from the course's RAM form: an empty set where the model
 @@ -12681,12 +12809,9 @@ def amodel_pix(course, cell, zb, air, px, py):
          return set()
      key = zb + (0 if air else CLIMB)
@@ -815,7 +815,7 @@ index 240005698..7d3b2aeb8 100644
  
  
 +def av_slab_bottoms(c, grid=None):
-+    """SPEC.md 130.29.13: a FLOATING whole cell's slab bottom, the model's (amodel_bot, its depth FL_FDEF's or FDEP,
++    """SPEC.md 137.29.13: a FLOATING whole cell's slab bottom, the model's (amodel_bot, its depth FL_FDEF's or FDEP,
 +    read from the PART) against the renderer's - the last line its draw ops lay in a column, plus one - in every
 +    column of a half whose face hangs over the void (no tile in front on that side), the end columns apart
 +    -> (columns compared, [the first few that differ])"""
@@ -856,13 +856,13 @@ index 240005698..7d3b2aeb8 100644
 +
 +
  def _occg_field(rc, t, by_block, x0, y0):
-     """SPEC.md 130.11.4.3, 130.28.6: the most records a GROUNDED ball in FIELD cell rc meets, at its REAL
+     """SPEC.md 137.11.4.3, 137.28.6: the most records a GROUNDED ball in FIELD cell rc meets, at its REAL
      grounded poses - its centre at each integer point (u, v) with any fraction (the footprint's column u - v
 @@ -14334,12 +14500,19 @@ def _compile_course(source, fname, occluders, hack, crsinfo=None):
-     av_on = bool(cutocc) and hack.get("occ", "void") == "void" and not any(    # (130.31: no records, no model)
+     av_on = bool(cutocc) and hack.get("occ", "void") == "void" and not any(    # (137.31: no records, no model)
          c_ in tiles and not isinstance(tiles[c_], Split) and tiles[c_].kind == KIND_GOAL for c_ in floats)
      av_rcs = []
-+    fdep = 0                                        # SPEC.md 130.29.13: FDEP, the floats' least slab depth (px)
++    fdep = 0                                        # SPEC.md 137.29.13: FDEP, the floats' least slab depth (px)
      if av_on:
          for c_ in floats:
              t_ = tiles.get(c_)
@@ -873,7 +873,7 @@ index 240005698..7d3b2aeb8 100644
 +                    cells[c_][3] |= FL_FDEF         # (the default slab: its own bit, no FDEP)
 +                elif hack.get("fdep") is None:
 +                    fdep = min(fdep or floats[c_], floats[c_])
-+        if hack.get("fdep") is not None:            # (the A/B: 0 passes over every float, 130.29's model)
++        if hack.get("fdep") is not None:            # (the A/B: 0 passes over every float, 137.29's model)
 +            fdep = hack["fdep"]
          cells_v = {k_: list(v_) for k_, v_ in cells.items()}
          for c_ in pcell:
@@ -892,7 +892,7 @@ index 240005698..7d3b2aeb8 100644
          | (GF_SPLIT if pairs else 0) | (GF_FIELD if ftabs else 0) | (GF_ANA if av_on else 0) \
          | (GF_EDGE if src.rails else 0)
 -    padmask = 0
-+    padmask = (fdep >> 1) << PM_FDEP_SH if av_on else 0     # (SPEC.md 130.29.13: +29 bits 4 - 7, FDEP / 2)
++    padmask = (fdep >> 1) << PM_FDEP_SH if av_on else 0     # (SPEC.md 137.29.13: +29 bits 4 - 7, FDEP / 2)
      for p in props:
          if p["kind"] == PK_PAD:
              padmask |= 1 << p["mat"]
@@ -902,7 +902,7 @@ index 240005698..7d3b2aeb8 100644
      gflags, padmask, gz = struct.unpack_from("<BBH", p, g + 28)
 -    if (gflags & ~(GF_CKPT | GF_CUP | GF_VIEW | GF_PAGED | GF_SPLIT | GF_FIELD | GF_ANA | GF_EDGE) or padmask & ~7
 +    if (gflags & ~(GF_CKPT | GF_CUP | GF_VIEW | GF_PAGED | GF_SPLIT | GF_FIELD | GF_ANA | GF_EDGE)
-+            or padmask & ~(7 | (0xF0 if gflags & GF_ANA else 0))    # (+29 bits 4 - 7: AV's FDEP, 130.29.13)
++            or padmask & ~(7 | (0xF0 if gflags & GF_ANA else 0))    # (+29 bits 4 - 7: AV's FDEP, 137.29.13)
              or (gz and not gflags & (GF_VIEW | GF_PAGED)) or (gflags & GF_VIEW and gflags & GF_PAGED)
              or (gflags & GF_CUP and not gflags & GF_CKPT)):
          bad("BZG1 +28", "FLAGS %02Xh, PAD MASK %02Xh, reserved %04Xh" % (gflags, padmask, gz))
@@ -915,7 +915,7 @@ index 240005698..7d3b2aeb8 100644
 +                          | (FL_FDEF if kd & 15 in (KIND_FLOOR, KIND_WALL) and fl & FL_FLOAT else 0)) \
                  or (fl & FL_OCCG and not fl & FL_OCC):
              bad("cell %d" % i, "kind %d flags %d" % (kd, fl))
-         # CELLS (130.15.6): bz_cxcel reads a cell's edge neighbours with no bound and lays its lowest corner
+         # CELLS (137.15.6): bz_cxcel reads a cell's edge neighbours with no bound and lays its lowest corner
 @@ -17908,7 +18083,7 @@ def _read_bzc2(p, pw, fname, split=False, sheets=None, plan=None):
      for d in props:
          if d["kind"] == PK_PAD:
@@ -926,21 +926,21 @@ index 240005698..7d3b2aeb8 100644
              % (gflags, padmask, want_f, want_m))
      for d in props:
 @@ -23437,6 +23612,7 @@ def emit_inc(courses, path=None, title=None):
-               "; wave 3 (SPEC.md 130.12.3, 130.12.6): the props, the prop table, the tubes",
+               "; wave 3 (SPEC.md 137.12.3, 137.12.6): the props, the prop table, the tubes",
                "BZ_FL_OBS       equ %d        ; grid +3 bit 3: the cell belongs to a prop" % FL_OBS,
-               "BZ_FL_FLOAT     equ %d       ; grid +3 bit 6: a floating FLOOR or WALL (SPEC.md 130.29.4)" % FL_FLOAT,
-+              "BZ_FL_FDEF      equ %d      ; grid +3 bit 7 with it: its slab the default 3 units (130.29.13)" % FL_FDEF,
-               "BZ_FL_EDX       equ %d       ; grid +3 bit 4: a GUARD RAIL on the cell's +x edge (SPEC.md 130.35.1)" % FL_EDX,
+               "BZ_FL_FLOAT     equ %d       ; grid +3 bit 6: a floating FLOOR or WALL (SPEC.md 137.29.4)" % FL_FLOAT,
++              "BZ_FL_FDEF      equ %d      ; grid +3 bit 7 with it: its slab the default 3 units (137.29.13)" % FL_FDEF,
+               "BZ_FL_EDX       equ %d       ; grid +3 bit 4: a GUARD RAIL on the cell's +x edge (SPEC.md 137.35.1)" % FL_EDX,
                "BZ_FL_EDY       equ %d       ; grid +3 bit 5: ...on its +y edge" % FL_EDY,
-               "BZ_GF_ANA       equ %d       ; BZG1 +28 bit 6: AV, the model in VOID cells (130.29.4)" % GF_ANA,
+               "BZ_GF_ANA       equ %d       ; BZG1 +28 bit 6: AV, the model in VOID cells (137.29.4)" % GF_ANA,
 @@ -30234,8 +30410,8 @@ def _props_course_checks(c, res, tag):
      for (wx, wy), t in c.tiles.items():
          fl = g.cell(wx, wy)[4]
          want = t.exit if t.kind == KIND_GOAL else 0
--        if t.kind != KIND_GOAL:                         # (SPEC.md 130.29.4: bit 6 FL_FLOAT on a floor or wall)
+-        if t.kind != KIND_GOAL:                         # (SPEC.md 137.29.4: bit 6 FL_FLOAT on a floor or wall)
 -            fl &= ~FL_FLOAT
-+        if t.kind != KIND_GOAL:                         # (SPEC.md 130.29.4: bit 6 FL_FLOAT on a floor or wall,
-+            fl &= ~(FL_FLOAT | FL_FDEF)                 # 130.29.13: bit 7 FL_FDEF with it)
++        if t.kind != KIND_GOAL:                         # (SPEC.md 137.29.4: bit 6 FL_FLOAT on a floor or wall,
++            fl &= ~(FL_FLOAT | FL_FDEF)                 # 137.29.13: bit 7 FL_FDEF with it)
          if (fl & ~FL_EDGES) >> FL_EXITSH != want:
              ex_ok = False
          if t.kind == KIND_GOAL:
@@ -949,15 +949,15 @@ index 240005698..7d3b2aeb8 100644
          if p["kind"] == PK_PAD:
              wm |= 1 << p["mat"]
 -    ok = ok and pt["grid"]["padmask"] == wm
-+    ok = ok and pt["grid"]["padmask"] & 7 == wm             # (bits 4 - 7: AV's FDEP, SPEC.md 130.29.13)
++    ok = ok and pt["grid"]["padmask"] & 7 == wm             # (bits 4 - 7: AV's FDEP, SPEC.md 137.29.13)
      lanes = [r for r in pt["props"] if r["lane"]]
      ok = ok and lanes == pt["props"][:len(lanes)] and len(lanes) <= PROP_MAX
      # (GF_SPLIT is the grid's, not a record's: set exactly when a cell is split - wave D5's MOON and PLAY)
 @@ -38766,11 +38942,22 @@ def _av_checks(c, res, tag, off=None, flags_only=False):
-              and g.raw(*k)[2] & 15 != KIND_GOAL}  # (a GOAL's bit 6 is its exit's, 130.19.4: never read as FL_FLOAT)
-     path = getattr(c, "pth", None) is not None          # (SPEC.md 130.31: the pathway cuts no occluder, so no model)
+              and g.raw(*k)[2] & 15 != KIND_GOAL}  # (a GOAL's bit 6 is its exit's, 137.19.4: never read as FL_FLOAT)
+     path = getattr(c, "pth", None) is not None          # (SPEC.md 137.31: the pathway cuts no occluder, so no model)
      flags_ok = c.av == (not fgoal and not path) and bool(g.gflags & GF_ANA) == c.av and got_f == want_f
-+    # SPEC.md 130.29.13: FL_FDEF on exactly the whole floats whose slab is the default 3 units, FDEP the least
++    # SPEC.md 137.29.13: FL_FDEF on exactly the whole floats whose slab is the default 3 units, FDEP the least
 +    # of the others' depths (0 with none)
 +    whole = {k for k in want_f if not isinstance(c.tiles[k], Split) and k in c.floats}
 +    got_d = {k for k in got_f if g.raw(*k)[3] & FL_FDEF}
@@ -967,15 +967,15 @@ index 240005698..7d3b2aeb8 100644
 +        g.raw(*k)[3] & FL_FDEF for k in c.cells if g.raw(*k) is not None and k not in want_d
 +        and g.raw(*k)[2] & 15 != KIND_GOAL)
      res.append(("15 %s: GF_ANA %s%s; FL_FLOAT on exactly the %d floating FLOOR, WALL and split cells the picture "
--                "draws (SPEC.md 130.29.4, 130.49.1)" % (tag, "set" if g.gflags & GF_ANA else "clear",
+-                "draws (SPEC.md 137.29.4, 137.49.1)" % (tag, "set" if g.gflags & GF_ANA else "clear",
 -                                        " (a floating GOAL cell keeps it off)" if fgoal else
--                                        " (the pathway: no occluders, 130.31)" if path else "", len(want_f)),
+-                                        " (the pathway: no occluders, 137.31)" if path else "", len(want_f)),
 -                flags_ok))
-+                "draws (SPEC.md 130.29.4, 130.49.1); FL_FDEF on the %d whole ones whose slab is the default 3 "
-+                "units, FDEP %d px the least of the others' (130.29.13)" % (
++                "draws (SPEC.md 137.29.4, 137.49.1); FL_FDEF on the %d whole ones whose slab is the default 3 "
++                "units, FDEP %d px the least of the others' (137.29.13)" % (
 +                    tag, "set" if g.gflags & GF_ANA else "clear",
 +                    " (a floating GOAL cell keeps it off)" if fgoal else
-+                    " (the pathway: no occluders, 130.31)" if path else "", len(want_f), len(want_d), g.fdep),
++                    " (the pathway: no occluders, 137.31)" if path else "", len(want_f), len(want_d), g.fdep),
 +                flags_ok and fd_ok))
      if not c.av or flags_only:
          return
@@ -987,7 +987,7 @@ index 240005698..7d3b2aeb8 100644
 +    n, bad = av_slab_bottoms(c, g)
 +    if n or bad:
 +        res.append(("15 %s: the floats' slab bottoms read from the part are the renderer's (the last line of their "
-+                    "draw ops, %d columns where a face hangs over the void, SPEC.md 130.29.13)%s"
++                    "draw ops, %d columns where a face hangs over the void, SPEC.md 137.29.13)%s"
 +                    % (tag, n, "" if not bad else " -- %s" % bad[:3]), not bad))
      nb, nw, worst, npos = av_wrong(c, g)
      share = nw / float(nb) if nb else 0.0
@@ -999,12 +999,12 @@ index 240005698..7d3b2aeb8 100644
 -        same_g = all((c.cells[k][3] & ~(FL_FLOAT if c.cells[k][2] & 15 != KIND_GOAL else 0)) == off.cells[k][3]
 +        same_g = all((c.cells[k][3] & ~(FL_FLOAT | FL_FDEF if c.cells[k][2] & 15 != KIND_GOAL else 0))
 +                     == off.cells[k][3]
-                      and c.cells[k][:3] == off.cells[k][:3]          # (a GOAL's bit 6: its exit, 130.19.4)
+                      and c.cells[k][:3] == off.cells[k][:3]          # (a GOAL's bit 6: its exit, 137.19.4)
                       for k in c.cells) and set(c.cells) == set(off.cells)
          same_p = c.map == off.map and c.blocks == off.blocks and c.y0 == off.y0 and c.x0 == off.x0
 @@ -39288,7 +39481,7 @@ def _sc_reachpath(X, res):
  def _sc_av(X, res):
-     """--selfcheck's section `av`: item 15 (SPEC.md 130.29.7) - AV on every course, the pathway and the title,
+     """--selfcheck's section `av`: item 15 (SPEC.md 137.29.7) - AV on every course, the pathway and the title,
      and its negative controls"""
 -    global _AV_FLAT, _AV_NODITHER
 +    global _AV_FLAT, _AV_NODITHER, _AV_FDEP
@@ -1015,9 +1015,9 @@ index 240005698..7d3b2aeb8 100644
          res.append(("15 MILL negative control: the model's masks laid WITHOUT the checker disagree with the dithered "
                      "composite at a VOID position (item 11's comparison)%s" % (
                          " (px %d, py %d)" % hit[:2] if hit else " -- not caught"), hit is not None))
-+    # SPEC.md 130.29.13: the FLOATING cells' controls.  A float counted all the way to the ground plane (its slab
++    # SPEC.md 137.29.13: the FLOATING cells' controls.  A float counted all the way to the ground plane (its slab
 +    # read as a whole cell's face) hides the ball under PLAY's platforms: WRONG-HIDE past the bound.  And the guest
-+    # of 130.29 - every float passed over - against the records cut for the slabs leaves pixels no record lays:
++    # of 137.29 - every float passed over - against the records cut for the slabs leaves pixels no record lays:
 +    # COMPLETENESS, on the owner's MILL, with the (pixel, cell) cases the records would have to lay again
 +    play = byname.get("PLAY")
 +    if play is not None and play.av:
@@ -1027,7 +1027,7 @@ index 240005698..7d3b2aeb8 100644
 +        finally:
 +            _AV_FDEP = None
 +        res.append(("15 PLAY negative control: its floats counted down to the ground plane hide %.4f%% of the ball's "
-+                    "lit pixels the rule does not (over %.2f%%: WRONG-HIDE, SPEC.md 130.29.13)"
++                    "lit pixels the rule does not (over %.2f%%: WRONG-HIDE, SPEC.md 137.29.13)"
 +                    % (100.0 * nw / max(nb, 1), 100 * OCC_WRONG_MAX), nw > OCC_WRONG_MAX * nb))
 +    if mill is not None and mill.av:
 +        g = AGrid(world_of(mill))
@@ -1037,10 +1037,10 @@ index 240005698..7d3b2aeb8 100644
 +            t0, miss = av_proof(mill, g)
 +        finally:
 +            _AV_FDEP = None
-+        res.append(("15 MILL negative control: the model passing over its floats (130.29's) against the records cut "
++        res.append(("15 MILL negative control: the model passing over its floats (137.29's) against the records cut "
 +                    "for their slabs is caught by COMPLETENESS (%s); the slabs hide %d of %d (pixel, cell) cases "
-+                    "the records would lay again (SPEC.md 130.29.13)" % (miss[:1] if miss else "not caught",
++                    "the records would lay again (SPEC.md 137.29.13)" % (miss[:1] if miss else "not caught",
 +                                                                          t0 - t1, t0), bool(miss) and t0 > t1))
  
  def _kit_canon(c):
-     """SPEC.md 130.37.7: a course's RAM form with every piece NAMED BY ITS BYTES instead of its place - the
+     """SPEC.md 137.37.7: a course's RAM form with every piece NAMED BY ITS BYTES instead of its place - the

@@ -1,6 +1,6 @@
-# Tall Test - TTALL, a TEST course (SPEC.md 130.54, 130.30.12.8): the BZDEV=1 build's alone, after the shipped
+# Tall Test - TTALL, a TEST course (SPEC.md 137.54, 137.30.12.8): the BZDEV=1 build's alone, after the shipped
 # courses (the Makefile's BZ_TESTCRS), on no pad, with no shipped demo.  "The far south": the one course whose
-# PICTURE part does not fit one part, so it ships in SHEETS (SPEC.md 130.30.12) - two picture parts cut by
+# PICTURE part does not fit one part, so it ships in SHEETS (SPEC.md 137.30.12) - two picture parts cut by
 # block rows, the camera's window switching from the first to the second on the way down and back again if the
 # ball climbs back - and the rows that play it (bonanzasheet's legs, by hand) cross a sheet's edge -
 #  - a ZIG-ZAG RIBBON down the picture at the widest width, 160 word columns (1,280 px): six flat legs five
@@ -11,8 +11,8 @@
 #    the camera's window goes down the whole picture and crosses the sheets' seam;
 #  - the STEEL ball, the finish clock beside the goal.
 course TTALL "Tall Test"
-test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
-music fairway    # SPEC.md 130.50.3: every course names its song
+test             # SPEC.md 137.54: a test course - no pad, no shipped demo, no target owed
+music fairway    # SPEC.md 137.50.3: every course names its song
 width 160
 origin 640        # x0: a = wx - wy from -10 to 38 on the legs, px 480 - 1,248
 ball steel
@@ -43,4 +43,4 @@ way 66 39
 way 66 71
 way 98 71
 way 98 104
-clock 96 103                                        # the finish clock (SPEC.md 130.22.6)
+clock 96 103                                        # the finish clock (SPEC.md 137.22.6)

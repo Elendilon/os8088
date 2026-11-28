@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""bonanzapath - THE PATHWAY's loop on the glass (SPEC.md 130.22.4, wave 8R;
-rewritten from wave 8b's rolled prototype, 130.19.5; brought to the SHIPPED
+"""bonanzapath - THE PATHWAY's loop on the glass (SPEC.md 137.22.4, wave 8R;
+rewritten from wave 8b's rolled prototype, 137.19.5; brought to the SHIPPED
 map, option A, 2026-11-19: pad 0 FIRST ROLL, pad 1 LITTLE HOP; onto the TEST
 MAP, 2026-11-20, BOUNCE-BONANZA-SOAK phase 3).
 
 BONANZA on MartyPC, CGA and Hercules.  Enter on the face opens the TITLE and
-P there plays THE GAME (SPEC.md 130.23.4, `enter_game`): the pathway comes up
+P there plays THE GAME (SPEC.md 137.23.4, `enter_game`): the pathway comes up
 in the bracket, the FOLLOWER's play (bz_mode 4).  Every item is asserted on
 the guest's own state (bz_* reads, breakpoints on its labels), its timing on
 the guest's clock.  The pads, routes and arrows are the GUEST's tables (the
@@ -15,7 +15,7 @@ pad's key map gives a route, the nearest DIAGONAL (a route two arrows take),
 the nearest route between pages, the road on from its far pad, and the
 SECRET route.  No prototype course is named, played or rolled across.
 
-THE MAP IT BOOTS (SPEC.md 130.54.6; BOUNCE-BONANZA-SOAK phase 3): the BZDEV=1
+THE MAP IT BOOTS (SPEC.md 137.54.6; BOUNCE-BONANZA-SOAK phase 3): the BZDEV=1
 build's pathway is the TEST MAP (apps/bonanza/courses/pathdev.bbc), not the
 shipped path.bbc: pads 0 and 1 the shipped map's cell for cell (ROLL, HOP;
 Right, Left back), the rest TEST courses - the diagonal at pad 2 (TQUIK, Up
@@ -130,7 +130,7 @@ PROPREC = 32                                        # a record's bytes (bz_lrecs
 BZP_SNUM = 28
 MAXR = 2                                            # bzgame.inc BZ_MAXR
 LINES = 200                                         # bzvideo.inc BZ_LINES
-ARROWS = ("ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight")    # a pad's key map's order (130.22.4.5)
+ARROWS = ("ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight")    # a pad's key map's order (137.22.4.5)
 SETTLE = 8                                          # frames R0 and c0 unchanged: the camera at rest
 
 BB_PATH = None
@@ -141,7 +141,7 @@ def path_k():
     global BB_PATH
     if BB_PATH is None:
         R.crs_fill()                    # (fills the table: the pathway's K is BZ_CRS_PATH -
-        BB_PATH = R.inc_equ("BZ_CRS_PATH")          # BZ_CRS_MAX since SPEC.md 130.58.36)
+        BB_PATH = R.inc_equ("BZ_CRS_PATH")          # BZ_CRS_MAX since SPEC.md 137.58.36)
         if BB_PATH is None:
             BB_PATH = dict.__len__(R.CRS_K)
     return BB_PATH
@@ -153,7 +153,7 @@ def crs_name(k):
     return next(n for n, v in R.CRS_K.items() if v == k)
 
 
-# ---- the part's tables (SPEC.md 130.22.3) -----------------------------------------------------------
+# ---- the part's tables (SPEC.md 137.22.3) -----------------------------------------------------------
 
 def tables_of(t):
     """{pads, routes, keys} out of the tables' bytes T (from PTHOFF)"""
@@ -292,7 +292,7 @@ def on_path(g):
 
 
 def to_title(g):
-    """SPEC.md 130.23.4: the TITLE up - its course fetched and its demo's frame
+    """SPEC.md 137.23.4: the TITLE up - its course fetched and its demo's frame
     loop reached (a key typed before bz_play starts is drained)"""
     M.until(g.m, lambda _: g.b("bz_tmode") == 1 and g.b("bz_crs") == path_k() + 1 and g.w("bz_cseg") != 0,
             "the title", guest=60)
@@ -300,7 +300,7 @@ def to_title(g):
 
 
 def enter_game(g, what="the pathway", title=False):
-    """Enter on the face opens the TITLE (130.23.4) - or, TITLE, it is up - and
+    """Enter on the face opens the TITLE (137.23.4) - or, TITLE, it is up - and
     P there plays the game: the pathway's play REACHED (bz_t0)"""
     if not title:
         g.key("Enter")
@@ -485,7 +485,7 @@ def finish_pad0(g, fails, k):
     course_up(g, k, "%s from pad 0" % name.upper())
     X.at_t0(g, lambda g_: R.poke_ball(g_, pa.gx, pa.gy, pa.gz, 0, 0, 0, air=0))
     # the camera comes to rest over the ball (a scroll at BZ_MAXR rows a frame): then the goal, so the finish
-    # sequence's window is the goal's, its clock in it (130.22.6), as a play's would be
+    # sequence's window is the goal's, its clock in it (137.22.6), as a play's would be
     sp = Stops(g, ("bz_t0",))
     last, same = None, 0
     for _ in range(1200):
@@ -525,7 +525,7 @@ def finish_pad0(g, fails, k):
     r0, c0, nfall = g.w("bz_R0"), g.w("bz_c0"), g.w("bz_nfall")
     R.poke_ball(g, (void[0] << 12) + 0x800, (void[1] << 12) + 0x800, -2048 * 256, air=1)
     blanks, units, still, cell = set(), set(), True, True
-    # SPEC.md 130.22.6.1: the lit phase shows the RUN's time (the limit less the seconds left), not the seconds left
+    # SPEC.md 137.22.6.1: the lit phase shows the RUN's time (the limit less the seconds left), not the seconds left
     kc = g.b("bz_crs")
     lim = struct.unpack("<H", g.m.read(g.a("bz_clims") + 2 * kc, 2))[0]
     run = lim - g.w("bz_tsec")
@@ -544,7 +544,7 @@ def finish_pad0(g, fails, k):
         cell = cell and (g.d("bz_gx") >> 12, g.d("bz_gy") >> 12) == void
     fall = g.w("bz_nfall") == nfall and cell
     left = g.b("bz_fcnt")
-    # ...and the shown clock digits change TOGETHER (130.22.6.1, bz_wclk): at every frame's start either none of
+    # ...and the shown clock digits change TOGETHER (137.22.6.1, bz_wclk): at every frame's start either none of
     # them is drawn lit or all that the run's time lights are, never some
     # ...and DRAWN as the phase says by the frame after it changed (one frame's lag, never a stall: on the VGA
     # the group once waited for the wheel's room, the clock frozen on the countdown for 26 frames)
@@ -767,7 +767,7 @@ def run(tag, fails, apps=None, src=None):
         check(fails, lives == 5 and pad == 0 and st == ST_REST and nrop == 0, "8.", "P after the game over: a NEW "
               "game - lives %d, resting on pad %d, no route open (%08Xh)" % (lives, pad, nrop),
               "not a new game after the game over (lives %d, pad %d, state %d, routes %08Xh)" % (lives, pad, st, nrop))
-        # s0. the SECRET route (SPEC.md 130.54.6) closed at the new game: its hidden pad's sign 0, its reveal
+        # s0. the SECRET route (SPEC.md 137.54.6) closed at the new game: its hidden pad's sign 0, its reveal
         # groups 0 - its pad's and route's tables the guest's own, as the host planned them
         if sec is None:
             skip("s0.", "the map has no secret route: the secret leg is not tested")
@@ -925,7 +925,7 @@ def reveal(g, rt):
 
 
 def secret_leg(g, fails, T, sec):
-    """s1. (SPEC.md 130.54.6): from wherever the main leg left the marble, rolled over the open map to the pad
+    """s1. (SPEC.md 137.54.6): from wherever the main leg left the marble, rolled over the open map to the pad
     the secret route leaves (on the test map pad 2, TQUIK), Enter plays its course, the ball poked into the goal
     of the route's HIDDEN exit (TQUIK's exit 1): no gate, the route rolled at once, its REVEAL groups posed 1 one
     at a time, each once the marble's distance passes its own (the tables'), the hidden pad shown at the arrival
@@ -1067,7 +1067,7 @@ def host_check():
         print("bonanza_path the follower under unicorn, the test map: its %d routes both ways against "
               "bbcourse.Follow: %s" % (len(T["routes"]), "; ".join(bad) or "every step equal"))
         assert not bad, "bz_follow is not bbcourse.Follow"
-        # the SECRET leg's route, the build's own (SPEC.md 130.54.6): one secret route, no gate, its reveal
+        # the SECRET leg's route, the build's own (SPEC.md 137.54.6): one secret route, no gate, its reveal
         # groups, a HIDDEN far pad, its start the VISIBLE END - opened by a hidden exit of that pad's course, a
         # goal of that exit to poke the ball into; the main leg's walk reaches its start from where 10b. leaves
         sec = secret_plan(T)
@@ -1100,7 +1100,7 @@ def main():
     ap.add_argument("--check", action="store_true",
                     help="the host half: the red arms assemble, the test map's walk, the follower = Follow")
     a = ap.parse_args()
-    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
+    R.dev()                             # the BZDEV=1 build (SPEC.md 137.26.6.1)
     if a.check:
         host_check()
         return 0

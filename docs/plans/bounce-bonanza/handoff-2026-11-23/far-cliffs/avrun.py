@@ -1,5 +1,5 @@
-"""SPEC.md 130.29.12 research: the model's per-FRAME work along a real run (the course's route demo, the host
-autopilot), today against (A) the far list and (B) the cheap float - the cache's semantics (130.29.5): a new V
+"""SPEC.md 137.29.12 research: the model's per-FRAME work along a real run (the course's route demo, the host
+autopilot), today against (A) the far list and (B) the cheap float - the cache's semantics (137.29.5): a new V
 reads its table and computes the footprint's words; a changed count set recomputes them; new footprint words are
 computed; otherwise nothing.  Priced with avproxy.py's proxy.  usage: avrun.py course farpickle [demo.bzd]"""
 import sys, os, pickle, collections

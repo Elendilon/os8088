@@ -1,6 +1,6 @@
 ; =============================================================================
 ; apps/bonanza/fam/bzfwalk.inc - a family part's WALK over its OWN records
-; (SPEC.md 130.25.6.10): bz_flist built, at the play's start, each slot's list
+; (SPEC.md 137.25.6.10): bz_flist built, at the play's start, each slot's list
 ; of the course's records whose kind is the family's, so a hook walks those
 ; and never the whole prop table (PLAYGROUND's 66, of which a family has a
 ; handful).  A list holds record INDEXES (a byte each), in record order:
@@ -67,7 +67,7 @@
 %endmacro
 
 ; -----------------------------------------------------------------------------
-; THE WAKE (SPEC.md 130.25.6.11): a family that schedules its STEP writes the
+; THE WAKE (SPEC.md 137.25.6.11): a family that schedules its STEP writes the
 ; bz_nstep it next needs into bz_fwk (BZ_FSETWK; 0 every step).  Between, the
 ; engine does not call it (bz_fstp) - unless a play starts, a respawn, the
 ; walk's slice moves or the material changes, when every STEP runs.  A STEP

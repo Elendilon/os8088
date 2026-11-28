@@ -1,4 +1,4 @@
-# PIPE: the PASSABLE PIPE's test course (SPEC.md 130.12.3.6) - not shipped, on no disk, in no tour: compiled by
+# PIPE: the PASSABLE PIPE's test course (SPEC.md 137.12.3.6) - not shipped, on no disk, in no tour: compiled by
 # `bbcourse.py --selfcheck`'s section `pipeunder` and by tests/bonanza_phys.py's pipe scenes (the guest's archway
 # part against the model).  Two KEEP tubes across the floor, each with its two end legs walls one unit over the
 # floor and its middle leg a pipe hanging `column 1` deep over the floor with room for the ball under it:

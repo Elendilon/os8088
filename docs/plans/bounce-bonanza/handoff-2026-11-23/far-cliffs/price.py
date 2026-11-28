@@ -1,4 +1,4 @@
-"""price a sketch's sections, 130.11.15's method (each instruction at max(EU + EA, 4.34 a byte), the sum x 1.05),
+"""price a sketch's sections, 137.11.15's method (each instruction at max(EU + EA, 4.34 a byte), the sum x 1.05),
 straight through each section (branches not taken unless named in TAKEN).  usage: price.py file.asm sec1 sec2 ..."""
 import sys, os, re, subprocess, tempfile
 sys.path.insert(0, "tests")

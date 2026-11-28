@@ -1,6 +1,6 @@
 # BOUNCE BONANZA: the standard kit
 
-*The contract is SPEC.md 130.37; where this plan and it disagree, it wins.
+*The contract is SPEC.md 137.37; where this plan and it disagree, it wins.
 The pricing is `docs/reports/BONANZA-KIT-2026-11-17.md`. The diary entries
 are in [BOUNCE-BONANZA-DIARY.md](BOUNCE-BONANZA-DIARY.md) under "the standard
 kit".*
@@ -13,12 +13,12 @@ many": the goal is 14 - 20 courses, possibly on one disk.
 
 ## Where it stands
 
-**K0 written** (SPEC.md 130.37). **K1 BUILT** (130.37.11: the tool, the kit cut, the demos re-stamped; `make bonanza` assembles again at K2, whose expander the form needs). **K2 BUILT** (130.37.13: the guest; `bz_cexp` equals the tool's expand on every shipped part under unicorn). The final pass is the owner's.
+**K0 written** (SPEC.md 137.37). **K1 BUILT** (137.37.11: the tool, the kit cut, the demos re-stamped; `make bonanza` assembles again at K2, whose expander the form needs). **K2 BUILT** (137.37.13: the guest; `bz_cexp` equals the tool's expand on every shipped part under unicorn). The final pass is the owner's.
 
 Branch `bounce-kit`, cut from `bounce-bonanza` at `03e864602`. Not merged
 into `bounce-bonanza`: the owner merges.
 
-## The owner's answers (2026-11-17, SPEC.md 130.37.12)
+## The owner's answers (2026-11-17, SPEC.md 137.37.12)
 
 1. The F library: *"Whole is fine for now, we have to actually decide on,
    and make, standards. Which will probably be finished when we do real
@@ -39,7 +39,7 @@ into `bounce-bonanza`: the owner merges.
 
 | wave | what | depends on |
 |---|---|---|
-| K0 | the contract (SPEC.md 130.37 and its amendments to 130.11.4.2, 130.15.4.4, 130.22.7, 130.25.3), this plan, the diary | the report |
+| K0 | the contract (SPEC.md 137.37 and its amendments to 137.11.4.2, 137.15.4.4, 137.22.7, 137.25.3), this plan, the diary | the report |
 | K1 | the tool: the kit's source and generator, kit order, form 8, the one alignment, `--sizes`, `--selfcheck` item 17, the demos re-stamped | K0 |
 | K2 | the guest: the kit's row, its fetch and hold, `bz_cxkit`, `bz_phrel`; the unicorn harnesses | K1 |
 | final | the rows once (the owner's), `test-full` | K2 |
@@ -51,8 +51,8 @@ into `bounce-bonanza`: the owner merges.
 
 | # | story | verified by |
 |---|---|---|
-| K0.1 [x] | SPEC.md 130.37: the kit's source, generator and part; kit order; form 8 and its in-place argument; the hold and the memory order with the owner's high-water reasoning and every claim after a course's load; the one alignment; the tool's rules and item 17; kern_mega, kern_small, the Hercules; the report's predictions | `tools/checkdocs.py` |
-| K0.2 [x] | the amendments: 130.11.4.2 (the 4-a-block bound is the author's), 130.15.4.4 (form 8), 130.22.7 (`BZ_KIT_CLAIM` in `bz_phrel`), 130.25.3 (the search superseded) | `tools/checkdocs.py` |
+| K0.1 [x] | SPEC.md 137.37: the kit's source, generator and part; kit order; form 8 and its in-place argument; the hold and the memory order with the owner's high-water reasoning and every claim after a course's load; the one alignment; the tool's rules and item 17; kern_mega, kern_small, the Hercules; the report's predictions | `tools/checkdocs.py` |
+| K0.2 [x] | the amendments: 137.11.4.2 (the 4-a-block bound is the author's), 137.15.4.4 (form 8), 137.22.7 (`BZ_KIT_CLAIM` in `bz_phrel`), 137.25.3 (the search superseded) | `tools/checkdocs.py` |
 | K0.3 [x] | this plan; the diary's entry; the report brought onto the branch | `tools/checkdocs.py` |
 
 ### Wave K1: the tool
@@ -86,7 +86,7 @@ then `test-full`.
 ### Wave KV: seeing the kit in the course builder (the owner, 2026-11-24)
 
 *"an iso overlay view that shows what comes from the kit ... Also, a kit tab - which shows what is in the kit."*
-SPEC.md 130.58.52; branch `bb-kitview`.
+SPEC.md 137.58.52; branch `bb-kitview`.
 
 | # | story | verified by |
 |---|---|---|

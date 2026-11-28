@@ -6,7 +6,7 @@
 #
 #   hour    An HOURGLASS in a turned stand, the digits in its upper bulb; the SAND runs down the course (full,
 #           half, run out) and the stand's finial is a PADLOCK, a KEY, a CROWN.  INSTALLED: tools/bbcourse.py's
-#           `hourp`, `hourk`, `hourc` (`_clock_hour`, SPEC.md 130.18.5.2) - named here, drawn there.
+#           `hourp`, `hourk`, `hourc` (`_clock_hour`, SPEC.md 137.18.5.2) - named here, drawn there.
 #   shield  The designer's: a heater SHIELD hung by two chains from a banner pole, the digits across its white
 #           chief, its CREST the same three (padlock, key, crown), white on the magenta field.  Scratch: DRAW
 #           below, in this process only.

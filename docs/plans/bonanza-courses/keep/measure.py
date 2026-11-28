@@ -11,7 +11,7 @@ Every place it names is read off the compiled course (the bridges, the plate, th
 popspikes, the keys, the tables, the flags), so it follows the sketch.  RUBBER throughout.  "The pair" is two
 arrows held together, which move the ball along a tile axis; "a phase" is the step of the 256-step cycle every
 timer of the course reads (a play starts at 0).  A ball is put down with the channels a player would have open
-there, as the engine keeps them (SPEC.md 130.41.1 D3).  The whole of it takes about ten minutes on four cores;
+there, as the engine keeps them (SPEC.md 137.41.1 D3).  The whole of it takes about ten minutes on four cores;
 `held`, `soft` and `phases` are the long ones.
 """
 import collections
@@ -496,7 +496,7 @@ def m_phases(L):
     with multiprocessing.Pool() as pool:
         res = pool.map(_phase, [(L.path, d) for d in range(0, 256, 8)])
     ts = [n for _d, n, _h, _f in res if n]
-    print("THE ROUTE FROM EVERY PHASE: the tool's own search (SPEC.md 130.14.7.4.6: it stands at each timer) from a "
+    print("THE ROUTE FROM EVERY PHASE: the tool's own search (SPEC.md 137.14.7.4.6: it stands at each timer) from a "
           "play begun on step d of the timers' cycle, d 0, 8 .. 248: a route on %d of %d; %.1f - %.1f s, median %.1f, "
           "mean %.1f; Hops %d, falls %d; 35 s or more on %d" % (
               len(ts), len(res), min(ts) / SEC, max(ts) / SEC, statistics.median(ts) / SEC, statistics.mean(ts) / SEC,

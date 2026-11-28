@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bbplay - TEST ROLL, the course builder's player (SPEC.md 130.58.7, 130.58.16).
+"""bbplay - TEST ROLL, the course builder's player (SPEC.md 137.58.7, 137.58.16).
 
     python3 tools/bbplay.py COURSE.bbc [--start X Y] [--ball rubber|steel|glass] [--herc] [--name PATH]
                                        [--autopilot [--branch NAME]]
@@ -9,7 +9,7 @@ step the guest runs), Glide and Heavy (its camera and its props' drawn poses)
 and sprite() / shadow() (the ball's frame and its shadow). No disk, no
 emulator, no boot. The props are drawn in the pose the PHYSICS has (what the
 ball meets); a checkbox draws them in Heavy's drawn poses instead, the XT's
-(SPEC.md 130.58.48).
+(SPEC.md 137.58.48).
 
 Two compiles run as processes as soon as the window opens:
 
@@ -27,9 +27,9 @@ Keys: arrows roll, Space hops, Left Shift grips, Backspace goes back to the
 last flag (the game's RETURN), P pauses, N steps one frame (one that holds a step) while paused,
 1 / 2 / 4 set the speed (1, 1/2, 1/4), Z rewinds 5 s, R restarts, A runs the autopilot, Esc closes.
 
-AUTOPILOT (--autopilot [--branch NAME], the A key or its button; SPEC.md 130.58.50)
+AUTOPILOT (--autopilot [--branch NAME], the A key or its button; SPEC.md 137.58.50)
 replays what the planner plays: route_plan's keys (branch_plan's for a branch),
-or - when it finds no route - its furthest partial route and 130.6's arrows on
+or - when it finds no route - its furthest partial route and 137.6's arrows on
 from there, ending where the ball gets stuck, with a note naming the way it
 was heading for, the step and why (it fell, stalled or timed out). The planning
 runs as a job of its own (--job plan), its progress on the note line; the
@@ -56,13 +56,13 @@ sys.path.insert(0, HERE)
 import bbcourse as B  # noqa: E402
 import bonanza_assets as BA  # noqa: E402
 
-SNAP_STEPS = 27                 # a rewind point every 27 steps (0.49 s); a snapshot is ~0.5 ms (130.58.16)
+SNAP_STEPS = 27                 # a rewind point every 27 steps (0.49 s); a snapshot is ~0.5 ms (137.58.16)
 REWIND_S = 5.0
 SPEEDS = (1.0, 0.5, 0.25)
 
 
 def palette(src):
-    """the course's CGA colours (SPEC.md 130.16.6): its `palette` byte, else palette 1 bright - the same
+    """the course's CGA colours (SPEC.md 137.16.6): its `palette` byte, else palette 1 bright - the same
     reading as bbedjob's picture job"""
     b = src.palette[0] if src.palette else B.PAL_DEFAULT
     bright = bool(b & 0x10)
@@ -79,12 +79,12 @@ def palette(src):
 
 
 # ----------------------------------------------------------------------------
-# the compiles (SPEC.md 130.58.16.1)
+# the compiles (SPEC.md 137.58.16.1)
 # ----------------------------------------------------------------------------
 
 def compile_play(text, name):
     """the PLAY-ONLY compile: no occluders, the block limit lifted for this call alone. What Physics reads
-    is the full compile's (130.58.16.1: every cell's kind, heights, slopes, surface and the SAFE, OBS and
+    is the full compile's (137.58.16.1: every cell's kind, heights, slopes, surface and the SAFE, OBS and
     exit flags, the start, the route, the props' world fields); what it is not is a part that ships - its
     picture's Y0, the occluder flags and records, the prop records' order and its identity differ"""
     held = B.BLK_MAX
@@ -130,7 +130,7 @@ def job(mode, path, out, name):
 
 
 def plan_job(path, out, name, branch=None, every=0.5):
-    """the AUTOPILOT's job (SPEC.md 130.58.50): the play-only compile and bbcourse.autopilot_run on it - the
+    """the AUTOPILOT's job (SPEC.md 137.58.50): the play-only compile and bbcourse.autopilot_run on it - the
     search watched (PLAN_WATCH) from the compile on, since the compile's own limit may run the main route's
     search, so it is searched once - a progress line every EVERY seconds, the run's JSON to OUT"""
     t0 = time.time()
@@ -183,7 +183,7 @@ def plan_job(path, out, name, branch=None, every=0.5):
 
 
 def stuck_note(r, step_hz=None):
-    """SPEC.md 130.58.50: the autopilot run's end in words - where it finished, or which way it was heading for
+    """SPEC.md 137.58.50: the autopilot run's end in words - where it finished, or which way it was heading for
     (its number, cell and line), the step and why it stopped"""
     step_hz = step_hz or B.STEP_HZ
     route = r["route"]
@@ -204,7 +204,7 @@ def stuck_note(r, step_hz=None):
 
 
 def route_marks(im, roll, origin, sx, sy):
-    """SPEC.md 130.58.50: the route the autopilot steers drawn over the frame - its legs (taken ones dim), a ring
+    """SPEC.md 137.58.50: the route the autopilot steers drawn over the frame - its legs (taken ones dim), a ring
     at each way and the way it heads for now ringed in red and numbered.  IM: RGB, SX x SY per game pixel"""
     from PIL import ImageDraw
     pts, wp = roll.p.route, roll.p.wp
@@ -262,7 +262,7 @@ class Roll:
         self.mat = course.ball if mat is None else mat
         self.herc = herc
         self.start = tuple(start) if start else None
-        self.script = script            # SPEC.md 130.58.50: the AUTOPILOT's keys, step by step from the start
+        self.script = script            # SPEC.md 137.58.50: the AUTOPILOT's keys, step by step from the start
         self.route = route              # ...and the way points it steers (a branch's), for its next way
         self.spf = (B.PIT_HZ / B.CARD_HZ[herc]) / B.STEP_PIT
         self.reset()
@@ -326,7 +326,7 @@ class Roll:
         return len(ks)
 
     def script_over(self):
-        """SPEC.md 130.58.50: the autopilot's keys all stepped"""
+        """SPEC.md 137.58.50: the autopilot's keys all stepped"""
         return self.script is not None and len(self.keys) >= len(self.script)
 
     def _snap(self):
@@ -370,7 +370,7 @@ class Roll:
     def seconds(self):
         return self.p.nstep / B.STEP_HZ
 
-    # the demo (SPEC.md 130.11.12, 130.14.7)
+    # the demo (SPEC.md 137.11.12, 137.14.7)
     def log(self, K, ident):
         """the run as the game's log: BZR1, course K, the run's ball, complete when the goal was reached"""
         return B.encode_log(self.keys, K, self.mat, bool(self.p.goal), ident)
@@ -396,11 +396,11 @@ def check_saved(log, course, end):
 
 
 # ----------------------------------------------------------------------------
-# the frame (no Tk): the compositor, SPEC.md 130.58.16.2
+# the frame (no Tk): the compositor, SPEC.md 137.58.16.2
 # ----------------------------------------------------------------------------
 
 def pose(roll, r, lagged=False):
-    """the pose the Test Roll draws prop record R's lane in (SPEC.md 130.58.48): by default the one the
+    """the pose the Test Roll draws prop record R's lane in (SPEC.md 137.58.48): by default the one the
     PHYSICS has after the frame's steps (Heavy.pose_now), so a turntable's port is open on the glass exactly
     when the ball would drop through it; LAGGED, Heavy's DRAWN pose - the guest's lane wheel, which may draw a
     lane a few frames late to spread a frame's drawing (the look on the XT). A group lane is its members' pose
@@ -464,7 +464,7 @@ class Art:
 
     def lane(self, r):
         """the lane of Physics' prop record R. A record's index is the PART's (raster) order, a lane's "prop"
-        the course's SOURCE order, and c.order maps the one to the other (SPEC.md 130.58.48)"""
+        the course's SOURCE order, and c.order maps the one to the other (SPEC.md 137.58.48)"""
         if not r.get("lane"):
             return None
         o = self.c.order
@@ -479,7 +479,7 @@ class Art:
         ox, oy = 8 * g.c0, g.R0 * g.rl
         win = self.base.crop((ox, oy, ox + W, oy + B.WIN_LINES))
         hv = g.heavy
-        tlp = {}                                # SPEC.md 130.42.15: each see-saw lane's DRAWN pose, for laid_at
+        tlp = {}                                # SPEC.md 137.42.15: each see-saw lane's DRAWN pose, for laid_at
         for r in p.props:
             L = self.lane(r)
             if L is None:
@@ -580,7 +580,7 @@ class _Proc(object):
         else:
             kw["start_new_session"] = True
         self.p = subprocess.Popen(argv, **kw)
-        self.progress = None            # the job's latest line short of its result (SPEC.md 130.58.50: the planning)
+        self.progress = None            # the job's latest line short of its result (SPEC.md 137.58.50: the planning)
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
@@ -622,7 +622,7 @@ class Player(object):
         self.tk = tk
         self.name = name or path
         self.start, self.mat, self.herc = start, mat, herc
-        self.branch = branch            # SPEC.md 130.58.50: the AUTOPILOT's route (a branch's, else the main one)
+        self.branch = branch            # SPEC.md 137.58.50: the AUTOPILOT's route (a branch's, else the main one)
         self.jplan = None               # ...its planning job, the run it gave (autopilot_run's), its end in words
         self.plan = self.plan_err = None
         self.stuck = None
@@ -672,13 +672,13 @@ class Player(object):
                           ("Restart (R)", self.restart), ("Autopilot (A)", self.start_autopilot),
                           ("Save demo...", self.save_demo), ("Close", self.close)):
             tk.Button(bar, text=label, command=fn).pack(side="left", padx=2)
-        # SPEC.md 130.58.50: the autopilot's route and the way it heads for, over the frame
+        # SPEC.md 137.58.50: the autopilot's route and the way it heads for, over the frame
         self.marks = tk.BooleanVar(r, value=bool(autopilot))
         tk.Checkbutton(r, text="Show the route the autopilot steers (and the way it heads for)", variable=self.marks,
                        command=self._redraw, anchor="w", background="#202020", foreground="#e0e0e0",
                        selectcolor="#404040", activebackground="#202020",
                        activeforeground="#ffffff").pack(side="top", fill="x", padx=8)
-        # SPEC.md 130.58.48: the props in the physics' pose (what the ball meets) unless this is ticked
+        # SPEC.md 137.58.48: the props in the physics' pose (what the ball meets) unless this is ticked
         self.lagged = tk.BooleanVar(r, value=False)
         tk.Checkbutton(r, text="Draw the props as the XT would (lagged: the guest's lane wheel may draw a lane "
                        "a few frames late)", variable=self.lagged, command=self._redraw, anchor="w",
@@ -694,7 +694,7 @@ class Player(object):
             self.start_autopilot()
         self.r.after(20, self.tick)
 
-    # -- the autopilot (SPEC.md 130.58.50)
+    # -- the autopilot (SPEC.md 137.58.50)
     def start_autopilot(self):
         """plan the autopilot's run in a job of its own (it can take tens of seconds) - or, planned already,
         replay it again from the start"""
@@ -854,7 +854,7 @@ class Player(object):
             f.write(log)
         bzd = os.path.splitext(out)[0] + ".bzd"
         with open(bzd, "w", newline="\n") as f:
-            f.write(B.demo_text(log, self.roll.c.name, "%s, a Test Roll run (tools/bbplay.py, SPEC.md 130.58.16)"
+            f.write(B.demo_text(log, self.roll.c.name, "%s, a Test Roll run (tools/bbplay.py, SPEC.md 137.58.16)"
                                 % self.roll.c.name))
         bad = check_saved(log, self.full, wstate(self.roll.p))
         msg = "Saved %s (%d steps) and %s.\n\n%s" % (
@@ -863,7 +863,7 @@ class Player(object):
             "WARNING: " + bad)
         if K is None:
             msg += ("\n\nThis course is not in the game's course list (BZ_COURSES), so the log's course number is "
-                    "0 and the game will not take it until the course is added (SPEC.md 130.58.9).")
+                    "0 and the game will not take it until the course is added (SPEC.md 137.58.9).")
         messagebox.showinfo("Save demo", msg)
 
     # -- the loop
@@ -893,7 +893,7 @@ class Player(object):
                         r = self.roll.replay_on(self.full)
                         if wstate(r.p) != wstate(self.roll.p):
                             self.mismatch = "MISMATCH: the run replayed on the full compile ends in another state " \
-                                "(%r against %r) - a fault in the play-only compile (SPEC.md 130.58.16.1)" % (
+                                "(%r against %r) - a fault in the play-only compile (SPEC.md 137.58.16.1)" % (
                                     wstate(r.p)[:8], wstate(self.roll.p)[:8])
                         self.roll, self.art = r, Art(self.full)
                         self.full_note = "on the full compile since %.1f s (%d steps replayed: %s)" % (
@@ -934,7 +934,7 @@ class Player(object):
                         if (self.roll.p.goal or self.roll.p.tout) and not self.ended:
                             self.ended = self.paused = True     # the course is over: R restarts, P rolls on
                             break
-                        if self.roll.script_over():             # SPEC.md 130.58.50: where the autopilot stops
+                        if self.roll.script_over():             # SPEC.md 137.58.50: where the autopilot stops
                             self.ended = self.paused = True
                             break
                 if adv or self.photo is None:
@@ -972,13 +972,13 @@ class Player(object):
         notes.append(self.first)
         if self.full_note:
             notes.append(self.full_note)
-        notes.append("camera: Glide (the game's), props: %s; the compositor's approximations: SPEC.md 130.58.16.2"
+        notes.append("camera: Glide (the game's), props: %s; the compositor's approximations: SPEC.md 137.58.16.2"
                      % ("Heavy's drawn poses (the XT's, lagged)" if lagged else "the physics' poses (what the ball meets)"))
         self.note.config(text="\n".join(notes), foreground="#ff6060" if red else "#f0c040")
 
     def frame_image(self, roll, win, org):
         """the frame as the window shows it, zoomed (CGA 3 x 3, Hercules 1 x 2 of its doubled width), with the
-        autopilot's route over it when that is ticked (SPEC.md 130.58.50)"""
+        autopilot's route over it when that is ticked (SPEC.md 137.58.50)"""
         from PIL import Image
         if self.herc:
             im, z = to_herc(win, org).convert("RGB"), (1, 2)
@@ -1027,7 +1027,7 @@ def main(argv):
     ap.add_argument("--herc", action="store_true", help="the Hercules picture and camera")
     ap.add_argument("--name", help="the course's own path, when COURSE is a copy (the builder's)")
     ap.add_argument("--autopilot", action="store_true",
-                    help="replay the autopilot's planned route, or where it gets stuck (SPEC.md 130.58.50)")
+                    help="replay the autopilot's planned route, or where it gets stuck (SPEC.md 137.58.50)")
     ap.add_argument("--branch", help="with --autopilot: a branch's whole route instead of the main route")
     a = ap.parse_args(argv)
     mat = B.MAT_NAMES.index(a.ball) if a.ball else None

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BONANZA's WIDEST COURSE in the guest (SPEC.md 130.10.4.2's amendment, 130.54.8): the package's own
+"""BONANZA's WIDEST COURSE in the guest (SPEC.md 137.10.4.2's amendment, 137.54.8): the package's own
 bz_crshdr and box fill under unicorn on TWIDE, the 160-word-column (1,280 px) test course - the host half of
 the width the MartyPC rows (bonanzaring, bonanzaperf, bonanzamega, the VGA rows) see on the glass.
 
@@ -40,7 +40,7 @@ BUF = 0xF000                    # the box's buffer, in the package's segment pas
 
 REDS = {
     "mrow": [("bonanza.asm", "    cmp bx, bz_mrow + 2 * BZ_MROWS\n    jne .mrow\n", "")],
-    "shift": [("bzvideo.inc", "    xchg ax, bx\n    mov bx, [bz_mrow + bx]      ; MAP + (L0 >> 3) ROWB (130.10.4.2)\n"
+    "shift": [("bzvideo.inc", "    xchg ax, bx\n    mov bx, [bz_mrow + bx]      ; MAP + (L0 >> 3) ROWB (137.10.4.2)\n"
                "    mov ax, [si]\n", "    mov cl, 7\n    shl ax, cl\n    add ax, BZC_MAP\n    xchg ax, bx\n"
                "    mov ax, [si]\n")],
 }

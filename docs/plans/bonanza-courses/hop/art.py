@@ -350,7 +350,7 @@ def icon(twice):
 def hop_arcs(w):
     """a FLOOR-PAINT picture of the double bounce, in glyph pixels, w wide: the ball (a ring) at the right, a
     small Hop arc leftward onto a tick, then the "and again", a taller arc (the boost is the HIGHER bounce,
-    SPEC.md 130.16.4.1) -> ({(x, y): K}, w, h).  The ball travels -x on U1, which is right to left in the words'
+    SPEC.md 137.16.4.1) -> ({(x, y): K}, w, h).  The ball travels -x on U1, which is right to left in the words'
     reading direction"""
     h = 9
     ink = {}

@@ -1,10 +1,10 @@
 ; =============================================================================
-; apps/bonanza/fam/water.asm - BONANZA's WATER FAMILY (SPEC.md 130.36, the
+; apps/bonanza/fam/water.asm - BONANZA's WATER FAMILY (SPEC.md 137.36, the
 ; owner's design P1), held equal to bbcourse.WaterFamily at every step.
 ;
 ; A water cell is FLOOR at its top H in the grid (flat, sand, OBS); its element
 ; record's +18 is its BED B, +19 its top H (signed QUARTER units, SPEC.md
-; 130.48.4), +20 its ripple
+; 137.48.4), +20 its ripple
 ; (BZ_WR_RIPPLE: a lane; BZ_WR_ALWAYS: animated always, else while the ball is
 ; in it).  Four hooks:
 ;   RESET the course's ALWAYS ripples counted (STEP walks for them only then).
@@ -23,7 +23,7 @@
 ;         the HTHR put back and bz_surf 0FFh: that test then rebuilds bz_se.
 ;         And the ACTIVE ripple the centre's, its entry step kept; the one it
 ;         replaces MARKED when it stood at pose 1 (it goes back to 0).  A
-;         GUARDED arch's exit (+20 WR_GUARDX, WR_GUARDY; SPEC.md 130.35.10) a
+;         GUARDED arch's exit (+20 WR_GUARDX, WR_GUARDY; SPEC.md 137.35.10) a
 ;         WALL while its water cell is the centre and the ball not steel, else
 ;         the FLOOR it is.
 ;   STEP  IN, airborne and under the float line: gvx = gvy = 0 (it sinks
@@ -40,7 +40,7 @@
 ; ACTIVE ripple's entry step (low byte), +6 the ALWAYS ripples, +7 the ACTIVE
 ; ripple (its element + 1, 0 none).
 ;
-; A FAMILY PART (SPEC.md 130.25.6.2), linked against the package's bss as the
+; A FAMILY PART (SPEC.md 137.25.6.2), linked against the package's bss as the
 ; probe is (bzlink.inc: no code label).  Every hook: `call far`, DS = ES = the
 ; package, AL = the slot, AH = the argument, BX = the element; `retf`.
 ; =============================================================================
@@ -77,14 +77,14 @@ WR_GUARDY   equ 8
     db 0
     dw wa_reset, 0, 0, wa_step, wa_pose, wa_cell
 %if $ - $$ != BZF_HDR
- %error "the family part's header is BZF_HDR bytes (SPEC.md 130.25.6.2)"
+ %error "the family part's header is BZF_HDR bytes (SPEC.md 137.25.6.2)"
 %endif
 
 ; RESET: the ALWAYS ripples counted
 wa_reset:
     call wa_slot
     xor dx, dx
-    call wa_walk                ; (the family's own records: 130.25.6.10)
+    call wa_walk                ; (the family's own records: 137.25.6.10)
 .l:
     jcxz .x
     call wa_lrec
@@ -104,14 +104,14 @@ wa_reset:
 ; CELL: the window's water cells for this ball, then the centre's rules
 wa_cell:
     call wa_slot                ; DI = the slot
-    xor ax, ax                  ; (a new window: the STEP runs next, 130.25.6.11)
+    xor ax, ax                  ; (a new window: the STEP runs next, 137.25.6.11)
     call wa_setwk
     call wa_walk                ; ES = the course, BP its list, CL its count
     mov bp, bx                  ; (a byte: 255 props at most)
 %if BZ_WA_FBSH                  ; CH = rubber's and glass's floor under the
-    mov al, [bz_nstep]          ; top, quarter units (SPEC.md 130.48.4): the
+    mov al, [bz_nstep]          ; top, quarter units (SPEC.md 137.48.4): the
     mov ch, BZ_WA_FBSH          ; bob's phase (the top, or the float line a
-    xchg cl, ch                 ; half unit, 2, under it; SPEC.md 130.36.10)
+    xchg cl, ch                 ; half unit, 2, under it; SPEC.md 137.36.10)
     shr al, cl
     xchg cl, ch
     and al, 1
@@ -145,9 +145,9 @@ wa_cell:
     xor bh, bh
     shl bx, 1
     shl bx, 1
-    call wa_guard               ; (SPEC.md 130.35.10: its guarded arches)
+    call wa_guard               ; (SPEC.md 137.35.10: its guarded arches)
     mov al, [es:si + WA_HTOP]   ; rubber's and glass's floor, H less CH
-    sub al, ch                  ; (SPEC.md 130.36.10) ...
+    sub al, ch                  ; (SPEC.md 137.36.10) ...
     or byte [di + WA_IN], 2
     cmp byte [bz_mat], BZ_MAT_STEEL
     jne .h
@@ -167,7 +167,7 @@ wa_cell:
     jz .out
     mov si, dx                  ; THE CENTRE a water cell: its float line
     mov al, [es:si + WA_HTOP]
-    dec ax                      ; (a half unit: 2 quarter units, 130.48.4)
+    dec ax                      ; (a half unit: 2 quarter units, 137.48.4)
     dec ax
     mov [di + WA_TOP], al
     test byte [es:si + WA_RIP], WR_RIPPLE
@@ -292,7 +292,7 @@ wa_step:
     mov byte [bz_fref], 1
 .bb:
 %if BZ_WA_FBSH
-    test byte [di + WA_IN], 2   ; the bob's flip (SPEC.md 130.36.10), a
+    test byte [di + WA_IN], 2   ; the bob's flip (SPEC.md 137.36.10), a
     jz .rp                      ; water cell in the window and not steel -
     cmp byte [bz_mat], BZ_MAT_STEEL ; the next window rewritten; into the
     je .rp                      ; dip a ball resting on the water goes down
@@ -349,7 +349,7 @@ wa_step:
     test byte [es:si + WA_RIP], WR_ALWAYS
     jnz .x
     call far [bz_fmkp]
-.x:                             ; THE WAKE (130.25.6.11): the ball in or over
+.x:                             ; THE WAKE (137.25.6.11): the ball in or over
     xor ax, ax                  ; water (WA_IN), every step; else the next
     test byte [di + WA_IN], 3   ; ripple turn - an ALWAYS one at (n + 1)
     jnz .w                      ; AND 7 = 0, the ACTIVE one at (n + 1 - ENT)
@@ -407,12 +407,12 @@ wa_pose:
     BZ_FREC wa_lrec, bx
     BZ_FREC wa_recp, bp
 
-; SPEC.md 130.35.10: a water cell's GUARDED arches (ES:SI its record, AL its
+; SPEC.md 137.35.10: a water cell's GUARDED arches (ES:SI its record, AL its
 ; column in the window, 0 - 2, BX its cell's offset in bz_nbr): each one's exit
 ; in the window gets its kind nibble.  Out of wa_cell's loop, which a body this
 ; long would push past every short jump.  -> AH the kind.  Preserves all else.
 wa_guard:
-    mov ah, BZ_WA_KFLOOR        ; SPEC.md 130.35.10: each GUARDED arch's exit
+    mov ah, BZ_WA_KFLOOR        ; SPEC.md 137.35.10: each GUARDED arch's exit
     cmp bl, BZN_C               ; in the window - a WALL with this cell the
     jne .k                      ; centre and the ball not steel (the rail
     cmp byte [bz_mat], BZ_MAT_STEEL ; along the face's top: a ball on the

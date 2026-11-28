@@ -256,7 +256,7 @@ def op_big_refusals():
     BIG, COMP, LAZY = P.OPF_BIG, P.OPF_COMP, P.OPF_LAZY
     cases = (
         ("OP_BIG with OP_ZERO", dict(flags=BIG | P.OPF_ZERO, zkb=1),
-         "OP_BIG with OP_ZERO, OP_XMS or OP_ZFILL"),
+         "OP_BIG with OP_ZERO, OP_XMS, OP_ZFILL or OP_ARENA"),
         ("a body past OP_BIGMAX", dict(flags=BIG, body=bytes(P.OP_BIGMAX + 1)),
          "past OP_BIGMAX"),
         ("a packed length at OP_BIGPK", dict(flags=BIG | COMP,

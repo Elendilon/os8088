@@ -1,11 +1,11 @@
-# Wide Test - TWIDE, a TEST course (SPEC.md 130.54.8): the BZDEV=1 build's alone, after the shipped courses (the
+# Wide Test - TWIDE, a TEST course (SPEC.md 137.54.8): the BZDEV=1 build's alone, after the shipped courses (the
 # Makefile's BZ_TESTCRS), on no pad, with no shipped demo.  "The far east": the one course at the widest width
-# a course may have, 160 word columns (1,280 px, SPEC.md 130.10.4.2), so the rows that read the map walk a
-# part whose map row is neither 64 nor 128 words (bz_mrow, 130.10.4.2) -
+# a course may have, 160 word columns (1,280 px, SPEC.md 137.10.4.2), so the rows that read the map walk a
+# part whose map row is neither 64 nor 128 words (bz_mrow, 137.10.4.2) -
 #  - one RIBBON along +x (wx 12 - 75, five cells deep), so it runs DOWN the picture to the east: a = wx - wy
 #    from -32 to 35, the cell centres px 96 - 1,168, with its back rail and an END WALL at wx 76.  It runs
 #    diagonally, not straight across, so no block row holds more than 128 occluder records in ANY of the
-#    tool's compiles (SPEC.md 130.11.4.2): a straight east-west ribbon across 140 word columns puts a record
+#    tool's compiles (SPEC.md 137.11.4.2): a straight east-west ribbon across 140 word columns puts a record
 #    in nearly every one of them in a single block row once the AV model is off (the selfcheck's `av`
 #    section prices AV against that compile, and refused the first TWIDE's 140);
 #  - the route from the west end to the GOAL, the ribbon's last column, by its back corner (75, 40): the
@@ -14,8 +14,8 @@
 #  - an EAST MARKER (twide_east.bba) in the last word columns, 155 - 159, beside the goal;
 #  - the STEEL ball, the tool's limit, the finish clock beside the goal.
 course TWIDE "Wide Test"
-test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
-music fairway    # SPEC.md 130.50.3: every course names its song
+test             # SPEC.md 137.54: a test course - no pad, no shipped demo, no target owed
+music fairway    # SPEC.md 137.50.3: every course names its song
 width 160
 origin 608        # x0: the reach from px 8 (a = -36) to 1,271 (a = 40)
 ball steel
@@ -27,5 +27,5 @@ start 14 42
 way 14 42
 way 40 42
 way 75 40
-clock 70 44                                # the finish clock (SPEC.md 130.22.6)
+clock 70 44                                # the finish clock (SPEC.md 137.22.6)
 art twide_east.bba 1244 600               # the EAST MARKER: ink in word columns 155 - 159, beside the goal

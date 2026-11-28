@@ -1,4 +1,4 @@
-; BOUNCE BONANZA - song 12, course 7 "Clockwork Keep": "Clockwork Keep" (SPEC.md 130.20)
+; BOUNCE BONANZA - song 12, course 7 "Clockwork Keep": "Clockwork Keep" (SPEC.md 137.20)
 ;
 ; D major at 102.4 BPM, a GAVOTTE: a row is FOUR sub-ticks (`groove 4`, `unit
 ; 32`, so a 32nd is a row, 73 ms), a beat 32 sub-ticks, a bar of 4/4 128 and a

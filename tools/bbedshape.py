@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""bbedshape - THE COURSE BUILDER'S SHAPE EDITOR (SPEC.md 130.58.19, 130.58.29): chutes, pits, humps and
-tubes (130.28, 130.44, 130.12.3.3) edited in place on the Build tab's plan - a path drawn with handles, a bowl,
+"""bbedshape - THE COURSE BUILDER'S SHAPE EDITOR (SPEC.md 137.58.19, 137.58.29): chutes, pits, humps and
+tubes (137.28, 137.44, 137.12.3.3) edited in place on the Build tab's plan - a path drawn with handles, a bowl,
 a ridge - as a DRAFT until Try it, with the height graph and how each ball rides the shape (bbedjob.py `ride`,
 the game's own Physics).
 
@@ -57,7 +57,7 @@ def parse(toks):
                 else:
                     return None
             return sh if len(sh["ways"]) >= 2 else None
-        if k == "tube":                         # SPEC.md 130.12.3.3: its IN, vias and OUT as the path's points
+        if k == "tube":                         # SPEC.md 137.12.3.3: its IN, vias and OUT as the path's points
             sh = {"kind": k, "sub": t[1], "width": 1, "ways": [[int(t[2]), int(t[3]), None]], "out": None,
                   "speed": None, "height": None, "body": None}
             last = [int(t[4]), int(t[5]), None]
@@ -75,7 +75,7 @@ def parse(toks):
                 elif t[i] == "height":
                     sh["height"] = float(t[i + 1])
                     i += 2
-                elif t[i] == "body":            # (one height, or one a leg: SPEC.md 130.12.3.5)
+                elif t[i] == "body":            # (one height, or one a leg: SPEC.md 137.12.3.5)
                     hs = [float(t[i + 1])]
                     i += 2
                     while i < len(t) and _num(t[i]):
@@ -87,7 +87,7 @@ def parse(toks):
                 elif t[i] == "column":
                     sh["column"] = float(t[i + 1])
                     i += 2
-                elif t[i] == "top":             # (SPEC.md 130.12.3.7: a walkable top)
+                elif t[i] == "top":             # (SPEC.md 137.12.3.7: a walkable top)
                     sh["top"] = True
                     i += 1
                 else:
@@ -144,7 +144,7 @@ def code(sh):
             out += " out %s" % sh["out"]
         if sh["sub"] == "launch":
             out += " speed %d %d %d" % tuple(sh.get("speed") or (0, 0, 0))
-            if sh.get("height"):                # SPEC.md 130.12.3.3 (2026-11-23): a RAISED launch's mouth
+            if sh.get("height"):                # SPEC.md 137.12.3.3 (2026-11-23): a RAISED launch's mouth
                 out += " height %s" % _g(sh["height"])
         if sh["sub"] == "drop":
             out += " height %s" % _g(sh.get("height") or 2)
@@ -166,7 +166,7 @@ def code(sh):
 
 
 def leg_heights(sh):
-    """SPEC.md 130.58.39: a tube's pipe height a LEG, [h1 .. hn] (None: automatic) - its `body` the first leg's,
+    """SPEC.md 137.58.39: a tube's pipe height a LEG, [h1 .. hn] (None: automatic) - its `body` the first leg's,
     and a way's own height (ways[k][2], k >= 1) the leg that STARTS there and every one after it until the next"""
     if sh.get("body") is None:
         return None
@@ -190,7 +190,7 @@ def set_leg_height(sh, k, v):
 
 
 def axis_path(ways):
-    """SPEC.md 130.58.27: a drafted path made one an axis-legged shape can take - a corner added where two points
+    """SPEC.md 137.58.27: a drafted path made one an axis-legged shape can take - a corner added where two points
     differ along both axes (along x first), a repeated point dropped, and a point in the middle of a straight run
     dropped unless it carries a height of its own (a chute's lip). -> the new ways"""
     out = [list(ways[0])]
@@ -237,7 +237,7 @@ def insert_point(ways, cell):
 
 
 def lip_heights(ways):
-    """each way's lip height: its own, else the way before's (130.28.3)"""
+    """each way's lip height: its own, else the way before's (137.28.3)"""
     out, z = [], 0.0
     for w in ways:
         z = w[2] if w[2] is not None else z
@@ -313,7 +313,7 @@ def new_shape(kind, x, y, z):
 def set_kind(sh, k):
     """the tube SH made a K ("keep", "launch", "drop") tube: a launch given a speed along its last leg, a drop
     the builder's mouth height (2 units) when it has none - marked `mouth_auto`, the builder's and not the
-    author's, so a refusal for a mouth its wall's face does not hold fits it (SPEC.md 130.58.41) - and a keep
+    author's, so a refusal for a mouth its wall's face does not hold fits it (SPEC.md 137.58.41) - and a keep
     none -> the new fields"""
     w = sh["ways"]
     dx, dy = _sg(w[-1][0] - w[-2][0]), _sg(w[-1][1] - w[-2][1])
@@ -347,9 +347,9 @@ def describe(sh):
 # ----------------------------------------------------------------------------
 
 class ShapeEditor(object):
-    """SPEC.md 130.58.29: a chute, pit, hump or tube edited IN PLACE on the Build tab - its handles drawn on the
+    """SPEC.md 137.58.29: a chute, pit, hump or tube edited IN PLACE on the Build tab - its handles drawn on the
     plan over the real floors and walls, its form, height graph and ride readout in the inspector, its edits a
-    DRAFT until Try it (130.58.27), a refusal in the same tab's banner"""
+    DRAFT until Try it (137.58.27), a refusal in the same tab's banner"""
 
     def __init__(self, app, tk, ttk, Job, hcolour):
         self.app, self.tk, self.ttk, self.Job, self.hcolour = app, tk, ttk, Job, hcolour
@@ -359,7 +359,7 @@ class ShapeEditor(object):
         self.ride_job = None
         self.rides = {}                 # {statement text: the job's answer}
         self.wsel = None                # the selected point (a path's)
-        self.draft = None               # the shape as edited, not yet tried (SPEC.md 130.58.27)
+        self.draft = None               # the shape as edited, not yet tried (SPEC.md 137.58.27)
         self.form = self.graph = self.ride_t = None
 
     KINDS = ("chute", "pit", "hump", "tube")
@@ -372,7 +372,7 @@ class ShapeEditor(object):
             return None
         sh = parse(st.toks) if st.kind in self.KINDS else None
         if sh and sh["kind"] == "tube" and self.app.doc.is_auto_mouth(line):
-            sh["mouth_auto"] = True             # (SPEC.md 130.58.41: its mouth height is the builder's)
+            sh["mouth_auto"] = True             # (SPEC.md 137.58.41: its mouth height is the builder's)
         if line != self.line:
             self.draft, self.wsel, self.drag = None, None, None
         self.line, self.sh = (line, sh) if sh else (None, None)
@@ -416,7 +416,7 @@ class ShapeEditor(object):
         self.app._redraw()
 
     def apply(self, sh, label="edit a shape"):
-        """SPEC.md 130.58.27: every edit of the shape goes into the DRAFT - drawn dashed, nothing written or
+        """SPEC.md 137.58.27: every edit of the shape goes into the DRAFT - drawn dashed, nothing written or
         compiled - until Try it"""
         if self.line is None:
             return
@@ -444,7 +444,7 @@ class ShapeEditor(object):
         except Exception:
             now = None
         if now == want:
-            if d.get("mouth_auto") and d["sub"] == "drop":     # SPEC.md 130.58.41: the builder's height, fitted
+            if d.get("mouth_auto") and d["sub"] == "drop":     # SPEC.md 137.58.41: the builder's height, fitted
                 self.app.doc.auto_mouth.add(want)               # on a refusal; a typed one never
             elif "mouth_auto" in d:
                 self.app.doc.auto_mouth.discard(want)
@@ -470,14 +470,14 @@ class ShapeEditor(object):
         import re
         m = re.search(r":(\d+):", error or "")
         if not m or int(m.group(1)) != line or self.app.doc.text() != text or text != tried:
-            return False                # SPEC.md 130.58.38: refused text is not the text the draft made (a later
+            return False                # SPEC.md 137.58.38: refused text is not the text the draft made (a later
                                         # edit came first, its picture killed): the undo would take THAT edit
         try:
             if self.app.doc.statement(line).code != want:
                 return False
         except Exception:
             return False
-        prev = getattr(self.app, "pic_err", None)       # SPEC.md 130.58.38: the course was refused for this very
+        prev = getattr(self.app, "pic_err", None)       # SPEC.md 137.58.38: the course was refused for this very
         if prev and prev[0] == was and prev[1]:         # thing (its line, the same words) before the draft was
             pm = re.search(r":(\d+): (.*)", prev[1])     # tried: not the draft's doing, so it is kept
             if pm and int(pm.group(1)) == line and re.sub(r"-?\d+", "#", pm.group(2)) == re.sub(
@@ -652,7 +652,7 @@ class ShapeEditor(object):
                 for k_, (lab, lo, hi) in enumerate((("Speed along x", -512, 512), ("Speed along y", -512, 512),
                                                     ("Speed up", 0, 600))):
                     field(lab, svs[k_], lo, hi, 16, sets)
-                # SPEC.md 130.12.3.3 (2026-11-23): a RAISED launch - its mouth, where the flight starts, that many
+                # SPEC.md 137.12.3.3 (2026-11-23): a RAISED launch - its mouth, where the flight starts, that many
                 # units over the exit floor, on the last wall's face as a drop's; blank fires from the floor
                 mv = tk.StringVar(value=_g(sh["height"]) if sh.get("height") else "")
 
@@ -693,11 +693,11 @@ class ShapeEditor(object):
                                        "the pipe's top, in units; each leg can have its own"), wraplength=290,
                       foreground="#555").grid(row=row[0], column=0, columnspan=2, sticky="w")
             row[0] += 1
-            w_ = sh["ways"]                     # SPEC.md 130.58.39: a height a LEG (the riser joins a change)
+            w_ = sh["ways"]                     # SPEC.md 137.58.39: a height a LEG (the riser joins a change)
             for k in range(len(w_) - 1):
                 lv = tk.StringVar(value=_g(hs[k]) if hs else "")
                 lf = ttk.Frame(self.form)       # (across both columns: in the first, its cells pushed every
-                lf.grid(row=row[0], column=0, columnspan=2, sticky="w", pady=1)    # control off the side, 130.58.54)
+                lf.grid(row=row[0], column=0, columnspan=2, sticky="w", pady=1)    # control off the side, 137.58.54)
                 ttk.Label(lf, text="  Leg %d (%d, %d to %d, %d)" % (k + 1, w_[k][0], w_[k][1], w_[k + 1][0],
                                                                   w_[k + 1][1])).pack(side="left")
                 sl = ttk.Spinbox(lf, from_=-8, to=60, increment=0.5, width=6, textvariable=lv)
@@ -740,7 +740,7 @@ class ShapeEditor(object):
                       wraplength=290, foreground="#555").grid(
                 row=row[0], column=0, columnspan=2, sticky="w")
             row[0] += 1
-            tv = tk.BooleanVar(value=bool(sh.get("top")))     # SPEC.md 130.12.3.7: a walkable top
+            tv = tk.BooleanVar(value=bool(sh.get("top")))     # SPEC.md 137.12.3.7: a walkable top
             ttk.Checkbutton(self.form, text="Walkable top: the ball lands and rolls on the pipe (and passes under "
                                             "it where the column leaves room)", variable=tv,
                             command=lambda: self.apply(dict(sh, top=tv.get() or None), "walkable top")).grid(
@@ -872,7 +872,7 @@ class ShapeEditor(object):
         g = self.graph
         g.delete("all")
         Wg, Hg = 300, 110
-        if sh["kind"] == "tube" and leg_heights(sh):  # SPEC.md 130.58.39: the pipe's top leg by leg, its column
+        if sh["kind"] == "tube" and leg_heights(sh):  # SPEC.md 137.58.39: the pipe's top leg by leg, its column
             ws, hs = sh["ways"], leg_heights(sh)
             dist = [0]
             for p, q in zip(ws, ws[1:]):
@@ -981,7 +981,7 @@ class ShapeEditor(object):
         self.app._redraw()
 
     def motion(self, e):
-        """a point dragged FREELY (SPEC.md 130.58.27): the draft takes any cell; Try it makes the legs lie on axes"""
+        """a point dragged FREELY (SPEC.md 137.58.27): the draft takes any cell; Try it makes the legs lie on axes"""
         d = self.drag
         if not d:
             return

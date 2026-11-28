@@ -1,4 +1,4 @@
-# Play Test - TPLY (the plan's TPLAY: a NAME is five characters), a TEST course (SPEC.md 130.54.2): the
+# Play Test - TPLY (the plan's TPLAY: a NAME is five characters), a TEST course (SPEC.md 137.54.2): the
 # BZDEV=1 build's alone, after the shipped courses (the Makefile's BZ_TESTCRS), on no pad, with no shipped
 # demo.  "Physics and replays" (docs/plans/BOUNCE-BONANZA-SOAK.md): the home of the bonanzaphys,
 # bonanzareplay and bonanzaring-ground scenarios that ran on the PROTOTYPES (FIRST, TRIAL, MOON, PEAK,
@@ -26,8 +26,8 @@
 #  glass.  A course with a flag (or a cup) respawns at the flag, never at bz_safe (GF_CKPT), so the SAFE
 #  respawn is BENCH's, not this course's.  `limit 20`: a timeout is TQUIK's (8 s) to wait out.
 course TPLY "Play Test"
-test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
-music trial      # SPEC.md 130.50.3: every course names its song
+test             # SPEC.md 137.54: a test course - no pad, no shipped demo, no target owed
+music trial      # SPEC.md 137.50.3: every course names its song
 width 64
 ball rubber
 uses spring
@@ -84,4 +84,4 @@ way 26 26
 way 26 22
 way 26 17
 limit 20
-clock 26 23                                   # the finish clock (SPEC.md 130.22.6), TRIAL's, off the route
+clock 26 23                                   # the finish clock (SPEC.md 137.22.6), TRIAL's, off the route

@@ -1,5 +1,5 @@
-# Two Lifts - TLFT, a TEST course (SPEC.md 130.54): the BZDEV=1 build's alone, after the shipped courses (the
-# Makefile's BZ_TESTCRS), on no pad, with no shipped demo.  SPEC.md 130.12.4.7's home: a course with TWO
+# Two Lifts - TLFT, a TEST course (SPEC.md 137.54): the BZDEV=1 build's alone, after the shipped courses (the
+# Makefile's BZ_TESTCRS), on no pad, with no shipped demo.  SPEC.md 137.12.4.7's home: a course with TWO
 # lifts, each its own window's, and a route the autopilot rolls across both -
 #  - lift 1 (12, 6), L 2: the start tier A (14) its high dock, the strip B (12) its low one; the route rolls
 #    off A into its shaft, onto its slab wherever the clock has it (a drop of at most 2 units), and off it
@@ -13,8 +13,8 @@
 #    phase while the other is shown.
 # width 128 with origin 400: the picture's 1,024 px hold the descent's swing (wx - wy -9 to 17) and its reach.
 course TLFT "Two Lifts"
-test             # SPEC.md 130.54: a test course - no pad, no shipped demo, no target owed
-music trial      # SPEC.md 130.50.3: every course names its song
+test             # SPEC.md 137.54: a test course - no pad, no shipped demo, no target owed
+music trial      # SPEC.md 137.50.3: every course names its song
 width 128
 origin 400
 ball rubber
@@ -43,4 +43,4 @@ way 29 21
 way 34 21
 
 clock  9 8                                # the start clock, off the route
-clock 36 24                               # the finish clock (SPEC.md 130.22.6), beside the goal
+clock 36 24                               # the finish clock (SPEC.md 137.22.6), beside the goal

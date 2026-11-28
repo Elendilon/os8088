@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BONANZA: recorded demos on the disk - W, L, R, D, V and the double-click (SPEC.md 130.14.7, 130.14.14 bonanzademo).
+"""BONANZA: recorded demos on the disk - W, L, R, D, V and the double-click (SPEC.md 137.14.7, 137.14.14 bonanzademo).
 
     make bonanzadisk && python3 tests/bonanza_demo.py [--adapter cga|herc|both] [--leg NAME ...]
     python3 tests/bonanza_demo.py --red NAME        (a red arm, below)
@@ -9,7 +9,7 @@
 On MartyPC's CGA and Hercules, ONE BOOT A CARD, BONANZA on a disk the row builds (the
 shipped build/bonanza.o88, SYSTEM\\APPDATA, and a folder HOSTILE of files the HOST
 wrote), the autopilot driving the play (bz_apilot, tests/bonanza_game.py).  Every log is MADE FROM THE
-MODEL on TQUIK, the test course whose goal is 165 autopilot steps (3.0 s) from its start (SPEC.md 130.54,
+MODEL on TQUIK, the test course whose goal is 165 autopilot steps (3.0 s) from its start (SPEC.md 137.54,
 found by NAME), never a prototype course's or demo's; the shipped demos are ROLL's and HOP's alone:
 
   save     a free play of TQUIK by the autopilot, then W through the Save dialog
@@ -17,7 +17,7 @@ found by NAME), never a prototype course's or demo's; the shipped demos are ROLL
            the file read back off the floppy on the host equals bz_rlog's bytes,
            which equal the model's log of that play (bbcourse.encode_log); then
            F plays TQUIK again - the dialog moved the instance, so the play's
-           fetches must go HOME first (130.14.7.6: `nohome`'s check)
+           fetches must go HOME first (137.14.7.6: `nohome`'s check)
   load     the log overwritten (another TQUIK log poked in), L of SYSTEM\\QUIKA.BZR:
            bz_rlog the file's bytes again, the face's log line its name
            (bz_lsv 2, bz_lfn); R to the model's end state (bbcourse.replay_log);
@@ -26,18 +26,18 @@ found by NAME), never a prototype course's or demo's; the shipped demos are ROLL
   ship     V of the SHIPPED demos, ROLL's and HOP's ([bz_vk] poked to each one's row): each
            BZD<NAME>.BIN in bz_rlog byte for byte, D'd to its recorded end equal
            to the model's replay of it (nstep, the position, the velocities,
-           the falls, and bz_nboost); each carries its course's identity (SPEC.md 130.15.10.5)
-  wave4    (wave 5b, SPEC.md 130.15.7) a TQUIK log whose +14 identity is not TQUIK's (ANOTHER BUILD's: the
+           the falls, and bz_nboost); each carries its course's identity (SPEC.md 137.15.10.5)
+  wave4    (wave 5b, SPEC.md 137.15.7) a TQUIK log whose +14 identity is not TQUIK's (ANOTHER BUILD's: the
            identity XOR W4_XOR) put in the log and R pressed: REFUSED by the
            launch's identity check ([bz_err] 3, no step) and the face says
            "Another course's log"
-  hostile  THE HOSTILE SET (130.14.7.2), each through L's Open dialog: an
+  hostile  THE HOSTILE SET (137.14.7.2), each through L's Open dialog: an
            extension not BZR, 15 bytes, 4,097 bytes, a bad magic, K = BZ_NCRS,
            material 3, +6 bit 3, an identity of another build (the wave4 leg's log),
            +7 another physics, N = 0, a length one byte off 16 + 2N, a TILT log one off
            16 + 3N, steps one off the sum, a count of 0, a key byte with bit 7,
-           a tilt nibble of 9, and (wave 6, SPEC.md 130.16.14) +7 = A0h (5b's
-           BZ_PHYSV) and +7 = 00h, and (wave 6b, 130.17.10) +7 = 25h (wave
+           a tilt nibble of 9, and (wave 6, SPEC.md 137.16.14) +7 = A0h (5b's
+           BZ_PHYSV) and +7 = 00h, and (wave 6b, 137.17.10) +7 = 25h (wave
            6's, the owner's round-1 logs), each THIS build's TQUIK log with only +7
            changed as H09 is - each REFUSED with its toast (`Not a Bonanza
            demo` for the first three, `Demo from other physics` for +7, `Damaged
@@ -85,14 +85,14 @@ LEGS = ("save", "load", "ship", "wave4", "hostile", "dclick")
 SAVENAME = "QUIKA.BZR"
 SHIPPED = ("roll", "hop")       # the shipped courses, whose shipped demos the ship leg runs
 W4_XOR = 0x5A5A                 # ANOTHER BUILD's identity: TQUIK's XOR this (a wave 4 build stamped its courses
-                                # with identities a later RAM form moved, SPEC.md 130.15.7 - any other value is one)
-PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 130.16.9: PHYSV_SHIPPED's last before wave 6)
-PHYSV_6 = 0x25                  # wave 6's BZ_PHYSV, the owner's gate-1 playtest (SPEC.md 130.17.7: PHYSV_SHIPPED's
+                                # with identities a later RAM form moved, SPEC.md 137.15.7 - any other value is one)
+PHYSV_5B = 0xA0                 # wave 5b's BZ_PHYSV (SPEC.md 137.16.9: PHYSV_SHIPPED's last before wave 6)
+PHYSV_6 = 0x25                  # wave 6's BZ_PHYSV, the owner's gate-1 playtest (SPEC.md 137.17.7: PHYSV_SHIPPED's
                                 # last before wave 6b)
 
 
 def quik():
-    """TQUIK's K, by its NAME (SPEC.md 130.54: the test course every log here is made on)"""
+    """TQUIK's K, by its NAME (SPEC.md 137.54: the test course every log here is made on)"""
     return R.CRS_K["tquik"]
 
 
@@ -103,7 +103,7 @@ def w4_ident():
 
 def wave4_log():
     """TQUIK's log (the model's autopilot play) AS ANOTHER BUILD WROTE IT: its +14 identity not TQUIK's
-    (w4_ident) - the runs the same, only `ident` changed (SPEC.md 130.15.7)"""
+    (w4_ident) - the runs the same, only `ident` changed (SPEC.md 137.15.7)"""
     k = quik()
     return R.make_log(GM.auto_keys(k), k, R.course_k(k).ball, ident=w4_ident())
 
@@ -126,7 +126,7 @@ def other_log():
 
 
 def tilt_log():
-    """a valid TILT log of TQUIK (130.14.8.3): 40 steps, its caps changing"""
+    """a valid TILT log of TQUIK (137.14.8.3): 40 steps, its caps changing"""
     k = quik()
     keys = [BB.K_R] * 20 + [BB.K_D] * 20
     tilts = [0x80 + (i // 5) for i in range(20)] + [0x08 + 0x10 * (i // 5) for i in range(20)]
@@ -135,7 +135,7 @@ def tilt_log():
 
 def hostile_set():
     """[(file name, bytes, the toast's label, the check bbcourse.check_log fails
-    or None for a refusal before it, first-three)] - SPEC.md 130.14.14's set"""
+    or None for a refusal before it, first-three)] - SPEC.md 137.14.14's set"""
     good = bytearray(quik_log())
     tl = bytearray(tilt_log())
     out = [("H01.BZX", bytes(good), "bz_t_notbzr", None, True),
@@ -151,11 +151,11 @@ def hostile_set():
     mut("H06.BZR", lambda b: b.__setitem__(5, 3))
     mut("H07.BZR", lambda b: b.__setitem__(6, b[6] | 8))
     out.append(("H08.BZR", wave4_log(), "bz_t_dmg", None, False))     # another BUILD's identity: TQUIK's
-                                                                    # log with w4_ident (SPEC.md 130.15.13)
+                                                                    # log with w4_ident (SPEC.md 137.15.13)
     mut("H09.BZR", lambda b: b.__setitem__(7, (BB.PHYSV ^ 0x5A) & 0xFF), "bz_t_phys")
-    # wave 6 (SPEC.md 130.16.14): THIS build's log with +7 5b's BZ_PHYSV (A0h) and the unset 00h - a real 5b log
-    # of a course whose identity moved fails check 4 first (130.16.9), so it cannot be this case
-    # wave 6b (SPEC.md 130.17.10): and +7 = 25h, wave 6's - a log the owner saved from round 1's disk
+    # wave 6 (SPEC.md 137.16.14): THIS build's log with +7 5b's BZ_PHYSV (A0h) and the unset 00h - a real 5b log
+    # of a course whose identity moved fails check 4 first (137.16.9), so it cannot be this case
+    # wave 6b (SPEC.md 137.17.10): and +7 = 25h, wave 6's - a log the owner saved from round 1's disk
     for nm, v in (("H17.BZR", PHYSV_5B), ("H18.BZR", 0x00), ("H19.BZR", PHYSV_6)):
         assert v != BB.PHYSV, "BZ_PHYSV %02Xh is an earlier physics' value" % v
         mut(nm, lambda b, v=v: b.__setitem__(7, v), "bz_t_phys")
@@ -216,12 +216,12 @@ def fresh(g):
 
 
 def rows_fetched(base, now):
-    title = X.title_rows() | {X.shell_row()}     # (the shell part is held on the desktop, SPEC.md 130.19.2)
+    title = X.title_rows() | {X.shell_row()}     # (the shell part is held on the desktop, SPEC.md 137.19.2)
     return [i for i, ((f0, _), (f1, _)) in enumerate(zip(base, now)) if i not in title and f1 & X.OP_FETCHED]
 
 
 def end_state(g):
-    """the guest's end state; wave 6 (SPEC.md 130.16.14): with bz_nboost"""
+    """the guest's end state; wave 6 (SPEC.md 137.16.14): with bz_nboost"""
     return (g.d("bz_nstep"), g.d("bz_gx"), g.d("bz_gy"), g.sd("bz_gz"), g.s("bz_gvx"), g.s("bz_gvy"),
             g.s("bz_gvz"), g.w("bz_nfall")) + ((g.w("bz_nboost"),) if "bz_nboost" in g.sym else ())
 
@@ -341,7 +341,7 @@ def leg_ship(g):
         if got != want:
             fails.append("ship: D of BZD%d.BIN ended at %s, the model's replay at %s" % (kd, got, want))
         if BB.log_ident(demo) != R.course_k(kd).ident:
-            fails.append("ship: BZD%d.BIN carries identity %04Xh, its course's is %04Xh (SPEC.md 130.15.10.5)"
+            fails.append("ship: BZD%d.BIN carries identity %04Xh, its course's is %04Xh (SPEC.md 137.15.10.5)"
                          % (kd, BB.log_ident(demo), R.course_k(kd).ident))
     print("%s ship: %s, each D'd to the model's end: %s" % (g.tag, ", ".join(rep), "yes" if not fails else "NO"),
           flush=True)
@@ -349,7 +349,7 @@ def leg_ship(g):
 
 
 def leg_wave4(g):
-    """WAVE 5B (SPEC.md 130.15.7, 130.15.13): a TQUIK log as another build
+    """WAVE 5B (SPEC.md 137.15.7, 137.15.13): a TQUIK log as another build
     wrote it (w4_ident) put in the log and R pressed - the launch's own
     identity check REFUSES it ([bz_err] 3, no step played) and the face says
     "Another course's log".  (Through L the same file is refused earlier, by
@@ -359,7 +359,7 @@ def leg_wave4(g):
     m.pause()
     g.write_log(log)
     n0 = g.d("bz_nstep")
-    fl = R.FaceLines(g, extra=(g.a("bz_t0"),))  # (bz_line is in the shell part, SPEC.md 130.19.2)
+    fl = R.FaceLines(g, extra=(g.a("bz_t0"),))  # (bz_line is in the shell part, SPEC.md 137.19.2)
     fl.arm()
     m.run()
     GM.guard(g)
@@ -384,7 +384,7 @@ def leg_wave4(g):
     if played or g.b("bz_err") != 3 or g.d("bz_nstep") != n0 or not found:
         fails.append("wave4: TQUIK's log with another build's identity %04Xh PLAYED, or was not refused as "
                      "another course's log (a play reached bz_t0: %s, [bz_err] %d, bz_nstep %d -> %d, the face's "
-                     "line %r; SPEC.md 130.15.7)" % (w4_ident(), played, g.b("bz_err"), n0, g.d("bz_nstep"), found))
+                     "line %r; SPEC.md 137.15.7)" % (w4_ident(), played, g.b("bz_err"), n0, g.d("bz_nstep"), found))
     print("%s wave4: R of TQUIK's log as another build wrote it (identity %04Xh, TQUIK's %04Xh): %s" % (
         g.tag, w4_ident(), R.course("tquik").ident, "refused, the face says %r" % found if not fails
         else "PLAYED or not refused"), flush=True)
@@ -426,7 +426,7 @@ def leg_hostile(g, ui):
         f = rows_fetched(base_rows, rows_now)
         if f:
             why.append("part row(s) %s fetched" % f)
-        why += X.kit_held(g, rows_now)          # (SPEC.md 130.37.5: the kit held through a refused L)
+        why += X.kit_held(g, rows_now)          # (SPEC.md 137.37.5: the kit held through a refused L)
         if claims_now != base_claims:
             why.append("the claims %s, before %s" % (claims_now, base_claims))
         if first and nl:
@@ -468,7 +468,7 @@ def leg_dclick(ui, tag, sym, g):
             except Exception:
                 txt = None
         rows, claims = fresh(g)
-        why = X.kit_held(g, rows)               # (SPEC.md 130.37.5: fetched at the open, whatever it was handed)
+        why = X.kit_held(g, rows)               # (SPEC.md 137.37.5: fetched at the open, whatever it was handed)
         if toast is None:
             if bytes(g.read_log(len(want))) != want or g.b("bz_lsv") != 2:
                 why.append("the log is not %s's (bz_lsv %d)" % (name, g.b("bz_lsv")))
@@ -540,7 +540,7 @@ REDS = {
     # the bytes into the log (bz_rin) BEFORE the checks (the checks run on the log's copy)
     "inplace": [("bonanza.asm", ".chk:\n    call bz_lchk                ; 2 - 8\n",
                  ".chk:\n    mov cx, [bz_lfsz]           ; RED inplace: into the log first\n"
-                 "    xor si, si\n    call bz_rin\n"     # (bz_rin keeps ES, the claim: SPEC.md 130.11.12.1)
+                 "    xor si, si\n    call bz_rin\n"     # (bz_rin keeps ES, the claim: SPEC.md 137.11.12.1)
                  "    call bz_lchk\n")],
     # bz_home does not go home
     "nohome": [("bonanza.asm", "bz_home:\n    push bx\n",
@@ -563,7 +563,7 @@ def main():
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true", help="the host half only")
     a = ap.parse_args()
-    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
+    R.dev()                             # the BZDEV=1 build (SPEC.md 137.26.6.1)
     if a.check:
         bad = check_set()
         for line in R.check_reds(REDS, "bonanza_demo"):

@@ -132,7 +132,7 @@ make xt-isotron-ega # ...the 256KB IBM XT with a real EGA: F is a same-mode
               # bracket in 16 colours at 640x350
 make pmcbandbench # its band composer's benchmark, under QEMU -icount shift=3
 make bonanzadisk # Bounce Bonanza, an isometric rolling-ball game for the
-              # IBM 5150 on CGA and Hercules (SPEC.md 130): the package,
+              # IBM 5150 on CGA and Hercules (SPEC.md 137): the package,
               # its generated art, courses and music as parts, in all four
               # geometries (bonanza.img, bonanza720/120/360.img). It is on
               # no other disk; apps/bonanza/README.md. Its gates are the

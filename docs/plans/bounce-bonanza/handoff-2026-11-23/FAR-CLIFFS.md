@@ -1,7 +1,7 @@
 # Handoff: AV's far list ("far cliffs") - research done, build next
 
 Written 2026-11-23 at the end of a builder session on `bb-editor` (merged into `bounce-bonanza`). This is a
-working note (docs/plans/), not the contract: **SPEC.md 130.29.12** holds the measurements and is the authority;
+working note (docs/plans/), not the contract: **SPEC.md 137.29.12** holds the measurements and is the authority;
 the paragraph to start from is *"A precomputed far list, and the cheap float, MEASURED in the model"*.
 
 ## The owner's ask
@@ -11,9 +11,9 @@ the paragraph to start from is *"A precomputed far list, and the cheap float, ME
 > behind it). Is that something we could make a very simple, coarse mask for and build ahead of time? Would
 > that save AV calculation time in general? ... this would need to be a very simple dataset to be a win."
 
-AV (130.29) hides a ball in a VOID cell using the whole front cells at diagonal depth `d = 1..4`. MILL's tall
+AV (137.29) hides a ball in a VOID cell using the whole front cells at diagonal depth `d = 1..4`. MILL's tall
 cliffs 5 - 18 diagonals in front still cover a falling ball, so the tool ships records for them: the largest
-class AV leaves (130.29.12's table, "past the depth").
+class AV leaves (137.29.12's table, "past the depth").
 
 ## What was found (MEASURED in the model unless marked)
 
@@ -66,13 +66,13 @@ readers) before relying on it, and the tool's grid reader must accept a non-zero
 
 ## Build plan (the research agent's, checked)
 
-1. SPEC first: a 130.29.13 (or a new row in 130.29.4) for the far list - the pick, both filters, the byte, the
+1. SPEC first: a 137.29.13 (or a new row in 137.29.4) for the far list - the pick, both filters, the byte, the
    blob, the guest's walk.
 2. Port the pick and both filters from `far-cliffs/avfar.py` (the variant `far 18 0 budget nowrong`) into the
    tool's residual cut; store the list in byte +1 and the blob.
 3. Guest: the far cells go into the existing extra slots `bz_arange` and the count loop already walk (almost no
    new bss).
-4. Completeness (item 15, 130.29.7) stays as it is; add red arms for **a dropped list entry** (completeness
+4. Completeness (item 15, 137.29.7) stays as it is; add red arms for **a dropped list entry** (completeness
    red) and **the wrong-hide filter off** (wrong-hide red on MILL).
 5. Re-price on the BUILT guest with `tests/bonanza_av.py --price` before trusting the worst-frame budget.
 6. Shipped course parts change (fewer records); re-stamp any `.bzd` `ident` the identity moves (compile and take
@@ -90,9 +90,9 @@ readers) before relying on it, and the tool's grid reader must accept a non-zero
   session that wrote them - edit the paths before running**:
   - `legs.py`, `whole.py`, `human.py` - test every leg of a route (from rest and chained), the whole-route
     planners, and a human key sequence for a timed Hop (MILL's see-saw);
-  - `route_stuck.py` - where the plain autopilot stalls on each route (now in the builder as Autopilot, 130.58.50);
+  - `route_stuck.py` - where the plain autopilot stalls on each route (now in the builder as Autopilot, 137.58.50);
   - `why.py`, `count.py` - colour a course's shipped records by who needs them (floor / reachable void /
-    doubtful), the picture behind 130.11.4.7;
+    doubtful), the picture behind 137.11.4.7;
   - `render_notrap.py` - render a course's preview PNGs with NO TRAP off, as the builder compiles.
 - `courses/` - the owner's in-progress MILL before the route fix and with it (`mill-routefix.bbc`: 4 `way`
   edits, both routes finish), for the leg tools.

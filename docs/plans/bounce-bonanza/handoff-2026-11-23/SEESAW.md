@@ -1,15 +1,15 @@
 # MILL's see-saw "not see-sawing" in the game - handoff (2026-11-23)
 
 The owner: *"Got it ingame, and the seesaw is not see-sawing."* MILL's plate is
-`seesaw 22 17 24 21 along y pivot 17` (SPEC.md 130.42, F's teeter). Tree
+`seesaw 22 17 24 21 along y pivot 17` (SPEC.md 137.42, F's teeter). Tree
 measured: `efce8ee2f` (bb-editor = bounce-bonanza), the normal `make
-bonanzadisk` build. SPEC.md 130.42.14 is the record; this is the working note.
+bonanzadisk` build. SPEC.md 137.42.14 is the record; this is the working note.
 
 ## Status
 
 **No guest or tool defect found. Nothing that changes behaviour is committed.**
 Committed: the regression scenes (`tests/bonanza_phys.py`, `tilt_host`), SPEC.md
-130.42.14, and this note with the scripts used.
+137.42.14, and this note with the scripts used.
 
 ## Evidence
 
@@ -43,9 +43,9 @@ Committed: the regression scenes (`tests/bonanza_phys.py`, `tilt_host`), SPEC.md
 
 ## Candidates ruled out
 
-130.42.13 (`tilt_base_ops` for every plate: picture only, poses still differ),
-130.42.12, 130.58.48 (builder only; guest lanes correctly ordered), camera
-stops/span 130.45.5/6 (efce8ee2f is behaviour-identical to edeabad05 per its
+137.42.13 (`tilt_base_ops` for every plate: picture only, poses still differ),
+137.42.12, 137.58.48 (builder only; guest lanes correctly ordered), camera
+stops/span 137.45.5/6 (efce8ee2f is behaviour-identical to edeabad05 per its
 own proof, and the lanes draw on MartyPC at efce8ee2f), tighter reach, form 9,
 two-part MILL, bbgame (owner says the game was a normal build).
 
@@ -54,7 +54,7 @@ two-part MILL, bbgame (owner says the game was a normal build).
 - Ask the owner exactly how the ball reached the plate in the game vs the Test
   Roll (rolled or hopped, from the drop tube or from rest on F, which keys).
 - If the owner wants the plate to tip on a hop-over or a fast pass, that is a
-  design change to the weights (130.42.10 item 1) or the course (`rest +`,
+  design change to the weights (137.42.10 item 1) or the course (`rest +`,
   a different `pivot` so the tipped end meets the ramp).
 - `t_bbgame` was started (after `make bbgamebin`) but not seen to finish.
 
@@ -102,10 +102,10 @@ The owner's `BZSSLOG=1` log (the diagnostic knob written for this) read the see-
 **16384**; the tree's run read 0. Nothing cleared `bz_fwk` between plays, so a turntable's, gate's or
 spike's "nothing due" `n + 4000h` from a course played earlier in the same instance slept MILL's see-saw
 (which never writes its wake) until step 16,384. Every test here launched MILL fresh, so the table was clean.
-Fix: `bz_pinit` zeroes every wake (SPEC.md 130.25.6.11). Shown both ways on MartyPC with 4000h planted in
+Fix: `bz_pinit` zeroes every wake (SPEC.md 137.25.6.11). Shown both ways on MartyPC with 4000h planted in
 slot 3 before `001MILL.BZR`'s replay: the pre-fix package never tips, the fixed one tips at 934 - 939.
 Where the 4000h came from (MEASURED on MartyPC with the owner's steps): the TITLE's demo course, whose slot 3
 is GLASS; glass slept its slot at the demo's step 9 and the pathway (no families) kept it. The "pit" above (a
 tipped plate 2 units under the ramp) is INTENDED - the owner: you have to jump, at the right time, to make it
 over. NEXT: the occluders are cut from the rest picture, so a tipped plate's rest-pose edge and column are laid
-over a ball on its low end (SPEC.md 130.42.10 item 5) - a plan is with the owner.
+over a ball on its low end (SPEC.md 137.42.10 item 5) - a plan is with the owner.

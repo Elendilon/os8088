@@ -14,7 +14,7 @@ uses rotor tube turntable seesaw archway spring life
 medals 60 70
 limit 99
 target 90
-stop down over            # SPEC.md 130.45.4, 130.45.6: past the cup no further down (the finish clock stays in view) - only over the finish's span, so the pathway east of it still scrolls
+stop down over            # SPEC.md 137.45.4, 137.45.6: past the cup no further down (the finish clock stays in view) - only over the finish's span, so the pathway east of it still scrolls
 
 # rooms (the sketch's sections) and walls
 floor rect   7   9  13  14  flat 28   # A
@@ -28,7 +28,7 @@ floor rect  19  47  32  50  flat 10   # J
 floor rect 23 50 26 51 ramp y 50 51 10 9    # J
 
 # guard rails: every open edge but the design's (the jump's gap, the back door's step, the arch's legs)
-# guard rails ON the floors' edges (SPEC.md 130.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
+# guard rails ON the floors' edges (SPEC.md 137.35.1: the rail stands on the floor, the edge a wall to the ball at every height)
 guard rect  15   5  16   9 side +x
 guard tile  22  43 side +x
 guard rect  12   5  16   6 side -y
@@ -74,24 +74,24 @@ prop windmill 9 9  seed 16
 prop bumper 12 18
 prop bumper 14 17
 prop bumper 14 19
-# the SEE-SAW: F's teeter down to the plaza (SPEC.md 130.42), resting with its near (minus) end down
+# the SEE-SAW: F's teeter down to the plaza (SPEC.md 137.42), resting with its near (minus) end down
 seesaw 22 17 24 21 along y pivot 17
-# the FORK: the open tube (the rubber way) and the ARCHWAY over a glass pad (SPEC.md 130.39) before the
+# the FORK: the open tube (the rubber way) and the ARCHWAY over a glass pad (SPEC.md 137.39) before the
 # glass way's tube
-# the rubber way's TURNTABLE (SPEC.md 130.43): the middle column open on every other quarter turn
+# the rubber way's TURNTABLE (SPEC.md 137.43): the middle column open on every other quarter turn
 prop turntable 26 35 size 3 fill ooo.o..o. seed 228
 # the second windmill: entered -x off U, out of its house's +y face onto the rejoin
 tube drop 15 18 20 15 via 17 18 via 17 15 height 2 body 20
 tube launch 11 35 15 37 via 11 37 speed 336 0 332 body 21.5 column 0.5
 tube keep 29 28 20 34 via 28 28 via 28 31 via 20 31
 tube keep 27 44 21 41 via 27 43 via 25 43 via 25 40 via 21 40
-# the glass way: a respawning JUMP (SPEC.md 130.25.9, 130.55) on the ledge, the rubber pads past the gap
+# the glass way: a respawning JUMP (SPEC.md 137.25.9, 137.55) on the ledge, the rubber pads past the gap
 prop life 10 34 once
 prop windmill 29 28
 prop bumper 27 41
 prop windmill 27 44
 pad glass 20 27
-# the finish: the CUP in a sandpit (SPEC.md 130.14.4.3; MOON's ring)
+# the finish: the CUP in a sandpit (SPEC.md 137.14.4.3; MOON's ring)
 cup 24 52
 
 start 9 12
@@ -104,7 +104,7 @@ checkpoint 28 48
 checkpoint 35 21
 
 # clocks: on a corner of a floor off the way, or on a tile one out from it
-clock 7 13 frame vases   # start: one bud (SPEC.md 130.18.5.2, `vase`)
+clock 7 13 frame vases   # start: one bud (SPEC.md 137.18.5.2, `vase`)
 floor rect 13 9 15 16 ramp y 9 16 30.5 20
 wall tile 15 15 flat 22
 surface bounce tile 15 15
@@ -190,7 +190,7 @@ floor tile 34 35 flat 4
 clock 24 46 frame vasef  # finish: four in flower
 clock 21 25 frame vasem  # two
 clock 34 35 frame vaset  # three, on the turntable disc
-# the vase clocks' occluder records marked off (SPEC.md 130.53): every record a vase cuts hides a ball only in the
+# the vase clocks' occluder records marked off (SPEC.md 137.53): every record a vase cuts hides a ball only in the
 # VOID cells behind it - a ball there is falling off an edge, never behind a clock in play - so those cells cut
 # none (the start's clock at (7, 13) cuts none already: the noocclude round A, below)
 noocclude rect 23 43 24 47   # behind the finish's (24, 46): the void between V's ramp and the windmill floor
@@ -271,9 +271,9 @@ noocclude tile 18 50
 noocclude rect 20 50 22 52
 noocclude rect 21 52 22 54
 
-# warnings this course keeps (SPEC.md 130.58.5; docs/plans/bonanza-courses/MILL.md section 8)
+# warnings this course keeps (SPEC.md 137.58.5; docs/plans/bonanza-courses/MILL.md section 8)
 # (the three windmills' `accept shade` lines stood here until 2026-11-25: the rule they answered is gone, SPEC.md
-# 130.12.19 - a ball beside a windmill is hidden by the rails in front of it on the rotor's frames as on any other)
+# 137.12.19 - a ball beside a windmill is hidden by the rails in front of it on the rotor's frames as on any other)
 # the glass pad under the archway (line 92): half its top is under the arch's near leg, as it would be under any
 # single high arch along x - the other half and the arch over it say where it is
 accept mark 20 27

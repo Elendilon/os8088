@@ -2,7 +2,7 @@
 
 *Status (later the same day): **TAKEN, ON TRIAL.** The owner: "Have an agent do the tool work. After I test
 it we'll decide if it stays, or if we go back to 2." Section 5's items 1, 2 and 4 are done: `chute 3` is in
-SPEC.md 130.28.3 / 130.28.4 marked on trial, the leg-length refusals name which leg and its minimum,
+SPEC.md 137.28.3 / 137.28.4 marked on trial, the leg-length refusals name which leg and its minimum,
 `--selfcheck`'s `splitphys` section carries the CHUT3 course (8 orientations, 10 tables), the short-leg
 refusals, the 15 / 13 px ring, three FIELD runs and two SEAM-rule red arms, and DOWN's sketch lays the line
 3 wide (`CHUTE_W = 3` in [down/sketch.py](down/sketch.py); `CHUTE_W = 2` re-emits the 2-wide down.bbc byte
@@ -13,8 +13,8 @@ for byte). Item 3, the autopilot, is not this work. The new start is
 The owner, designing course 3 (DOWN, [DOWN.md](DOWN.md)): the line from the start ramp through the
 corner chute into the 3-wide hump run should be 3 wide all the way, and `chute 2 round` is only 2 wide.
 *"Why are shapes limited to 2 wide? ... lets set an agent on what 3-wide chutes would cost and defer
-that change for now."* This is that price. The contract it would change is SPEC.md 130.28 (130.28.3's
-grammar, 130.28.4's shapes). Figures are **MEASURED** with the tool at this tree unless marked
+that change for now."* This is that price. The contract it would change is SPEC.md 137.28 (137.28.3's
+grammar, 137.28.4's shapes). Figures are **MEASURED** with the tool at this tree unless marked
 **PREDICTED**. The prototype is in `tools/bbcourse.py` on this branch only, behind `chute 3`. DOWN is
 unchanged.
 
@@ -71,7 +71,7 @@ The prototype refuses a shorter leg with the existing message, naming the minimu
 | guest code | **none**. No guest source mentions a chute or a width. The shape's 5 bits and the symmetry already address any of 32 tables | 0 bytes |
 | `PHYS_REV`, format, `read_part` | unchanged: a 3-wide cell is an ordinary FIELD cell | - |
 | records/occluders | the cut is per facet; a wider corner adds facets over taller ground at the same depth | MEASURED on DOWN3 below |
-| the kit (130.37) | its F library takes every table a `KIT_POOL` course holds. When DOWN (or any pool course) uses 3-wide, its tables join | not re-cut |
+| the kit (137.37) | its F library takes every table a `KIT_POOL` course holds. When DOWN (or any pool course) uses 3-wide, its tables join | not re-cut |
 
 **Tables, MEASURED** (`build_fields` over all 8 corner orientations together; one L-shaped chute alone
 gives the same counts):
@@ -119,7 +119,7 @@ byte changes. Shipped courses are untouched: SHAPE (1- and 2-wide chutes) compil
 | decode, PREDICTED | 601 ms | 606 ms | +5 ms |
 | route (the autopilot) | 1,204 steps | 1,233 steps | reaches the goal |
 
-**Depth on DOWN's corner** (the occluder cap, 130.11.4.2), MEASURED:
+**Depth on DOWN's corner** (the occluder cap, 137.11.4.2), MEASURED:
 
 | depth | 8 | 10 | 12 | 15 |
 |---|---|---|---|---|
@@ -162,14 +162,14 @@ units before the corner block, turning +y to +x. The 2-wide's figures come from 
 - **The exit taper** behaves identically to the 2-wide's at 10 px. The taper's slope is `D / 16`
   whatever the width. With the arrows held a ball leaves at entry speed 120 or more and rolls back
   under 120. Coasting, it rolls back.
-- **The autopilot on SHP3** (130.28.10's FIELD ways) stalls in the first `round` chute's exit taper,
+- **The autopilot on SHP3** (137.28.10's FIELD ways) stalls in the first `round` chute's exit taper,
   cell (16, 10): it arrives slow out of the bigger corner. Moving the route's ways did not fix it.
   This needs tuning before a 3-wide chute ends at a taper on a route. DOWN3's route crosses its exit
   taper with the ramp's speed, and it reaches the goal.
 
 ## 5. To finish it (when the owner takes it)
 
-1. **SPEC.md 130.28.3 / 130.28.4.** The grammar becomes `<1|2|3>`. Add the 3-wide row of section 1's
+1. **SPEC.md 137.28.3 / 137.28.4.** The grammar becomes `<1|2|3>`. Add the 3-wide row of section 1's
    table, the leg-length rule, the deepest depths (15 / 13 px), the standard depths (8 px `round`,
    matching the occluder cap) and the 10 tables.
 2. **`--selfcheck` (the `split` section's FIELD items):**

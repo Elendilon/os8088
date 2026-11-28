@@ -1,4 +1,4 @@
-# Bounce Bonanza's TITLE DEMO 4 (SPEC.md 130.23.3), written by `python3 tools/bbcourse.py tauthor`
+# Bounce Bonanza's TITLE DEMO 4 (SPEC.md 137.23.3), written by `python3 tools/bbcourse.py tauthor`
 # from bbcourse.TITLE_AUTHOR[4] and the model: the rubber ball flying in from the left, bouncing across the step, over the pit's corner onto LC, on along the front and off the bottom right into the hidden tube; out on UR, a run at the back rail and a Hop and boost - its highest bounce, well short of the rail's top - back off the rail, round the right end, along UR's front edge as close as it dares and straight into the windmill, out of its doorway in the pillar's +x face, a Hop and a boost and bouncing off the bottom right again (the owner's red path and notes, 2026-11-16).  0 falls, 2 tube rides; the build
 # replays it from its start and checks every `expect`.
 tdemo   4

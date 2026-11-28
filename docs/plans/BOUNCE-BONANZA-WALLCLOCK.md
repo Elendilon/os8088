@@ -20,8 +20,8 @@ PREDICTED is arithmetic from SPEC.md's measured figures, named where used.
 
 | | today's prop clock (vase, crystal, ...) | the recommended WALL clock |
 |---|---|---|
-| tile space | its own floor cell, an OBS post (130.18.5.3) | **none**: it is on a face the course already has |
-| static art | a frame drawn and **keyed** (130.18.5.4): new records and masks | a white plate painted on the face: **4 blocks, no record, no mask** |
+| tile space | its own floor cell, an OBS post (137.18.5.3) | **none**: it is on a face the course already has |
+| static art | a frame drawn and **keyed** (137.18.5.4): new records and masks | a white plate painted on the face: **4 blocks, no record, no mask** |
 | occlusion | its own key; refused past `CLOCK_HIDE` | **none new** (question 3) |
 | digit lanes | 2 x (1 word x 1 block row), 11 poses | the same: **2 x (1 x 1)**, 11 poses |
 | part bytes, a clock | FIRST, MEASURED: **+328 to +1,340 RAM, +152 to +332 LZ4** | PREDICTED **+492 RAM** (with the plate; +268 bare), about +150 - 250 LZ4 |
@@ -64,7 +64,7 @@ distinct pose blocks over pose 0's, **10 a clock** (320 B CGA).
 
 **Can the tool shear the existing digits at build time?** Yes: the study does it from `CLOCK_FONT`, reading
 the face's top edge off the compile (each column's first line), so the shear follows the face exactly. No
-glyph is stored: a pose IS its blocks (130.18.5), so the sheared glyphs exist only as blocks in the part.
+glyph is stored: a pose IS its blocks (137.18.5), so the sheared glyphs exist only as blocks in the part.
 **How many glyph sets?** The block pool's cost is per PHASE, not per place: at an 8-px pitch a 1:2 face
 moves 4 lines a digit, so the places alternate between two phases of the 8-line block grid, and a third
 digit (a limit of 100 s or more) lands on the first place's phase and adds nothing (MEASURED: 2 digits 30
@@ -73,7 +73,7 @@ phases x 10 digits, about 30 blocks; both facings on one course about 60. A blan
 (already in the pool).
 
 **Is a sheared 1:2 glyph legible?** MEASURED by looking at the pictures, on the CGA and the VGA (the VGA's
-mode 0Dh shows the CGA's four colours, the same blocks converted at load: 130.46.1 D6, 130.46.5, so the two
+mode 0Dh shows the CGA's four colours, the same blocks converted at load: 137.46.1 D6, 137.46.5, so the two
 are pixel-identical) **marginally**: verticals stay vertical, a horizontal stroke becomes 2-px steps, and the
 glyphs with diagonals suffer - on `sw` a 7 reads as "?", on `se` a 4 loses its crossbar and a 7 reads as a
 flagged 1. On the **Hercules** (a game pixel is two card pixels; cyan and magenta are one grey checker, black
@@ -94,12 +94,12 @@ pose is a VISIBLE pixel of the named face, off its edge line and its seams**:
 
 1. **visible**: the final picture's key at that pixel is the face's cell (`sbuf == wx + wy`) - nothing in
    front (a taller block, a prop, a rail) covers it; the tool already has this per pixel (`sbuf`, and the
-   `lk`/`lo` "which geometry" buffers, 130.47.5);
+   `lk`/`lo` "which geometry" buffers, 137.47.5);
 2. **height**: at least 2 units (16 px) for the 5 x 7 (MEASURED: the 1-unit face has no legal place; 2 and 3
    units both hold it); 2 units is also the least that keeps a white plate off the edge lines;
 3. **width**: one cell (16 px) holds 2 digits in its two words; three digits take two cells;
-4. **lanes**: a digit's blocks share no block with another lane (or it is grouped, 130.32) and are counted
-   as clock lanes are (SLOW, 130.19.10; `WIN_CHG` in a window with a clock);
+4. **lanes**: a digit's blocks share no block with another lane (or it is grouped, 137.32) and are counted
+   as clock lanes are (SLOW, 137.19.10; `WIN_CHG` in a window with a clock);
 5. **not a post**: the cell is the wall's and stays the wall's: no OBS, no post fields (the wall is already
    solid).
 
@@ -116,7 +116,7 @@ must not straddle the seam, and on the 2-word grid it cannot.
 - `WX WY` the cell whose face holds the units digit's left edge; `face sw` (the left, +y) or `se` (the
   right, +x); `span 2` lets three digits run into the next cell along the face (to screen right: `sw` +x,
   `se` -y);
-- `form` defaults to `level`, `plate` to `white`; `digits DX DY` nudges as 130.18.5.5's anchor does (the
+- `form` defaults to `level`, `plate` to `white`; `digits DX DY` nudges as 137.18.5.5's anchor does (the
   same legality: whole blocks plus the glyph's slack);
 - refusals: the face not visible at every ink pixel (naming the first, as the art-holds check does), a face
   under 2 units, a lane shared, the cell a post's.
@@ -127,26 +127,26 @@ sees it.
 
 ## 3. Occlusion: "needs no additional occlusion" - CONFIRMED
 
-This is the existing rule for a lane drawn on geometry (130.12.4.5), the windmill's rotor on its house front:
+This is the existing rule for a lane drawn on geometry (137.12.4.5), the windmill's rotor on its house front:
 
 - **A ball BEHIND the face**: the face is already an occluder wherever a ball can pass behind it. MEASURED on
   the scratch course: the 3-unit block's `sw` clock blocks already hold 2 records (s 12, top 24) and its `se`
   clock blocks 1; the 2-unit block's 2. They are cut from the face's KEYS, not its ink, and every digit pixel
   is a face pixel with the face's key at every pose, so the records' verdicts do not depend on the pose and
-  the lay copies the DRAWN digit through the map (130.18.5.4 item 3). No record is added, no mask changes,
-  and the tool's 130.12.4.5 check passes by construction. (FIRST's plateau front: 0 records on the clock's
+  the lay copies the DRAWN digit through the map (137.18.5.4 item 3). No record is added, no mask changes,
+  and the tool's 137.12.4.5 check passes by construction. (FIRST's plateau front: 0 records on the clock's
   blocks - nothing passes behind it.)
 - **A ball IN FRONT of the face**: the ball is drawn over the picture. A due digit whose lane meets the
-  frame's boxes is never the wheel's or the lead's that frame (130.12.4.2): it is composed in the CONTACT box
+  frame's boxes is never the wheel's or the lead's that frame (137.12.4.2): it is composed in the CONTACT box
   with the shadow, the ball and the occluders, or waits a frame and stays due - exactly as a vase clock's
   digits and a rotor do today. A redraw never overwrites the ball.
-- **The ghost dither** (130.15.10.1) applies to the face's records as before.
+- **The ghost dither** (137.15.10.1) applies to the face's records as before.
 
 So the wall clock needs **no mechanism at all** beyond today's lanes - cheaper than the prop clock, which had
-to become an occluder of its own (130.18.5.4: on FIRST that keying is most of the clock's part cost; FIRST
+to become an occluder of its own (137.18.5.4: on FIRST that keying is most of the clock's part cost; FIRST
 with no clocks has no records at all, MEASURED below). The one condition is rule 1 of question 2: digits only
 on the face's own visible pixels. A digit inked over a neighbouring top or a different cell's face would mix
-keys across poses and be refused by the existing 130.12.4.5 check.
+keys across poses and be refused by the existing 137.12.4.5 check.
 
 ## 4. Cost
 
@@ -154,12 +154,12 @@ keys across poses and be refused by the existing 130.12.4.5 check.
 the walk's second test, the finish's clock group) reads a record's place and the seconds; the lane writer is
 generic up to 4 x 3 blocks (`LANE_WMAX`, `LANE_HMAX`), so even the 1 x 2 sheared lanes need no code. The post
 path is reached only through an OBS cell. Risk to check when built: any site that assumes a CLOCK record
-stands on its own floor cell (`clock_vis`, the finish-clock rule 130.22.6's "in the window centred on it",
+stands on its own floor cell (`clock_vis`, the finish-clock rule 137.22.6's "in the window centred on it",
 `bonanza_ring`'s oracle) - tool and row code, not guest.
 
 **Data, per clock** (CGA blocks 16 bytes each; the Hercules and the VGA convert the same blocks in place at
 load - `bz_hxlat`, `bzv_conv` - so they STORE nothing more; a record 32 bytes and its pose map 11 x h x w
-words, 130.12.3.1):
+words, 137.12.3.1):
 
 | form | pose blocks | static plate | records + maps | RAM a clock |
 |---|---|---|---|---|
@@ -181,26 +181,26 @@ COURSE part, as every lane's poses do; a kit-wide glyph set would need a new poo
 320 bytes a clock.
 
 **Tool**: a statement, the face's visibility and edge test, the placement and plate painter, the refusals and
-a `--selfcheck` section with red arms; PREDICTED 200 - 300 lines of Python, about the size of 130.18.5.5's
+a `--selfcheck` section with red arms; PREDICTED 200 - 300 lines of Python, about the size of 137.18.5.5's
 anchor (+12 KB of source with its selfcheck).
 
-**Per second, on the 8088**: a digit change is a lane commit. From 130.11.3's **1,070 clk a block** written
-and the commit's own overhead (130.13.5.2's model: a few hundred clk fixed; `bz_lmap`'s copy, priced 590
+**Per second, on the 8088**: a digit change is a lane commit. From 137.11.3's **1,070 clk a block** written
+and the commit's own overhead (137.13.5.2's model: a few hundred clk fixed; `bz_lmap`'s copy, priced 590
 fixed, only when a commit is not the whole lane): a 1 x 1 change about **1.1 - 1.7k clk**, a 1 x 2 about
 **2.2 - 2.8k** (PREDICTED). The units change every second and the tens every tenth: about 1.1 changes a
 second, so **about 1.2 - 1.9k clk a second** for the level clock (today's clock exactly) and about 2.4 - 3.1k
 for the sheared one - on one frame of roughly 55 - 60, in the retrace wait's wheel or the contact box. Between
 seconds the walk skips a clock's lanes (`bz_lcsec`), so an unchanged clock costs about nothing a frame.
 
-**The frame risk the HUD had (130.14.5, 130.14.26: +65 missed refreshes on the CGA `MILL` leg)** does not
+**The frame risk the HUD had (137.14.5, 137.14.26: +65 missed refreshes on the CGA `MILL` leg)** does not
 apply, for the reason the prop clocks avoided it: the HUD was a FIFTH box, composed from every layer and
 written again whenever the camera moved, at a fixed window position, so it landed on the frames that already
 missed. A wall clock is part of the PICTURE: it scrolls in with the course from the map (an entering strip
-carries the drawn pose, 130.12.4.2) at no cost, and it changes once a second through the lane path the prop
-clocks use. The figure that applies is the prop clocks' own (130.18.7, MEASURED, form (ii)): on the CGA's
+carries the drawn pose, 137.12.4.2) at no cost, and it changes once a second through the lane path the prop
+clocks use. The figure that applies is the prop clocks' own (137.18.7, MEASURED, form (ii)): on the CGA's
 `MILL` about **+1.6 missed refreshes a second** with a clock in view on a third of the route, inside the
 rule's +2. A level wall clock is the same lanes, so PREDICTED the same; a sheared one adds a block a change.
-Because a wall clock needs no keyed art, it does not add the records that 130.18.5.4's keying added on the
+Because a wall clock needs no keyed art, it does not add the records that 137.18.5.4's keying added on the
 prop clocks.
 
 ## 5. Alternatives
@@ -245,7 +245,7 @@ with `--quick`, which skips MILL), with the per-facing digits in
 reader, the lane counter, the three-card panels) and adds:
 
 - **art authored FLAT** (an elevation: `u` px along the face, `v` px down it, the course's four inks), with a
-  declared **digit window**, written as a text pixmap in the `art` statement's own format (130.23.2) with a
+  declared **digit window**, written as a text pixmap in the `art` statement's own format (137.23.2) with a
   `# digits U0 V0 U1 V1` line: [`art_station.bba`](bonanza-courses/wallclock/round2/art_station.bba),
   [`art_board.bba`](bonanza-courses/wallclock/round2/art_board.bba),
   [`art_strip.bba`](bonanza-courses/wallclock/round2/art_strip.bba),
@@ -257,7 +257,7 @@ reader, the lane counter, the three-card panels) and adds:
 - **the digit lanes** placed in the window (every ink pixel of every pose inside it), in three forms and two
   inks;
 - **the part MEASURED**: the course compiled again with the projected art as a real `art` statement, and again
-  with the digits' new pose blocks laid in the picture's void as art (a pose IS its blocks, 130.12.3.1, so this
+  with the digits' new pose blocks laid in the picture's void as art (a pose IS its blocks, 137.12.3.1, so this
   carries exactly the blocks the lanes would add), RAM and LZ4 of the picture part (`packed_len`), against the
   course as shipped.
 
@@ -316,7 +316,7 @@ sheared. A glyph must start on an odd picture column (word column 1 or 3), the t
   there. Every pixel keeps its own cell's key, so a seam under the art changes nothing in the records.
 - **The digits**: in the window, in any of the three forms above (per clock), placed by the tool on the block
   grid. The art's offset on the face is free per pixel, so when the window and the grid do not agree the tool
-  names the nearest offset that does (the study's `fit`, as 130.18.5.5 names the nearest legal anchor).
+  names the nearest offset that does (the study's `fit`, as 137.18.5.5 names the nearest legal anchor).
   **Height decides the form**: on a 2-unit face (E5, 16 px) only the STEPPED per-facing form fits (MEASURED:
   level and italic have no legal place); 3 units and up take all three.
 - **Legibility on the Hercules comes from the art's field**, not a plate: a BLACK field (E2/E3's board: white
@@ -335,12 +335,12 @@ sheared. A glyph must start on an odd picture column (word column 1 or 3), the t
   worth it: a floor squashes a glyph 2:1, so a legible one would be about 9 lines and 1 x 2 at best.
 - **The ball over it**: the ball is drawn over the picture, so it hides the digits for a moment (the owner's
   "fine"); a due digit whose lane meets the ball's boxes is composed in the contact box or waits a frame
-  (130.12.4.2), as a rotor does. It is the clock most often in the contact box (the route crosses it), the
+  (137.12.4.2), as a rotor does. It is the clock most often in the contact box (the route crosses it), the
   per-second cost's worst case, not a new mechanism.
 - **Conflicts with the floor's own occluders and props** (MEASURED for E6): the lanes' blocks hold **0** of
   the course's records and share no block with another lane. A floor clock can share no block with a prop's
-  lane (a pad, a boost, a flag; 130.12.4.6, refused as every lane is) and must leave the start window's free
-  4 x 3 corner (130.12.4.6); E6, beside FIRST's start, passes the study's lane check, and a real build would
+  lane (a pad, a boost, a flag; 137.12.4.6, refused as every lane is) and must leave the start window's free
+  4 x 3 corner (137.12.4.6); E6, beside FIRST's start, passes the study's lane check, and a real build would
   also run the start-window rule.
 
 ### R2.3 Example art pieces
@@ -361,11 +361,11 @@ The six above, each on CGA, Hercules and VGA, with black and white digits wherev
 | E6 sundial (floor) | +23 | +368 | +281 |
 
 **Records and masks: none.** MEASURED: FIRST with E2, E5 and E6 compiled in has 58 records and 26 masks, the
-same records in the same blocks with the same masks as without them (130.23.2: art writes colour, the keys
+same records in the same blocks with the same masks as without them (137.23.2: art writes colour, the keys
 are the surface's).
 
 **Per clock, the digits** (MEASURED blocks and part bytes, the poses laid in the course; records and pose maps
-PREDICTED, 32 bytes a lane and 11 x w x h words, 130.12.3.1):
+PREDICTED, 32 bytes a lane and 11 x w x h words, 137.12.3.1):
 
 | form | pose blocks | RAM (blocks) | LZ4 | + records/maps |
 |---|---|---|---|---|
@@ -381,7 +381,7 @@ place is identical), which no prop clock had (its face is shaded under each plac
 level, about 556; the rail banner, stepped, about 722; the sundial about 796; MILL's Delft panel, level, about
 1,068. LZ4 about 350 - 650 plus the records' share. Today's prop clocks on FIRST (round 1, MEASURED): **+328 to
 +1,340 RAM, +152 to +332 LZ4** a clock - most of the upper figure the keyed frame's masks and records, which art
-does not have; MILL's vase restyle moved its four clocks' picture by 17 blocks (130.18.5.2). So an art clock
+does not have; MILL's vase restyle moved its four clocks' picture by 17 blocks (137.18.5.2). So an art clock
 costs about what a prop clock costs, spent on picture rather than on keying, and none of it is tile space.
 
 **The per-facing font's storage** (MEASURED, the 10 digits on a plain field laid in FIRST's void): **10 blocks,
@@ -389,11 +389,11 @@ costs about what a prop clock costs, spent on picture rather than on keying, and
 alone). On a non-uniform field each place adds its own (20), and the STEPPED form's 1 x 2 place about 18 more.
 **Who pays**: a course pays for the facings, inks and fields it USES (a pose is blocks in the course's own pool);
 one with only `sw` clocks never carries the `se` set. **In the kit**: the kit already holds every block at
-least 3 pool courses hold, lane poses included (130.37.2, 130.37.3), so digits on a STANDARD field (black board,
+least 3 pool courses hold, lane poses included (137.37.2, 137.37.3), so digits on a STANDARD field (black board,
 white tile, cyan) used by 3 courses would move into `BZKIT.BIN` with no new mechanism: on disk a course then
 NAMES them (a bit each in its `KITREF` bitmap) instead of carrying ~120 LZ4 bytes, and the kit carries them
-once; in RAM nothing changes (the kit's pieces are copied into the course's part at load, 130.37), so **RAM stays
-160 a set per course; only the disk is saved** (PREDICTED from 130.37's rules). A font held ONCE in RAM and drawn
+once; in RAM nothing changes (the kit's pieces are copied into the course's part at load, 137.37), so **RAM stays
+160 a set per course; only the disk is saved** (PREDICTED from 137.37's rules). A font held ONCE in RAM and drawn
 onto any background would need the guest to compose a glyph into a block (a new lane draw, about 40 - 80 bytes,
 PREDICTED) - not worth it at 160 bytes a course.
 
@@ -410,12 +410,12 @@ lines.
 lane; ink and font are the tool's. Round 1's risk list stands (any site assuming a CLOCK record stands on its
 own floor cell).
 
-**Per second on the 8088** (PREDICTED from 130.11.3's 1,070 clk a block and round 1's commit model): level and
+**Per second on the 8088** (PREDICTED from 137.11.3's 1,070 clk a block and round 1's commit model): level and
 italic are today's clock exactly, **about 1.2 - 1.9k clk a second**. Stepped has one 1 x 2 place: on the TENS
 (the tool chooses which place takes the 4-line phase; the study took the nearer placement, which gave it to the
 units) it costs one extra block every tenth second, about 1.3 - 2.0k; on the units about 2.4 - 3.1k. The floor
 clock is the same, more often composed in the contact box. **Bound**: a clock is 2 lanes against the 6 a window
-and 8 a range (130.12.4.6); FIRST already shows 4 clock lanes, so ONE art clock fits beside its two prop clocks
+and 8 a range (137.12.4.6); FIRST already shows 4 clock lanes, so ONE art clock fits beside its two prop clocks
 and a second would not.
 
 **Tool work** (PREDICTED): a statement, e.g.
@@ -427,13 +427,13 @@ refused off the legal grid with the nearest legal one named), the `.bba` reader 
 line, the projection (about 40 lines: `down/art.py`'s `paste_y`/`paste_x` grown into the tool), the per-facing
 font tables (2 x 10 glyphs, data), the window placement and its refusals (no legal place; ink off the window; a
 host pixel hidden; a lane shared; a run that is not one plane), and a `--selfcheck` section with red arms. About
-300 - 400 lines with the selfcheck, the size of 130.18.5.5's anchor (+12 KB).
+300 - 400 lines with the selfcheck, the size of 137.18.5.5's anchor (+12 KB).
 
 ### R2.5 Occlusion: round 1's conclusion HOLDS
 
 - **Several columns**: each art pixel keeps the key of the face that drew it (MEASURED: the same records and
   masks with and without the art); a digit block across a seam has two keys, but neither changes with the pose,
-  which is all 130.12.4.5 asks. No record, no mask, no OBS, no post.
+  which is all 137.12.4.5 asks. No record, no mask, no OBS, no post.
 - **A floor**: the same - the floor's keys, unchanged by the art or the pose; a ball over it is drawn over it; a
   ball behind and below a raised floor is laid over by that floor's records exactly as without the art. E6's
   lanes hold 0 records.

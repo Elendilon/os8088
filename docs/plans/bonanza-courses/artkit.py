@@ -4,7 +4,7 @@ decals and its gates with.  Host only; nothing in `make` runs it.  A course's ar
 (the `.bba` files under apps/bonanza/courses/ are its committed output, as roll_*.bba are first/decals.py's and
 down_*.bba down/art.py's), and its sketch.py imports it for the `art` lines, so a re-emitted course keeps them.
 
-  Sheet(x0, y0)      a canvas in the course's PICTURE pixels (SPEC.md 130.23.2's `art FILE X Y`: x0 the course's
+  Sheet(x0, y0)      a canvas in the course's PICTURE pixels (SPEC.md 137.23.2's `art FILE X Y`: x0 the course's
                      `origin`, y0 the compile's Y0 - `check()` compiles the course and refuses a stale one)
     .tile(wx, wy, z)       a tile's top centre (z in units; 8 px a unit)
     .floor(wx, wy, z, fn)  PAINT on a tile's top: fn(u, v) -> ink or None, u and v 0 - 1 across the tile along
@@ -16,7 +16,7 @@ down_*.bba down/art.py's), and its sketch.py imports it for the `art` lines, so 
     .write(name, comment)  the opaque pixels' box as apps/bonanza/courses/<name>.bba -> its `art` line
   arrow, chevrons, up_arrow   floor paint for .floor(): fn(u, v) -> ink
   crop_png(c, boxes, out, pal, zoom)   crops of a compiled course, CGA over Hercules; picture_png: the whole of it
-  gate_bba(name, frames, cells, comment)   a gate's ART (SPEC.md 130.41.12): four ELEVATIONS, {(u, v): ink} with
+  gate_bba(name, frames, cells, comment)   a gate's ART (SPEC.md 137.41.12): four ELEVATIONS, {(u, v): ink} with
                      u across the opening and v up from the floor, sheared onto the wall's plane through the
                      cell's middle as the picture's own faces are, written with the header the tool reads; a
                      frame may be (elevation, flat): FLAT {((u, v), dx, dy): ink} is drawn UPRIGHT, dx and dy

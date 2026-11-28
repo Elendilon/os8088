@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BONANZA's sound, held to tools/bbmusic.py's model on the guest (SPEC.md 130.20).
+"""BONANZA's sound, held to tools/bbmusic.py's model on the guest (SPEC.md 137.20).
 
     make bonanzadisk && python3 tests/bonanza_sound.py [--leg spk|fm|both]
     python3 tests/bonanza_sound.py --red groove|mat      (a red arm, below)
@@ -14,16 +14,16 @@ age and PITCH WORD, and the song's order row, row, groove step and sub-ticks
 left - and on the speaker the Hz it last sent against the model's fold.
 
 LEG spk, os8088_5150_cga_gla (no card, the owner's 5150 #1):
-  1  THE WINDOW IS SILENT (SPEC.md 130.26.5): no arm, no song held;
+  1  THE WINDOW IS SILENT (SPEC.md 137.26.5): no arm, no song held;
   2  S (the harness's key, bz_dev) toggles OFF and AUTO, the window silent
      either way;
   3  F plays ROLL (a SHIPPED course, pathway pad 0's: BOUNCE-BONANZA-SOAK
      phase 3 took the row off the prototype FIRST): the course part's song in
      the bracket, three stops held to the model - the song the model is given
-     READ OUT OF ROLL's built course part, its section S (SPEC.md 130.50.3: no song row
+     READ OUT OF ROLL's built course part, its section S (SPEC.md 137.50.3: no song row
      since; parts() below), and the sound part BZSND.BIN, which rides the
-     resident bundle (130.50.2);
-  4  THE EVENTS, poked into the counters the physics keeps (SPEC.md 130.20.5)
+     resident bundle (137.50.2);
+  4  THE EVENTS, poked into the counters the physics keeps (SPEC.md 137.20.5)
      at a stop, each ball in turn (bz_mat): a bounce, a wall, a bumper's face -
      the next frame's slot holds that ball's effect (its instrument, priority
      and transpose), and the three balls' effects are not the same;
@@ -46,7 +46,7 @@ the row FAILS at its own check:
   nofree   wave 8R round 2: an effect's 0 terminator read, its slot not
            freed (F_PTR kept): the wait for an idle slot fails, naming it
 
-WAVE 6 (SPEC.md 130.16.4.4, 130.16.14): step 4 gains THE BOOST: bz_nboost
+WAVE 6 (SPEC.md 137.16.4.4, 137.16.14): step 4 gains THE BOOST: bz_nboost
 poked with each ball - rubber's next frame's slot holds rubber's BOOST effect,
 whose record differs from its HOP's (another effect, by content); steel's and
 glass's key NOTHING (bzs_fxseq unchanged: their columns name no effect); and
@@ -54,23 +54,23 @@ a boost contact keys no LAND (bz_nland, bz_lvz past BZS_LMIN and bz_nboost
 poked in one frame: one effect keyed, the BOOST).  The effect numbers are read
 out of the built BZSND.BIN, never written here.
 
-WAVE 8R ROUND 2 (SPEC.md 130.20.5, 130.18.6): THE COURSE'S CLOCK HELD.  FIRST (the
+WAVE 8R ROUND 2 (SPEC.md 137.20.5, 137.18.6): THE COURSE'S CLOCK HELD.  FIRST (the
 course this row played then; ROLL since phase 3) had a 15 s limit and its countdown ran under step 4: its LOW at 10 s and a TICK
 every second after are the game's own, and one keyed in a poked frame was a
 second effect ('rubber's boost keyed 2'), while w7's pokes left bz_t55 stale,
 so the poked 10 s could run out a step later under its own LOW (priority 4)
 and the game's TICK at 9 (priority 1) found the slot taken - the test's 9 then
-moved nothing.  The longer effects of 130.22.9's `strip_comment` fix widened
+moved nothing.  The longer effects of 137.22.9's `strip_comment` fix widened
 both windows (LOW 4 sub-ticks -> 13).  So step 4 runs with the limit off
 (bz_tsec 0), w7 pokes each second AT ITS START (bz_t55 = BZ_SECSTEPS, the
 countdown's own state there) and fails if the clock still moved, and every
 wait for an idle slot FAILS when an effect never frees it.
 
-WAVE 5B (SPEC.md 130.15.9, 130.15.13): unchanged in logic.  The parts table's
+WAVE 5B (SPEC.md 137.15.9, 137.15.13): unchanged in logic.  The parts table's
 format byte is the whole table's, so with LZB parts (shipped) every part is
-an LZB part.  Since SPEC.md 130.50 there is no sound or song part ROW: the
-sound part is in the RESIDENT BUNDLE (fetched once at the open, 130.50.2)
-and the played course's song is section S of its course part (130.50.3), each
+an LZB part.  Since SPEC.md 137.50 there is no sound or song part ROW: the
+sound part is in the RESIDENT BUNDLE (fetched once at the open, 137.50.2)
+and the played course's song is section S of its course part (137.50.3), each
 decoded by OSAPI_DECOMP's LZB arm with the row that carries it, and the
 model comparison holds the decoded bytes to bbmusic's.  The format is printed
 at the start; a red tree packs its parts in it (bonanza_ring.build_tree).
@@ -105,7 +105,7 @@ symbols = R.symbols
 
 
 def part_song(part, fname="<part>"):
-    """SPEC.md 130.50.3: the song a course part carries - its section S, the LAST section, the song from
+    """SPEC.md 137.50.3: the song a course part carries - its section S, the LAST section, the song from
     the first paragraph at or after S's offset to the section's end (bbcourse._song_of) - out of the part's
     STORED form as the floppy holds it, expanded to its RAM form as bz_cexp expands it.  -> bytes, or None
     for a part with no S"""
@@ -119,16 +119,16 @@ def part_song(part, fname="<part>"):
 
 
 def parts(art=None):
-    """(the sound part, ROLL's song): BZSND.BIN, the bytes the RESIDENT BUNDLE carries (SPEC.md 130.50.2), and
+    """(the sound part, ROLL's song): BZSND.BIN, the bytes the RESIDENT BUNDLE carries (SPEC.md 137.50.2), and
     the song read out of the played course's (SOUND_CRS, ROLL) own built course part, BZ<K>.BIN's section S
-    (130.50.3) - the bytes the guest's bzs_csong plays, not bbmusic's BZM<S>.BIN intermediate"""
+    (137.50.3) - the bytes the guest's bzs_csong plays, not bbmusic's BZM<S>.BIN intermediate"""
     art = art or R.at("build/bonanza-art")
     snd = open(os.path.join(art, "BZSND.BIN"), "rb").read()
     k = R.CRS_K[SOUND_CRS]
     fn = os.path.join(art, "BZ%d.BIN" % k)
     song = part_song(open(fn, "rb").read(), fn)
     if not song:
-        raise AssertionError("%s (%s, course %d) carries no song: no section S (SPEC.md 130.50.3)" % (
+        raise AssertionError("%s (%s, course %d) carries no song: no section S (SPEC.md 137.50.3)" % (
             fn, SOUND_CRS.upper(), k))
     return snd, song
 
@@ -251,7 +251,7 @@ def held(g, snd, song, arm, what):
 
 
 def events(g, snd):
-    """SPEC.md 130.20.5: each ball's bounce, wall and bumper face, poked"""
+    """SPEC.md 137.20.5: each ball's bounce, wall and bumper face, poked"""
     fails, seen = [], {}
     emap, fxt = BM.u16(snd, 12), BM.u16(snd, 10)
     pokes = (("BOUNCE", "bz_nbnc", {"bz_lvz": 300}), ("WALL", "bz_nwall", {"bz_lwv": 100, "bz_lwb": 0}),
@@ -271,7 +271,7 @@ def events(g, snd):
             sens = snd[rec + 2]
             tr = 0 if sens >= 16 else min(7, strength >> sens)
             base = g.a("bzs_fx")
-            slots = [g.m.read(base, F_SIZE)]          # one effect slot (130.20.5)
+            slots = [g.m.read(base, F_SIZE)]          # one effect slot (137.20.5)
             hit = [s for s in slots if s[13] == snd[rec] and s[12] == snd[rec + 1] and s[10] == tr
                    and struct.unpack("<H", s[17:19])[0] == (seq0 + 1) & 0xFFFF]
             if g.w("bzs_fxseq") != (seq0 + 1) & 0xFFFF or not hit:
@@ -286,7 +286,7 @@ def events(g, snd):
 
 
 def w7_events(g, snd):
-    """wave 7 (SPEC.md 130.18.6): wave 4's counters mapped - a flag, a pad, a
+    """wave 7 (SPEC.md 137.18.6): wave 4's counters mapped - a flag, a pad, a
     lip-out, a spring, a RETURN - and the sound plan's I9 (a kick, a knock, a
     tube), each poked with the rubber ball: the next frame's slot holds the
     event's effect; and the clock's seconds poked (bz_tsec): 30 s left plays
@@ -348,9 +348,9 @@ def w7_events(g, snd):
     if not idle_w7():
         return fails
     held_at(1)
-    # SPEC.md 130.22.9.1: with the TIME'S UP tune held (bzs_tseg, a play with music) the tune plays in the
+    # SPEC.md 137.22.9.1: with the TIME'S UP tune held (bzs_tseg, a play with music) the tune plays in the
     # TIMEOUT effect's place - no effect keyed; in a play whose finish has no tune (bzs_fin 0: EFFECTS ONLY,
-    # a replay, a benchmark - TIME'S UP is the RESIDENT BUNDLE's since 130.50.2, so bzs_tseg is never 0 beside
+    # a replay, a benchmark - TIME'S UP is the RESIDENT BUNDLE's since 137.50.2, so bzs_tseg is never 0 beside
     # bzs_fin 1 and poking it away tested a state no play reaches) the effect, as before.  The tune itself starts at the finish sequence's first step (bzs_victory), which a poke of the
     # clock does not run: its start is bonanzapath's and the probe's
     tseg = g.w("bzs_tseg") if "bzs_tseg" in g.sym else 0
@@ -363,7 +363,7 @@ def w7_events(g, snd):
         dseq = (g.w("bzs_fxseq") - seq0) & 0xFFFF
         if dseq:
             fails.append("w7: the timeout with TIME'S UP held (bzs_tseg %04X) keyed %d effect(s) - the tune "
-                         "plays in its place (SPEC.md 130.22.9.1)" % (tseg, dseq))
+                         "plays in its place (SPEC.md 137.22.9.1)" % (tseg, dseq))
         g.putb("bz_tout", 0)
         set_clock(g, 1)
         stop(g)
@@ -384,7 +384,7 @@ def w7_events(g, snd):
 
 
 def boost_events(g, snd):
-    """SPEC.md 130.16.4.4: a boost poked into bz_nboost with each ball, and
+    """SPEC.md 137.16.4.4: a boost poked into bz_nboost with each ball, and
     with a landing in the same frame"""
     fails = []
     emap, fxt = BM.u16(snd, 12), BM.u16(snd, 10)
@@ -420,7 +420,7 @@ def boost_events(g, snd):
             n, rec = eff(mat, "BOOST")
             if rec is None:
                 if dseq:
-                    fails.append("boost: %s keyed %d effect(s); its column names none (SPEC.md 130.16.4.4)" % (
+                    fails.append("boost: %s keyed %d effect(s); its column names none (SPEC.md 137.16.4.4)" % (
                         what, dseq))
                 continue
             slot = g.m.read(g.a("bzs_fx"), F_SIZE)
@@ -481,7 +481,7 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
             g.secsteps = sec_steps(art)
             M.guest_sleep(m, 2.0)
             m.pause()
-            # 1. THE WINDOW IS SILENT (SPEC.md 130.26.5)
+            # 1. THE WINDOW IS SILENT (SPEC.md 137.26.5)
             if g.b("bzs_arm") != A_NONE or g.b("bzs_song") or g.b("bzs_live"):
                 fails.append("the window: arm %d, song row %d, live %d - not silent"
                              % (g.b("bzs_arm"), g.b("bzs_song"), g.b("bzs_live")))
@@ -495,18 +495,18 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
                     got = (g.b("bzs_mode"), g.b("bzs_arm"), g.b("bzs_live"))
                     if got != (mode, arm, live):
                         fails.append("S: mode, arm, live %s - not %s" % (got, (mode, arm, live)))
-                    if mode == 3 and g.w("bzs_mseg"):      # (the sound part is the BUNDLE's, held: 130.50.2)
+                    if mode == 3 and g.w("bzs_mseg"):      # (the sound part is the BUNDLE's, held: 137.50.2)
                         fails.append("S: OFF kept a song (%04X)" % g.w("bzs_mseg"))
                 m.run()
                 M.guest_sleep(m, 0.4)
-            # 3. ROLL - a free play, F (Enter is the TITLE since SPEC.md 130.23.4), [bz_crsel] POKED to it by
+            # 3. ROLL - a free play, F (Enter is the TITLE since SPEC.md 137.23.4), [bz_crsel] POKED to it by
             m.pause()                   # name (F's default is pathway pad 0's course, ROLL on today's map)
             g.putb("bz_crsel", R.CRS_K[SOUND_CRS])
             m.run()
             g.key("KeyF")
             M.until(m, lambda _: g.b("bz_fs") == 1 and g.w("bz_frames") > 30, "the bracket is up", guest=60)
             m.pause()
-            if g.b("bzs_arm") != want_arm or g.b("bzs_song") != 1:   # (SPEC.md 130.50.3: the course part's song)
+            if g.b("bzs_arm") != want_arm or g.b("bzs_song") != 1:   # (SPEC.md 137.50.3: the course part's song)
                 fails.append("play: arm %d, song %d - not arm %d and the course part's song (1)"
                              % (g.b("bzs_arm"), g.b("bzs_song"), want_arm))
             if only not in ("mat", "noboost"):
@@ -524,7 +524,7 @@ def leg(arm_name, apps=None, src=None, art=None, only=None):
             if arm_name == "spk" and only not in ("groove", "mat") and "bz_nboost" in g.sym:
                 fails += boost_events(g, snd)
             if arm_name == "spk" and only not in ("groove", "mat", "noboost") and "bz_tsec" in g.sym:
-                fails += w7_events(g, snd)              # wave 7 (SPEC.md 130.18.6)
+                fails += w7_events(g, snd)              # wave 7 (SPEC.md 137.18.6)
             # 5. THE COST
             if only is None:
                 mean, top = cost(g)
@@ -564,12 +564,12 @@ REDS = {
                 "    xor bl, bl                  ; RED groove: always the first count\n")],
     "mat": [("bzsound.inc", "    mov ah, [bz_mat]            ; AH = the material, for every trigger\n",
              "    xor ah, ah                  ; RED mat: every event the rubber ball's\n")],
-    # wave 6 (SPEC.md 130.16.14): bz_nboost out of the counters' table
+    # wave 6 (SPEC.md 137.16.14): bz_nboost out of the counters' table
     "noboost": [("bzsound.inc", "            dw bzs_ctr7, bzs_ctr8, bzs_ctr9, bzs_ctr10, bzs_ctr11, bzs_ctr12, bzs_ctr13\n",
                  "            dw bzs_ctr7, bzs_ctr8, bzs_ctr9, bzs_ctr9, bzs_ctr11, bzs_ctr12, bzs_ctr13 ; RED noboost\n")],
 }
-    # wave 7 (SPEC.md 130.18.6): bz_nckpt out of the counters' table; the clock's events skipped
-REDS["noflag"] = [("bzsound.inc", "%define bzs_ctr11   bz_nckpt    ; (wave 4's, mapped by wave 7, SPEC.md 130.18.6)\n",
+    # wave 7 (SPEC.md 137.18.6): bz_nckpt out of the counters' table; the clock's events skipped
+REDS["noflag"] = [("bzsound.inc", "%define bzs_ctr11   bz_nckpt    ; (wave 4's, mapped by wave 7, SPEC.md 137.18.6)\n",
                    "%define bzs_ctr11   bz_nret     ; RED noflag: bz_nckpt not read\n")]
 REDS["notick"] = [("bzsound.inc", "    cmp ax, [bzs_ltsec]         ; moved - the TIMEOUT at 0 (a timed-out play's),\n"
                    "    je .nt                      ; LOW at 30 s and 10 s, a TICK under 10 s\n",
@@ -584,7 +584,7 @@ RED_WANT = {"groove": SOUND_CRS.upper(), "mat": "events", "noboost": "boost: rub
 
 
 def shell_static():
-    """wave 8R (SPEC.md 130.22.9), the host half: the shell's four events and the
+    """wave 8R (SPEC.md 137.22.9), the host half: the shell's four events and the
     VICTORY tune are wired the way the contract says - the callable routines
     and the BZS_EV_* names exist, each names its own event, and the generated
     include's song index is the manifest's"""
@@ -629,7 +629,7 @@ def main():
     ap.add_argument("--red", choices=sorted(REDS))
     ap.add_argument("--check", action="store_true", help="the host half: the model and the red arms")
     a = ap.parse_args()
-    R.dev()                             # the BZDEV=1 build (SPEC.md 130.26.6.1)
+    R.dev()                             # the BZDEV=1 build (SPEC.md 137.26.6.1)
     if a.check:
         if subprocess.run(["python3", "tools/bbmusic.py", "--selfcheck"], cwd=ROOT).returncode:
             sys.exit(1)
@@ -656,8 +656,8 @@ def main():
             print("bonanza_sound --red %s: red, as it must be" % a.red)
         return
     bad, notes = [], []
-    print("bonanza_sound: the parts are %s (the parts table's format byte, SPEC.md 130.15.9): the resident bundle "
-          "(the sound part, 130.50.2) and %s's course part (its song, 130.50.3) decoded in it"
+    print("bonanza_sound: the parts are %s (the parts table's format byte, SPEC.md 137.15.9): the resident bundle "
+          "(the sound part, 137.50.2) and %s's course part (its song, 137.50.3) decoded in it"
           % (R.part_fmt().upper(), SOUND_CRS.upper()), flush=True)
     for lg in (("spk", "fm") if a.leg == "both" else (a.leg,)):
         f, n = leg(lg)

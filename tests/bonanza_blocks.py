@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BONANZA PAST 1,024 BLOCKS in the guest (SPEC.md 130.56): the package's own bz_cexp (its form 9 ROWNIBS,
+"""BONANZA PAST 1,024 BLOCKS in the guest (SPEC.md 137.56): the package's own bz_cexp (its form 9 ROWNIBS,
 bz_cxnib), bz_hgen and bz_hxlat, bz_crshdr and bz_boxc, and the VGA part's BZV_CONV, under unicorn on TBLK -
 bbcourse's scratch course of 1,386 blocks (tblk_text: no course file, in no build).
 
@@ -65,7 +65,7 @@ def forms_art(td, art):
     t = open(p).read().split("\n")
     k = next(i for i, ln in enumerate(t) if ln.startswith("BZ_FORMS"))
     v = int(t[k].split()[2].rstrip("h"), 16)
-    t[k] = "BZ_FORMS        equ %04Xh    ; (bonanza_blocks: bit 9 added, SPEC.md 130.56)" % (v | 0x200)
+    t[k] = "BZ_FORMS        equ %04Xh    ; (bonanza_blocks: bit 9 added, SPEC.md 137.56)" % (v | 0x200)
     open(p, "w").write("\n".join(t))
     return out
 

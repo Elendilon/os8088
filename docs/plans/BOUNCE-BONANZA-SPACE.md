@@ -4,7 +4,7 @@ The package's resident segment, image plus bss, is held to `APP_MAX_SIZE` =
 0xFE00 = **65,024 bytes** (SPEC.md 20.1.1; `OS88_IMAGE_END` refuses past it).
 This file is the survey of where BONANZA's bytes are, what was taken out to
 make room, and the moves held in reserve for the next time it fills. The
-contract is SPEC.md 130; the game's plan is
+contract is SPEC.md 137; the game's plan is
 [BOUNCE-BONANZA-PLAN.md](BOUNCE-BONANZA-PLAN.md).
 
 ## The brief (the owner, 2026-11-19)
@@ -56,7 +56,7 @@ wave 4 below.
 | wave | what | bytes | state |
 |---|---|---|---|
 | 1 | Trims: `bz_dmine` shares `bz_font` and `bz_lbuf` shares `bz_boxbuf` (584 bss, lifetimes disjoint: desktop vs bracket); `bz_nearly`, `bz_arforce`, a dead `xor`; the old face's slot keys 1/2/3, E, X (no row presses them, the Saves menu does the same); folded duplicates (`bz_vkey`'s copy, the adapter refusal, RESTORE tails, the dev-key chain); exact physics duplicates (`BZ_START` x2, the windmill door, `bz_psync`, the field symmetry table, `bz_prod`); the `bz_early` `%if BZ_PATH_NPAD` assembly bug | **1,153 measured** (image 51,607 → 51,044, bss 13,360 → 12,770) | done, `dbaadf1eb` |
-| 2 | The replay log's runs out of bss into a zero-filled tail on the kit part (fetched at open, held all session — no new claim, no new read); the 16-byte header stays resident (SPEC.md 130.11.12.1) | **3,970 measured** alone (bss −4,080, image +110) | done, `9d220c554` |
+| 2 | The replay log's runs out of bss into a zero-filled tail on the kit part (fetched at open, held all session — no new claim, no new read); the 16-byte header stays resident (SPEC.md 137.11.12.1) | **3,970 measured** alone (bss −4,080, image +110) | done, `9d220c554` |
 | 3 | The sound code into the sound part — **held in reserve**, below | 3,172 measured | reserve |
 | 4 | TRICKLE deleted (184 measured); test-only code behind a `BZDEV` knob, the rows building it (1,840 measured: image −1,716, bss −124) — below | **2,024 measured** (5,171 → 7,195 free; the `BZDEV=1` build 5,353 free) | done, branch `bb-roomdev` |
 
@@ -110,7 +110,7 @@ heap held all session with sound off).
   the same source (split the file into a resident half and a part half);
   `parts()` reads `BZSND.BIN` as pure data, so keep that file pure.
 - The Makefile's `--part` list (in `OS88_PART` order) and its dependencies;
-  SPEC.md 130.20 and the arena's sizing subsection.
+  SPEC.md 137.20 and the arena's sizing subsection.
 - Rows: bonanza_sound, bonanza_perf, bonanza_ring, bonanza_exit,
   bonanza_game, bonanza_wheel, on kern_mega as well as kern_big.
 
@@ -122,7 +122,7 @@ unrolled 15-counter sum looped (~45, but ~500 cycles a frame).
 
 ## Wave 4, test-only code behind a knob (~1K est.)
 
-**Done (branch `bb-roomdev`, SPEC.md 130.9 and 130.26.6.1).** Shipped
+**Done (branch `bb-roomdev`, SPEC.md 137.9 and 137.26.6.1).** Shipped
 `build/bonanza.bin` 49,265 image + 8,564 bss = 57,829, **7,195 bytes
 free**; the `BZDEV=1` build 50,983 + 8,688, 5,353 free. The rows that
 poked TRICKLE hold the window with `bonanza_ring.cam_hold` (the scripted
@@ -151,14 +151,14 @@ pathway, the menus) should still run the shipped build.
 
 **TRICKLE goes, not behind the knob** (the owner, 2026-11-19: *"trickle lost
 the a/b"*; it has been asked for several times). Since `0781e64f1` (SPEC.md
-130.9, 130.46.12) C is gone from play and the desktop and LATTICE is the
+137.9, 137.46.12) C is gone from play and the desktop and LATTICE is the
 camera; what is left is TRICKLE's PATH in `bz_camera` (`.trickle`..`.moved`,
 the `.muse`/`bz_latrst` resume glue, `bz_cuse`, `BZ_CMODES`, `bz_cmode`
 itself), reached only by a harness poking `bz_cmode` = 1 to hold the window
 still in bonanza_ring (~10 legs), bonanza_wheel and bonanza_perf. Wave 4
 deletes the path and moves those legs onto a hold that is not a camera
 (`bz_camscr` or `bz_hold`, which the same rows already use), and SPEC.md
-130.11.11.1 says TRICKLE is gone. (The survey's "C switches TRICKLE in play"
+137.11.11.1 says TRICKLE is gone. (The survey's "C switches TRICKLE in play"
 was read off a tree 185 commits stale; it is not true at `bb943bde5`.)
 
 ## Reserve: other moves, roughly by bytes per effort
@@ -166,7 +166,7 @@ was read off a tree 185 commits stale; it is not true at `bb943bde5`.)
 | move | bytes (est.) | the catch |
 |---|---|---|
 | **The course loader into a part** (`bz_cexp`, `bz_dfind`, `bz_drec`, `bz_dval`, `bz_cxtab`..`bz_cxsafe`, `bz_fsbset`, `bz_crshdr`, `bz_osmake`, and the Hercules translation `bz_hgen`..`bz_hxrows`): a closed call graph run once per course load | ~1,850 | runs while a course is held, so not the shell part: its own lazy part (+1 read a load) or code linked into the held kit. ~12 rows call `bz_cexp` or patch these lines |
-| **The anaglyph model** (`bz_amodel`, `bz_arange`, `bz_ahalf`) fetched only with a `BZ_GF_ANA` course, as a family is | ~1,800 | per-frame path: a far call on every `bz_olay`/`bz_oprep`; re-measure 130.29.9's fall frame |
+| **The anaglyph model** (`bz_amodel`, `bz_arange`, `bz_ahalf`) fetched only with a `BZ_GF_ANA` course, as a family is | ~1,800 | per-frame path: a far call on every `bz_olay`/`bz_oprep`; re-measure 137.29.9's fall frame |
 | **The pathway's code into `BZPATH.BIN`** (`bz_pw*`, `bz_follow`, `bz_ppad1`.., its cards `bz_kinfo`.., `bz_gfsave`/`bz_gfload`) | ~1,200–2,200 | needs a part-to-package call door (below); `tests/bonanza_path.py` breaks on `bz_pwdep`/`bz_follow` by name |
 | **`bz_ballgen` into a part** (once per ball fetch, self-contained, already checked standalone under an emulated 8086) | ~1,200 | its refetch runs with a course held; `bg_nib` becomes `cs:` |
 | **BONANZA.DAT's checks into the shell part** (`bz_dsave`'s merge, `bz_dnorm`, `bz_dslots`, `bz_dchk`, `bz_dload`, with `od_read`/`od_write` behind a new `os88data.inc` opt-out) | ~550–650 | a refused shell fetch would then lose a save, not just a picture; bonanza_game's red arms patch `bz_dnorm` |
@@ -175,7 +175,7 @@ was read off a tree 185 commits stale; it is not true at `bb943bde5`.)
 | `bz_step` step 5 as `call bz_swalls.edges` | ~410 | hot path, +15–30 clk a step; equivalence by reading only |
 | `bz_osum` into the picture part's slack | 320 | fetch-side work; the read loses an `es:` |
 | the finish dissolve (`bz_fdis`, `bz_fdor`/`bz_fdand`, `bz_fdtab`) | ~245 | needs a part held during play |
-| `bz_ltrc` / `bz_ltq0`/`bz_ltq1` derived instead of cached | ~135–400 | reverses 130.13.5.2's no-MUL choice; walk-hot |
+| `bz_ltrc` / `bz_ltq0`/`bz_ltq1` derived instead of cached | ~135–400 | reverses 137.13.5.2's no-MUL choice; walk-hot |
 | the About card's strings into the shell part | ~200 | `os88ui_about_d` writes an inline cell through DS: needs an `os88ui.inc` opt-in first |
 | `%define OP_NO_FSOP` | 39 | a course fetch stops being one progress bar (WireFleet ships so) |
 
@@ -197,7 +197,7 @@ the desktop.
 **Checked and refused:** a second shell-like part (frees no more window than
 widening the shell part, and costs a row, a read and a generalised
 `bz_shcall`); an eager `OP_ZERO` row (turns on the carve path, adds code);
-shrinking `bz_fhl`/`bz_frec`/`bz_fsl` (the owner's NO FAMILY LIMIT, 130.25.6.5);
+shrinking `bz_fhl`/`bz_frec`/`bz_fsl` (the owner's NO FAMILY LIMIT, 137.25.6.5);
 bss over one-shot entry code (~180 at most, WM_CREATE may paint during open);
 `bz_boxbuf` as a claim (a third segment in the hottest code).
 

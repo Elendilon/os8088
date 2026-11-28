@@ -1,4 +1,4 @@
-"""SPEC.md 130.29.12 research: the AV model with (A) a per-VOID-cell FAR LIST (whole front cells past d = 4 the
+"""SPEC.md 137.29.12 research: the AV model with (A) a per-VOID-cell FAR LIST (whole front cells past d = 4 the
 tool picks, greedily by the residual pixels each hides) and (B) the cheap float (a float front cell counted as a
 whole cell at the keys at which the ball's lowest line is above its slab's lowest bottom: per cell, or per
 column).  Patches bbcourse.av_residual and measures records / masks / LZB.

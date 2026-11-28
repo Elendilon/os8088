@@ -1,4 +1,4 @@
-"""SPEC.md 130.29.12 research: A's dataset as stored - each listed VOID cell's byte +1 = 1 + its list's offset in a
+"""SPEC.md 137.29.12 research: A's dataset as stored - each listed VOID cell's byte +1 = 1 + its list's offset in a
 LISTS blob (count, then an (i << 4 | j) byte an entry; lists shared), the blob appended to the world part's
 stored form - packed LZB as os88pkg packs a part, against the part without them.  The AV part's own records
 come from the far compile; this prices the dataset on the plain part (the grid is the same bytes).

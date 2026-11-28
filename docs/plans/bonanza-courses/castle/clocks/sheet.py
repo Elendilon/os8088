@@ -11,7 +11,7 @@ clockkit.PALS[2] = ((0, 0, 0), (85, 255, 255), (255, 85, 85), (255, 255, 255))  
 
 
 def _warned():
-    """the kit calls clock_vis() OUTSIDE a compile, where a visual finding is a refusal (SPEC.md 130.58.4); this
+    """the kit calls clock_vis() OUTSIDE a compile, where a visual finding is a refusal (SPEC.md 137.58.4); this
     course carries findings as warnings (the gate's clock hides a ball behind its pillar), so collect them
     instead, and write every warning of the compile beside the sizes: clocks/<concept>.warn.txt"""
     import bbcourse as B

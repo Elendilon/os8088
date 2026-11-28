@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The Bounce Bonanza course builder's zip, used where there is no os8088 tree
-(`make bbeditbundle`, tools/bbeditbundle.py, SPEC.md 130.58.11).
+(`make bbeditbundle`, tools/bbeditbundle.py, SPEC.md 137.58.11).
 
     make bbeditbundle && python3 tests/bbeditbundle.py
 
@@ -11,7 +11,7 @@ byte for byte and `check` it; bbedjob must draw MILL's picture and run its
 full check; the pathway (which reads the course list out of data/Makefile)
 must lay out; Test Roll's player must play MILL on its play-only compile; the window's module must import; bbgame.py must compose
 BONANZA.O88 from the zip's bbgame-bin/ with the shipped courses, byte for
-byte build/bonanza.o88 (SPEC.md 130.58.17); and two zips from the same
+byte build/bonanza.o88 (SPEC.md 137.58.17); and two zips from the same
 tree must be the same bytes. Red: take the data/ ROOT out of bbcourse.py and
 the hook catches the tree's files being read.
 """

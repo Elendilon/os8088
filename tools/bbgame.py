@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """ADD TO THE GAME: a playable BONANZA.O88 with the author's courses, made with no assembler
-(SPEC.md 130.58.17, 130.58.36).
+(SPEC.md 137.58.17, 137.58.36).
 
     python3 tools/bbgame.py OUT.o88 [--disk OUT.img --size 360|720|1200|1440] [--pad0 NAME | --path PATH.bbc]
                             [COURSE.bbc ...]
     python3 tools/bbgame.py prebuild [DIR]       (in the tree, with nasm: the shipped pieces and their map)
 
-ONE BUILD HOLDS UP TO BZ_CRS_MAX (23) COURSES (SPEC.md 130.58.36). Every per-course table of bzcourse.inc is
+ONE BUILD HOLDS UP TO BZ_CRS_MAX (23) COURSES (SPEC.md 137.58.36). Every per-course table of bzcourse.inc is
 laid out at its full width - the list's rows, zero rows to BZ_CRS_MAX, the pathway's and the title's after -
 the counts (the list's courses, its shipped demos, the map's pads) are three bytes of DATA (BZ_CRS_COUNTS),
 and the part table has BZ_CRS_MAX course rows and BZ_CRS_MAX demo rows, those past the list's RESERVED
@@ -30,11 +30,11 @@ written at the map's places, and the result is byte for byte what nasm would hav
 with no added course and the shipped map the package IS build/bonanza.o88. os88pkg.py then packs it as the
 Makefile does, and os88disk.py makes the floppy the bonanzadisk rule makes.
 
-THE SHIPPED GAME HAS NO COURSE CYCLE (SPEC.md 130.26.8: N is BZDEV's): a course is played from its pathway
+THE SHIPPED GAME HAS NO COURSE CYCLE (SPEC.md 137.26.8: N is BZDEV's): a course is played from its pathway
 pad. --pad0 NAME puts course NAME on pad 0 - where a new game rests, so Play Game, Enter plays it - in place
 of pad 0's course (the knob builds' precedent, BZSHAPES): NAME takes that course's K and the displaced course
 moves to the end. --path PATH.bbc is the author's own pathway (the course builder's Map tab, SPEC.md
-130.58.20), whose pads may play the added courses.
+137.58.20), whose pads may play the added courses.
 """
 import argparse
 import hashlib
@@ -291,7 +291,7 @@ def compare(old, new, info=INFO, allowed=None):
 def compile_into(art, paths, path, title):
     """bbcourse.py -o ART's files (write_out's: the stamp, the parts, bzcourse.inc, bzdemo.lst, bzparts.lst),
     compiled THROUGH the compile cache: the build's compile_all compiles fresh and only writes it, which for the
-    shipped list is minutes; the cache's key names every input (SPEC.md 130.58.8), and the shipped list
+    shipped list is minutes; the cache's key names every input (SPEC.md 137.58.8), and the shipped list
     composed this way is held to the build's own package byte for byte (tests/unit/t_bbgame.py) -> the inc's
     text"""
     tests = [n for n, _t, tst in B._course_info(paths) if tst]
@@ -526,7 +526,7 @@ def _pathway(work, pad0, displaced):
 
 def compose(out, authors, pad0=None, disk=None, size=1440, work=None, log=print, pathway=None, _skip=()):
     """-> 0 after writing OUT (and DISK); Refused with the reason. PATHWAY: a pathway of the author's (the course
-    builder's Map tab, SPEC.md 130.58.20) in place of the shipped one - its pads may play the added courses, and
+    builder's Map tab, SPEC.md 137.58.20) in place of the shipped one - its pads may play the added courses, and
     with no courses given they are the ones its `# builder-course:` lines name.  _SKIP: tables NOT written
     (tests/unit/t_bbgame.py's red arm)"""
     if pathway:
@@ -538,7 +538,7 @@ def compose(out, authors, pad0=None, disk=None, size=1440, work=None, log=print,
             authors = bbedmap.extra_courses(open(pathway, encoding="ascii").read(), pathway)
     authors = [os.path.abspath(a) for a in authors]
     ship = shipped_paths()
-    sn = [_course_name(p) for p in ship]        # SPEC.md 130.58.17: an author's course NAMED as a shipped one
+    sn = [_course_name(p) for p in ship]        # SPEC.md 137.58.17: an author's course NAMED as a shipped one
     replaces = {}                               # REPLACES it, in its own slot and on its own pad
     for a_ in list(authors):
         n_ = _course_name(a_)
@@ -652,7 +652,7 @@ def main(argv=None):
     ap.add_argument("--disk", metavar="IMG", help="also a floppy: the package, its README and SYSTEM/APPDATA")
     ap.add_argument("--size", type=int, default=1440, choices=(360, 720, 1200, 1440))
     ap.add_argument("--pad0", metavar="NAME", help="put added course NAME on the pathway's pad 0")
-    ap.add_argument("--no-trap", action="store_true", help="skip NO TRAP, the softlock search (SPEC.md 130.58.24): "
+    ap.add_argument("--no-trap", action="store_true", help="skip NO TRAP, the softlock search (SPEC.md 137.58.24): "
                     "the course builder asks the author whether to run it")
     ap.add_argument("--path", metavar="PATH.bbc", help="the author's pathway in place of the shipped one (its pads "
                     "may play the added courses; with no courses given, its `# builder-course:` lines name them)")

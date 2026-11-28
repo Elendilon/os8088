@@ -87,8 +87,8 @@ and PEAK's.
 
 ## 2. What lays the records (MEASURED, SAMPLED)
 
-A record exists because SOME reachable position lays it (SPEC.md 130.10.4.4,
-130.11.4.4). Re-running the tool's occluder pipeline with parts of the
+A record exists because SOME reachable position lays it (SPEC.md 137.10.4.4,
+137.11.4.4). Re-running the tool's occluder pipeline with parts of the
 reachable set removed shows which positions pay for which records
 (`occproto.py`; `occ-out/proto1.txt`):
 
@@ -96,7 +96,7 @@ reachable set removed shows which positions pay for which records
 |---|---|---|---|
 | all of it (today) | 12,403 | 46,147 | 237,789 |
 | **no position in a VOID cell** | **5,190 (42%)** | 38,706 (-7,441) | 206,309 (-31,480) |
-| VOID positions only in PITS (option (c) of 130.11.4.5) | 5,604 | 39,486 (-6,661) | 208,451 |
+| VOID positions only in PITS (option (c) of 137.11.4.5) | 5,604 | 39,486 (-6,661) | 208,451 |
 | VOID positions only at or above the lowest floor within two tiles (`vlow`) | 8,460 | 42,506 (-3,641) | 221,657 |
 | the same, the last 16 px of each fall only (`vlow8`) | 10,628 | 44,931 (-1,216) | 230,743 |
 | `vlow`, and cut at WALLs the ball cannot clear (option T) | 8,460 | no change from `vlow` | |
@@ -160,9 +160,9 @@ on FIRST: 291 -> 52, 183 and 219 records.
 
 ### 3.1 The model (option A), in detail
 
-**The rule, and the model of it.** The rule (130.10.4.4) lays a pixel when it
+**The rule, and the model of it.** The rule (137.10.4.4) lays a pixel when it
 was drawn by a cell row in front of the ball's and its geometry is above the
-ball. In the picture as built, every face hangs to the ground plane (130.27).
+ball. In the picture as built, every face hangs to the ground plane (137.27).
 So in any screen column, everything below the top edge of a cell in front is
 that cell's top, its face, or a nearer cell's.
 
@@ -198,7 +198,7 @@ records exist to fix exactly that. With them, A4R's only error is WRONG-HIDE,
 which is at most 0.1%.
 
 The model alone stays wrong on MOON and PEAK at depth 4 for two reasons:
-- MOON's coast is diagonal split cells (130.24.14);
+- MOON's coast is diagonal split cells (137.24.14);
 - PEAK's terrain has props and steps more than four rows tall in front of
   its voids.
 
@@ -237,7 +237,7 @@ the same weighting on every arm. `occ-out/frames2.txt` has the output:
 | PEAK, `summit.bzd` | 2,172 | 1,393 | 58 | 4,820 | 4,672 | 4,763 | 7,914 | 13,045 / 13,405 / 13,045 / 24,750 |
 | PLAY, `playground.bzd` | 1,504 | 31 | 0 | 2,011 | 1,800 | 2,011 | 2,855 | 3,800 / 3,145 / 3,800 / 4,400 |
 
-- **The pricing is about 0.4 of the MEASURED pass.** 130.15.5.4 measured
+- **The pricing is about 0.4 of the MEASURED pass.** 137.15.5.4 measured
   the pass's mean span at 8,059 on MILL and 13,267 on PEAK, CGA, D. The
   priced figures are 3,161 and 4,820. What is missing is mostly the
   two-box frames and the lay's arithmetic per box. **Read today's column as
@@ -256,7 +256,7 @@ the same weighting on every arm. `occ-out/frames2.txt` has the output:
 - **The worst column over-states A4R.** It counts a residual group as a lay
   of its own, even where it would AND into a covered word.
 - **For calibration**, the red arm `occslow` (+27k a pass frame) cost PEAK
-  +11.5 missed refreshes a second (130.15.5.4). Scaled linearly, +3k is about
+  +11.5 missed refreshes a second (137.15.5.4). Scaled linearly, +3k is about
   +1.3 a second, past the smoothness rule's +1.0. So A4R needs its levers
   (the plan's section 4) or it does not ship.
 - **V and AV change only the VOID frames.** Those are 3 - 4% of the open-gate
@@ -272,7 +272,7 @@ frame is compared with today's rule as a share of the ball's lit pixels:
 - **DIM**: ghosted, though nothing hides them today.
 
 A frame is **wrong** when OVER + DIM is more than a quarter of the ball.
-Today's own frames are ghosted by the checker where hidden (130.15.10), so
+Today's own frames are ghosted by the checker where hidden (137.15.10), so
 "hidden" means "shown at 50%".
 
 | frames with a quarter of the ball wrong, sampled VOID positions | BENCH | FIRST | TRIAL | MILL | MOON | PEAK | PLAY |
@@ -297,7 +297,7 @@ kill, on the CGA's palette, zoomed 4x. The four columns are:
 1. **today**: the shipped records, laid as the card lays them, ghost dither
    and all;
 2. **(c)**: the ball drawn whole over the plateau and the props it falls
-   behind. This is the fault 130.11.4.5 rejected;
+   behind. This is the fault 137.11.4.5 rejected;
 3. **V**: the whole ball ghosted from the first frame whose cell is under
    `H`. On MILL and PEAK it dims 2 - 3 frames before today's ball starts to
    go behind the edge;
@@ -351,7 +351,7 @@ PEAK's part, the fullest, against `PARTMAX` 65,024:
     `bzvideo.inc`, and the model's are ESTIMATED from a sketch of a routine
     that does not exist yet;
   - the guest code sizes in the plan;
-  - the smoothness verdict, which only 130.15.5.4's A/B can give.
+  - the smoothness verdict, which only 137.15.5.4's A/B can give.
 - **Not measured**:
   - MartyPC (no number here needs it before the routine exists);
   - the pathway's and the title's parts (they carry 454 and 943 records,

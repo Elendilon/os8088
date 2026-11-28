@@ -8,7 +8,7 @@ sign is a board on a post standing on a back-rail block beside the path, the
 pin clock's kind (a plate on a pole: "somewhat fits the art"): a white board
 (colour 3) with a magenta border (2) and black lettering in the tree's 8 x 8
 face (fonts/tallx.f8, the tool's label_glyph), its post banded black and
-white. Art takes the occlusion of the surface beneath it (SPEC.md 130.23.2).
+white. Art takes the occlusion of the surface beneath it (SPEC.md 137.23.2).
 
     python3 docs/plans/bonanza-courses/hop/sketch.py --bbc apps/bonanza/courses/hop.bbc --force
     python3 docs/plans/bonanza-courses/hop/signs.py

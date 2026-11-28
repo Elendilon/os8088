@@ -1,4 +1,4 @@
-"""SPEC.md 130.29.12 research: item 15's WRONG-HIDE (av_wrong, 130.29.7) with A's far lists in the model - the
+"""SPEC.md 137.29.12 research: item 15's WRONG-HIDE (av_wrong, 137.29.7) with A's far lists in the model - the
 front of every listed V extended by its far cells (whole cells, read from the part) - against today's model.
 usage: avwrong.py course farpickle"""
 import sys, os, pickle

@@ -65,7 +65,7 @@ because they thought it meant 'jump over both steps' - so it didn't guide
 them to learning about the double bounce."* The owner: **HOLD JUMP**, with
 no exclamation mark (players could not read the "!" in the floor paint).
 It is also the truer instruction: the "and again" fires when the Hop's
-press is HELD through the landing (SPEC.md 130.17.16.4: *"a Hop press held
+press is HELD through the landing (SPEC.md 137.17.16.4: *"a Hop press held
 through its landing now does, on purpose"*); a second tap in the flight is
 the other way to it.
 
@@ -230,7 +230,7 @@ while a more readable one is drawn). The clocks are the frogs (round 2).
 
 ## The limit and the demo (2026-11-19)
 
-A sub-agent taught the tool's autopilot to Hop (SPEC.md 130.14.7.4.1: a
+A sub-agent taught the tool's autopilot to Hop (SPEC.md 137.14.7.4.1: a
 host-only search adding Space where the arrows alone fail; courses the
 arrows finish are untouched, byte for byte). Little Hop's route demo is now
 COMPLETE: **1,397 steps, 25.6 s, 9 Hops, 1 "and again", 0 falls**, so the
@@ -260,7 +260,7 @@ from the course again (today: `limit 70` by hand, the demo "inputs only").
 
 ## Revision 7 (2026-11-19): quarter heights - the start flipped east, 3/4 lips
 
-Quarter-unit heights landed (SPEC.md 130.48): a **3/4-unit step** is the rung
+Quarter-unit heights landed (SPEC.md 137.48): a **3/4-unit step** is the rung
 the course lacked, no ball rolling up it and every ball's Hop climbing it.
 The owner: *"If we start the course by flipping the current start area to
 the east, and replace the void gaps with 3/4th lips, that would take the
@@ -318,7 +318,7 @@ continue using for now"*; difficulty *"Much better"*.
 - **The easy hop.** *"Do we have a level that cannot be climbed by rolling
   (aka requires a jump), but is slightly lower than U1?"* No step does:
   heights are half units, and half a unit rolls up for every ball
-  (130.16.5.3). A **1-tile gap onto a ledge half a unit UP** does, measured
+  (137.16.5.3). A **1-tile gap onto a ledge half a unit UP** does, measured
   with the tool's ladder (rubber at the cap): no roll, a Hop **311 ms**, a Hop
   and its "and again" 677 ms (a level 1-tile gap: 549 and 769; a 1-unit step:
   128 and 531). So L, the gap, U1 half a unit up, then U1's one-unit step to
@@ -392,7 +392,7 @@ set agents on those."*
 - **The palette: `palette 0 ground 1`**, green, red and yellow islands on a
   blue sea, as the proposal (colour 0 is every black pixel too: the clocks'
   digits and the goal's dark squares turn blue).
-- **`trap hop`** (SPEC.md 130.14.4.1.1): NO TRAP never pressed Space, so a
+- **`trap hop`** (SPEC.md 137.14.4.1.1): NO TRAP never pressed Space, so a
   course built on the Hop failed it at its first gap; the statement proves it
   with a Hop and its "and again" pressed too. The compile takes about 25 s.
 - **Fitting the checks**: W became flat (its ramp's sloped face stacked six

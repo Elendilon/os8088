@@ -7,9 +7,9 @@ For a course it finds the binding model's falls off BACK edges (a ball poked on
 a floor cell rolling into the VOID cell behind it), picks the one the rule hides
 most, and draws its frames side by side, on the CGA's palette, zoomed:
   today      the shipped records, laid as the card lays them (the ghost dither,
-             SPEC.md 130.15.10: a hidden ball pixel shows on the odd lattice)
+             SPEC.md 137.15.10: a hidden ball pixel shows on the odd lattice)
   (c)        no void record: the ball drawn whole over what it falls behind
-             (SPEC.md 130.11.4.5's rejected option (c) and 'novoid')
+             (SPEC.md 137.11.4.5's rejected option (c) and 'novoid')
   V ghost    option V: below the VOID cell's ghost height H the WHOLE ball is
              drawn through the checker; above it, as (c) (nothing lays there)
   A          option A: in a VOID cell the mask is computed from the cells in front

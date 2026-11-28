@@ -1,4 +1,4 @@
-"""ROLL before/after (SPEC.md 130.49, the diary's 2026-11-19): the record maps (the whole-cell cut against the
+"""ROLL before/after (SPEC.md 137.49, the diary's 2026-11-19): the record maps (the whole-cell cut against the
 real-pose cut), and twelve real ball poses each drawn before (whole-cell cut, no low-flight margin, no split AV:
 the compile's _hack realcut False, noavsplit) and after.  Nothing in make runs it.
 

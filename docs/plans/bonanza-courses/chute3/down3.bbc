@@ -44,7 +44,7 @@ floor rect  43  33  45  34  flat 13   # Z
 floor rect  43  34  45  35  flat 12   # Z
 floor rect  39  35  47  39  flat 12   # V
 
-# the chute (SPEC.md 130.28): unfenced, its shape guides
+# the chute (SPEC.md 137.28): unfenced, its shape guides
 chute 3 round depth 8 way 8 14 30 way 8 16 30 way 11 16 29
 
 # rails: block rails (wall tiles) on the void side of each railed edge
@@ -99,15 +99,15 @@ wall  tile  57  18  flat 16
 wall  tile  57  19  flat 16
 
 
-# the funnel's diagonal guides: split cells, the floor's half inside, a wall's half outside (SPEC.md 130.24.4)
+# the funnel's diagonal guides: split cells, the floor's half inside, a wall's half outside (SPEC.md 137.24.4)
 floor half left tile 31 15  flat 21.5
 wall  half right tile 31 15  flat 23.5
 floor half up tile 31 17  flat 21.5
 wall  half down tile 31 17  flat 23.5
-# the hump run's two humps: ridges across its 3 rows (the hump course's back hump's kind, SPEC.md 130.44)
+# the hump run's two humps: ridges across its 3 rows (the hump course's back hump's kind, SPEC.md 137.44)
 hump 17 15 29 along y 3 open height 8
 hump 21 15 29 along y 3 open height 8
-# the BOOSTER chute's pads (SPEC.md 130.40)
+# the BOOSTER chute's pads (SPEC.md 137.40)
 prop boost 33 16 face +x strength 40
 prop boost 34 16 face +x strength 40
 prop boost 35 16 face +x strength 40
@@ -115,11 +115,11 @@ prop boost 35 16 face +x strength 40
 pad steel 51 18
 pad steel 52 18
 pad glass 49 20
-# steel: SPIKES across the only path (SPEC.md 130.38), a WATER column 3 deep, out of its front ARCH
+# steel: SPIKES across the only path (SPEC.md 137.38), a WATER column 3 deep, out of its front ARCH
 prop spikes 53 17 55 20
 water rect 56 17 57 20 top 14 bed 11
 arch 56 19 +y
-# glass: the MEMBRANE bridge, thin (glass-only, SPEC.md 130.38), and the LIFT (SPEC.md 130.12.6.4)
+# glass: the MEMBRANE bridge, thin (glass-only, SPEC.md 137.38), and the LIFT (SPEC.md 137.12.6.4)
 prop membrane 49 21 50 26
 prop platform 46 27 4
 # steel's MOMENTUM: a ridge hump across its 3-wide path, 8 px (11 stopped the slow steel ball)

@@ -11,7 +11,7 @@ units is picture pixel (16 (X - Y) + x0, 8 (X + Y) - 8 z + y0); a cell's
 centre is (wx + 0.5, wy + 0.5)). Each piece is filled in the course's four
 colours (0 black, 1 cyan, 2 magenta, 3 white) with a ONE-pixel black outline,
 the game's line. Art takes the occlusion of the surface it is painted on
-(SPEC.md 130.23.2), so a decal on a floor IS that floor.
+(SPEC.md 137.23.2), so a decal on a floor IS that floor.
 
     python3 docs/plans/bonanza-courses/first/decals.py
 

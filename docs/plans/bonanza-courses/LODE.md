@@ -6,7 +6,7 @@ function, fitted to the engine's constraints. `apps/bonanza/courses/lode.bbc` sa
 `guide` and passes every check a shipped course is held to (section 10). **IN THE
 DEFAULT BUILD since the pathway step of 2026-11-25** (`BZ_COURSES`' course K 9; the
 pathway's pad 9, on MOONLIT GREEN's old cell, DOWNHILL DECISION's exit 1, by the
-owner's order of that day: SPEC.md 130.22.11 and [pathway/README.md](pathway/README.md),
+owner's order of that day: SPEC.md 137.22.11 and [pathway/README.md](pathway/README.md),
 "The journey" - section 7 below is the sheet's earlier pencil, not what shipped). `lode/sketch.py`
 draws the pictures and writes the course (`--bbc`). Distances are tiles and heights are
 units; the cells are the engine's own. A number marked MEASURED was run on the tool's
@@ -142,7 +142,7 @@ it (section 3).
     times over). The legs tilt about their centre line now and the ball crosses each
     join within a pixel of its height: the engine keeps a ball on the ground across a
     drop of up to 1 px (`STICK`).
-  - **The camera's guarantees** (SPEC.md 130.17.6.5, `--camcheck`): section 10.
+  - **The camera's guarantees** (SPEC.md 137.17.6.5, `--camcheck`): section 10.
 
 ## 3. What was MEASURED on the model
 
@@ -200,7 +200,7 @@ axis.*
   180 of 180. **The one way to fall is to steer sideways in the air**: of 300 random
   walks of 36 s from flag 1, 47 fell, every one out of the lane.
 - **A ball that STOPS under the gantry** hangs there, and it rises: the magnets' pull
-  drifts a still ball up to their ceiling (4 px over the posts' tops, SPEC.md 130.33.4),
+  drifts a still ball up to their ceiling (4 px over the posts' tops, SPEC.md 137.33.4),
   and it is over the tops after 5.4 s. From there the pair held at the posts lands it on
   one; it can roll along the five of them and drop onto the apron, back into the lane,
   or off the far side. It is the engine's rule, not a softlock (the posts' tops keep
@@ -272,7 +272,7 @@ SPEC, no engine change made or wanted):
 
 - **Nothing carries a ball between courses.** Every play starts with its course's own
   ball: `bz_gcrs` and the pause card's retry both load `[bz_mat]` from `bz_cballs`
-  (`apps/bonanza/bonanza.asm`; SPEC.md 130.26.8, 130.11.5.4), and a best time is kept
+  (`apps/bonanza/bonanza.asm`; SPEC.md 137.26.8, 137.11.5.4), and a best time is kept
   only for a play started with it. So "arrives as steel" is `ball steel` and nothing
   else, and it would be steel after WINDMILL LANE too.
 - **A steel-start course on a pad is already played by the rows**, in the test build:
@@ -286,7 +286,7 @@ SPEC, no engine change made or wanted):
   steel already), and a course's shipped demo replays with the ball its log names
   (`BZR_MAT`): LODE's route demo says steel.
 - **MAGNETS is home `resident` already** (`FAMILIES`' row: the owner's rule of
-  2026-11-17, every family resident unless chosen otherwise; SPEC.md 130.33.9's "`fetch`
+  2026-11-17, every family resident unless chosen otherwise; SPEC.md 137.33.9's "`fetch`
   until a shipped course names magnets" is older than that rule). Its part rides the
   resident bundle `bzfbun.bin`, so LODE's launch fetches no family and the arena's
   claim does not move: section 10's private build.
@@ -350,7 +350,7 @@ section 17 is what the course carries now and what room it has left. What follow
   - **the masks**: the course names **247 occluder masks of one table's 256**. A clock
     frame is a solid thing a ball can be behind, so a new frame moves the count (the pen
     clock's default frame is 5 of them). If the art takes it past 256 the compile says
-    so: the way out is `masks banded` (SPEC.md 130.52, the owner's opt-in: 320 bytes of
+    so: the way out is `masks banded` (SPEC.md 137.52, the owner's opt-in: 320 bytes of
     RAM and about 750 of LZ4 on this course), not a smaller clock.
   - **the budget**: LZ4 16,779 against the 60 s class's 1.5x line of 18,825: 2,046
     bytes of room for decals before that line is crossed (it is reported, never
@@ -382,10 +382,10 @@ section 17 is what the course carries now and what room it has left. What follow
 |---|---|
 | the compile (`bbcourse.py -o DIR lode.bbc`, alone: about 16 s) | passes, and under `--strict`; no warning, nothing `accept`ed |
 | the part | ONE part, **54,871 bytes** of 65,024 (10,153 to spare): map 18,928, 768 blocks, 1,320 occluder records, **247 masks** of 256 (no `masks banded`), grid 11,032, FIELD tables 14 of 32 |
-| the course budget (reported, never refused: SPEC.md 130.27.5) | LZ4 **16,779** against the 60 s class's 12,550 (4,229 over) and its 1.5x 18,825 (2,046 under); as the package stores it (LZB) 13,696. Every shipped course is over its class (ROLL 11,460 of 6,275, HOP 11,713 of 6,275, DOWN 20,750 of 12,550 and over its 1.5x, MILL 23,537 of 18,825) |
+| the course budget (reported, never refused: SPEC.md 137.27.5) | LZ4 **16,779** against the 60 s class's 12,550 (4,229 over) and its 1.5x 18,825 (2,046 under); as the package stores it (LZB) 13,696. Every shipped course is over its class (ROLL 11,460 of 6,275, HOP 11,713 of 6,275, DOWN 20,750 of 12,550 and over its 1.5x, MILL 23,537 of 18,825) |
 | the occluder pass | at most 5 records in a block, 33,070 clocks (bound 50,050), 49 in a block row (128) |
 | MAGNETS' elements | 22: the hoist 1, the sirens 3, the wall 12, the gantry 5, the great lodestone 1 |
-| the windows' bounds (130.19.10) | no FAST lane; 20 lanes in the worst window (unbounded); 3 pose changes on one step (bound 6) |
+| the windows' bounds (137.19.10) | no FAST lane; 20 lanes in the worst window (unbounded); 3 pose changes on one step (bound 6) |
 | the finish's reach (`finish_reach_rule`) | all 3 finish cells reachable past the 4 clock posts |
 | the finish's clock (`finish_clock_rule`) | every goal cell sees clock 3 |
 | NO TRAP | the start and each of the 2 flags: the model's own search, with the magnets pulling, reaches the goal |
@@ -396,14 +396,14 @@ section 17 is what the course carries now and what room it has left. What follow
 | the camera's guarantees (`--camcheck`, the eight shipped and nine test courses with KITE and LODE in the list) | **13 items green, none red**: guarantees 1 - 3 over 58 runs (98,826 frames), the two-row check, every tube exit, the side check, MILL's ramp bottom, and the DITHER MAP - 0 of 1,528, 1,514 and 1,460 samples reverse a pan at taps of 8, 15 and 25 steps - with all seven controls red. The hoist is a climbed ramp with a flat top (KITE's K13) and does not trip it: a ball tapped back onto the ramp is hauled up again |
 | `--selfcheck` on this course alone (21 sections: `courses`, `gaps`, `routes`, `camcheck`, `clockvis`, `flags`, `hud`, `demos4`, `inc`, `compact`, `dither`, `budget`, `clockrule`, `av`, `guard`, `kit`, `width`, `blocks`, `camstop`, `reachpath`, `magnet`) | **179 items green**, every one that reads the course (53 name it: the picture and its Hercules translation, the grid and SAFE, OCC and OCCG, the merge exact over every query, the composites over 1,506 positions, every pose of its 32 lanes, the flags' records, the demo, the stored form's in-place expansion, the dithered masks, the ground faces, AV's completeness and WRONG-HIDE, the kit) and the `magnet` section's own. The 9 red are the list's, not the course's, the same nine KITE met: each names a shipped course a one-course list has not got (TRIAL's and MOON's clock controls, MILL's two stops, an AUTHOR course, a lift, the pathway's ROLL, and the reach's red arm, which needs a demo that leaves it: with the full list HOP's does) |
 | `--selfcheck --only reachpath` with the eight shipped, KITE, LODE and the nine test courses | 6 items green: all 10 shipped demos inside their reach, the red arm left by HOP's demo, and the arm's own round bound (section 12, L14) |
-| `--gaps` | 33 candidates, none marked (`gap` is marked by hand, SPEC.md 130.57: the owner's or the art's) |
+| `--gaps` | 33 candidates, none marked (`gap` is marked by hand, SPEC.md 137.57: the owner's or the art's) |
 | in a private build with the eight shipped courses and KITE (`make BUILD=<dir> BZ_COURSES="<the eight> kite.bbc lode.bbc" bonanzadisk`, against the same build without LODE) | course 9 of that build, `BZ9.BIN` the part above (in a row the package already reserves: 46 part rows in both). `BONANZA.O88` 189,190 -> **203,126** (+13,936). `bonanza.bin` 53,650 both (20 bytes of its tables differ; they are `BZ_CRS_MAX` wide already); `BZ_PROPMAX` 50, `BZ_PROPALL` 68, `BZ_FSTB` 22 and `BZ_CRS_MAXCLAIM` 8,256 paragraphs all unmoved: no bss and no claim grows. MAGNETS' part is in the resident bundle in both (`bzfbun.bin` byte-identical). The four disks verify: 1.44MB 383 -> 410 clusters of 2,847, 1.2MB 383 -> 410 of 2,371, 720KB 193 -> 207 of 713, 360KB 193 -> **207 of 354**. Every other course's part and demo, the pathway, the title and the kit are byte-identical in the two builds |
 
 **Not run here, named for the pass that wires the course in** (they are emulator or
 soak rows): `bonanzacourse` (the whole selfcheck with LODE in `BZ_COURSES`),
 `bonanzaphyshost` (its poisoned plays and `mg_host`), `bonanzaexit`, `bonanzapath`,
 `bonanzaring` and `bonanzaperf` (the magnet part walks 22 records on every step the ball's cell changes:
-about 0.2k clocks a record, so about 4.5k, PREDICTED from SPEC.md 130.33.8's 11, never
+about 0.2k clocks a record, so about 4.5k, PREDICTED from SPEC.md 137.33.8's 11, never
 measured: section 12, L5), `bonanzagame`.
 
 ## 11. What refinement changed, and why
@@ -462,12 +462,12 @@ its posts, the landing).
 
 | | risk | outcome |
 |---|---|---|
-| **L1** | `chute 3` is ON TRIAL | **ACCEPTED, and it is not LODE's alone.** The status is one sentence of SPEC.md 130.28.3: the contract is built, checked by `--selfcheck`'s CHUT3 course, and "DOWN is the one course that uses it ... the owner's playtest decides whether it stays". DOWN SHIPS with it today (`down.bbc` line 81, in `BZ_COURSES`), so a shipped course may use it and one does. No guest byte knows a chute's width. If the owner goes back to 2-wide, DOWN's line narrows and LODE's flume has to be re-laid: a 2-wide corner threw steel over its lip at every speed the pen-in tried, but that was without curbs, and between curbs it is worth one try before the flume becomes ramps and railed turns |
+| **L1** | `chute 3` is ON TRIAL | **ACCEPTED, and it is not LODE's alone.** The status is one sentence of SPEC.md 137.28.3: the contract is built, checked by `--selfcheck`'s CHUT3 course, and "DOWN is the one course that uses it ... the owner's playtest decides whether it stays". DOWN SHIPS with it today (`down.bbc` line 81, in `BZ_COURSES`), so a shipped course may use it and one does. No guest byte knows a chute's width. If the owner goes back to 2-wide, DOWN's line narrows and LODE's flume has to be re-laid: a 2-wide corner threw steel over its lip at every speed the pen-in tried, but that was without curbs, and between curbs it is worth one try before the flume becomes ramps and railed turns |
 | **L2** | a hanging magnet's ceiling is a signed byte of px | **ACCEPTED, the limit recorded.** The ceiling is the post's floor + 4 px and has to fit -128 - 127, so no gantry post stands over **15.25 units** and no runway over 14.5. LODE's posts are at 14.5 (its runway 13). The cost: the whole course sits 8 units lower than first drawn and cannot be raised, and a later course cannot put a gantry on high ground. Section 14 proposes the word |
-| **L3** | 323 occluder masks under `masks banded` | **RESOLVED: 247 in one table**, the statement gone. What `masks banded` costs, since it was asked: nothing in the guest (one path reads both forms since 130.51, and every course's `Y` is already 4 bytes a band), and in the course its bands' tables: MEASURED on this one, 320 bytes of RAM and 748 of LZ4. It is exercised by `tests/bonanza_av.py` on a banded ROLL with a red arm, and it is the owner's own opt-in ("eat the size if we need it"): acceptable for a shipped course, and it was not needed once the ridge went and the flume's rails became curbs. It is the art's way out if a frame tips the count (section 9) |
+| **L3** | 323 occluder masks under `masks banded` | **RESOLVED: 247 in one table**, the statement gone. What `masks banded` costs, since it was asked: nothing in the guest (one path reads both forms since 137.51, and every course's `Y` is already 4 bytes a band), and in the course its bands' tables: MEASURED on this one, 320 bytes of RAM and 748 of LZ4. It is exercised by `tests/bonanza_av.py` on a banded ROLL with a red arm, and it is the owner's own opt-in ("eat the size if we need it"): acceptable for a shipped course, and it was not needed once the ridge went and the flume's rails became curbs. It is the art's way out if a frame tips the count (section 9) |
 | **L4** | the budget: LZ4 19,187, 362 over 1.5x | **RESOLVED**: 16,729, 2,096 under the 1.5x line (still 4,179 over the class's 12,550, as every shipped course is over its own). ONE part where the pen-in was two |
 | **L5** | 22 magnets: the cost of a cell change | **OPEN, unchanged**: still 22, and the walk is PREDICTED at about 4.5k clocks on the step the ball's cell changes. It is MartyPC's to measure (`bonanzaperf`, the final pass's). If it is too much: the wall's lead-in can grow and its second leg lose magnets, a tile each |
-| **L6** | the catwalks' rails stand beside FIELD cells | **GONE with the catwalks**, and the question moves to the curbs: they are WALL cells beside FIELD cells. That is the contract's own case (SPEC.md 130.28.5.3: beside a FIELD cell "a WALL blocks and a VOID does not, as ever"; what lies outside a chute's lip is the author's, 130.28.3), and on the model no ball crosses one in 6,480 rides. No shipped course has a wall beside a chute (DOWN's block rails stand beside a ramp), so one look on the glass is still owed (section 13) |
+| **L6** | the catwalks' rails stand beside FIELD cells | **GONE with the catwalks**, and the question moves to the curbs: they are WALL cells beside FIELD cells. That is the contract's own case (SPEC.md 137.28.5.3: beside a FIELD cell "a WALL blocks and a VOID does not, as ever"; what lies outside a chute's lip is the author's, 137.28.3), and on the model no ball crosses one in 6,480 rides. No shipped course has a wall beside a chute (DOWN's block rails stand beside a ramp), so one look on the glass is still owed (section 13) |
 | **L7** | G3: the gantry's hover | **RESOLVED with no exemption**: 0 columns panned on either card, by framing the flight with the picture's left edge (section 2). The pen-in's hover panned 14 columns on the CGA |
 | **L8** | the goal is a magnet's field cell: the player is carried into the finish | **KEPT, decided.** The course's argument is its five meetings, and the last one is the first one again with the finish at its top: what the hoist taught as a trick is how the course ends. The player still chooses the moment (the ball has to be rolled onto the ramp's foot; from rest on the landing the pair held does it in 2.2 s, and a ball that coasts short stops on the apron). The alternative - the goal a tile to the side of the ramp's top - makes the last move a sideways nudge against a pull of 104 that pins the ball to the post: MEASURED on the first hoist's top tile, five of the eight arrows do nothing there. That is an anticlimax, and a fiddly one |
 | **L9** | the sirens' strengths were tuned on a model driver | **MEASURED again, unchanged** (16, 24, 32): section 3. The honest summary is that they take a ball that creeps or coasts and never one that keeps going. Whether that FEELS like a hazard is the owner's (section 13) |
@@ -480,7 +480,7 @@ its posts, the landing).
 
 | | what | outcome |
 |---|---|---|
-| **L14** | **`--selfcheck`'s `reachpath` section died on LODE.** Its red arm compiles each demo's course under a reach priced wrong on purpose, and that reach's fixed point takes more rounds than a true one's: LODE's 17 where its own takes 6, one over `REACH_ROUNDS`. The course was refused as unsettled, uncaught, before any demo was asked - and demos are tried shortest first, LODE's the shortest. With LODE in `BZ_COURSES` the `bonanzacourse` row would have crashed | **RESOLVED in the tool**, the one tool change: the arm compiles under a bound of its own (`REACH_TIGHT_ROUNDS` 64; SPEC.md 130.11.4.7). It is `_sc_reachpath`'s alone, so no compile reads it: the default list's five items are the same lines before and after, the new item is green with its control `tightrounds` red, and with LODE in the list the section passes (the slowest reach the arm compiled is LODE's, 17 rounds; under a bound of 16 it is refused). It cannot move a compile, and MEASURED all the same: each of the 40 `.bbc` files of `apps/bonanza/courses/` compiled alone under HEAD's tool and under the changed one gives the same part, stored form and identity (their SHA-256), and the build's own run over the eight shipped courses, KITE, LODE and the nine test courses with the pathway, the title and the kit (`bbcourse.py --dev -o`) writes 37 files under each, every one byte-identical |
+| **L14** | **`--selfcheck`'s `reachpath` section died on LODE.** Its red arm compiles each demo's course under a reach priced wrong on purpose, and that reach's fixed point takes more rounds than a true one's: LODE's 17 where its own takes 6, one over `REACH_ROUNDS`. The course was refused as unsettled, uncaught, before any demo was asked - and demos are tried shortest first, LODE's the shortest. With LODE in `BZ_COURSES` the `bonanzacourse` row would have crashed | **RESOLVED in the tool**, the one tool change: the arm compiles under a bound of its own (`REACH_TIGHT_ROUNDS` 64; SPEC.md 137.11.4.7). It is `_sc_reachpath`'s alone, so no compile reads it: the default list's five items are the same lines before and after, the new item is green with its control `tightrounds` red, and with LODE in the list the section passes (the slowest reach the arm compiled is LODE's, 17 rounds; under a bound of 16 it is refused). It cannot move a compile, and MEASURED all the same: each of the 40 `.bbc` files of `apps/bonanza/courses/` compiled alone under HEAD's tool and under the changed one gives the same part, stored form and identity (their SHA-256), and the build's own run over the eight shipped courses, KITE, LODE and the nine test courses with the pathway, the title and the kit (`bbcourse.py --dev -o`) writes 37 files under each, every one byte-identical |
 | **L15** | **Mini-flights at the wall's joins** (G3) | **RESOLVED in the course**: section 11 |
 | **L16** | **Open edges nobody chose**: the hoist's ramp and top, the foot's back edge, the pen's cut corner and its edges by the mouth, the gallery's east end beside the wall's leg, the wall's corner's back cell, the island's back, corners and ramp | **RESOLVED**: railed, each found by holding every arrow from rest on every tile (section 3). The falls that are left are the three the design means: the bridge, the gantry's lane, and nothing else |
 | **L17** | **G12**: 13.7 s with no clock in view | **RESOLVED**: the pen clock, 7.0 s |
@@ -617,7 +617,7 @@ them; `lode/art.py` draws the `.bba` files). The studies, with every picture on 
 
 ![the course with its art](lode/picture-cga.png)
 
-- **Clocks: `cart`** (SPEC.md 130.18.5.2), of three studied (the same cart set on the tile; a miner's lamp on
+- **Clocks: `cart`** (SPEC.md 137.18.5.2), of three studied (the same cart set on the tile; a miner's lamp on
   a gallows). An ore cart on a stub of track on a timber trestle, the digits painted on the whitewashed side
   of its iron tub.
 
@@ -646,7 +646,7 @@ them; `lode/art.py` draws the `.bba` files). The studies, with every picture on 
 **Room left**: 12 masks (no `masks banded`), 9,076 part bytes, **637 LZ4 bytes** to the 1.5x line: about two
 more small floor pieces. The cart's track and trestle are PAINT, not the clock's keyed face: with the trestle's
 bents keyed the course needs 267 masks and does not compile. So a ball behind a clock is drawn over the
-trestle's legs and under the cart. `masks banded` (SPEC.md 130.52, about 750 LZ4 bytes here) would buy the
+trestle's legs and under the cart. `masks banded` (SPEC.md 137.52, about 750 LZ4 bytes here) would buy the
 keyed trestle at the cost of the 1.5x line.
 
 **Verified in this step** (host only; no emulator was booted):

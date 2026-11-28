@@ -93,11 +93,11 @@ for bx, by in ((14, 19), (16, 18), (16, 20)):
 # 3. THE BUNKER and the walk to the fork -------------------------------------------------------------------
 floor("F", 20, 15, 26, 22, 14)                 # F: the drop's 3 units onto plain fairway (a SAND bunker
 BUNKER = os.environ.get("MILL_BUNKER", "0") == "1"   #   there took the course past 1,024 blocks: MILL_BUNKER=1)
-# the SEE-SAW (SPEC.md 130.42), the owner's pick (2026-11-21): a minigolf TEETER from F toward the plaza, 2 x 2,
+# the SEE-SAW (SPEC.md 137.42), the owner's pick (2026-11-21): a minigolf TEETER from F toward the plaza, 2 x 2,
 # tilting along y about its middle edge, pivot 14.5: at rest its near end is F's height (14) and its far end a unit
 # up; the ball rolls up it, past the pivot its weight tips it (rubber: 0.29 s, the ball carried) and it rolls off
 # the far end, now F's height, onto a landing 2 units over the plaza (whole units: half ones cost blocks).  Railed:
-# block rails west, the east open (below).  (4 long changed the picture over 10 lanes, over the 6 a plate may have: SPEC.md 130.42.5)
+# block rails west, the east open (below).  (4 long changed the picture over 10 lanes, over the 6 a plate may have: SPEC.md 137.42.5)
 SEESAW = (22, 22, 24, 24, 14.5)
 ROOMS_TXT.append("@seesaw")                      # (the plate lays its own cells: the statement is in EXTRA)
 for _x in range(22, 24):
@@ -117,7 +117,7 @@ wall(26, 31, 27, 33, 13); wall(27, 32, 33, 33, 13)   # its body, a pipe a unit u
                                                  #   half a unit cost blocks): +y, +x along wy 32, +y out
 NOGUARD.add((27, 30))                            #   (nor a rail beside the mouth)
 floor("S", 31, 33, 34, 37, 11)                   #   S: where it comes out, 3 wide (flag 0 on its line)
-floor("T", 31, 37, 34, 40, 11)                   #   the TURNTABLE, 3 x 3 (SPEC.md 130.43)
+floor("T", 31, 37, 34, 40, 11)                   #   the TURNTABLE, 3 x 3 (SPEC.md 137.43)
 mark(32.5, 38.5, "turn", "turntable")
 NOGUARD.update({(x, y) for x in (30, 34) for y in range(37, 40)})   # (no rails beside it: the tool's 4 records a block)
 # U's east edge open by the table (a rail there laid a fifth occluder record in a block by the table's front
@@ -132,7 +132,7 @@ floor("P", 21, 30, 22, 31, 12)                   #   the ARCH's cell (the glass 
 floor("Q", 21, 31, 22, 32, 12)                   #   the glass tube's mouth, only reached under the arch
 NOGUARD.update({(20, 30), (22, 30), (22, 31)})   #   (the arch's legs stand there; no rail beside the mouth: it hid the pad)
 wall(19, 31, 21, 32, 15); wall(19, 32, 20, 34, 15)   #   its body, -x then +y (a +y body in front of the arch hid
-                                                 #   its pad: SPEC.md 130.39.1 A10), a pipe a unit over H
+                                                 #   its pad: SPEC.md 137.39.1 A10), a pipe a unit over H
 floor("H", 18, 34, 25, 39, 14)                   #   H: the LEDGE, 2 units over the plaza; the jump pickup on it
 floor("L", 16, 30, 18, 36, 12)                   #   the BACK DOOR: H's west edge drops 2 units onto a lane
                                                  #   back to the plaza - glass may step down it, nothing climbs it
@@ -157,7 +157,7 @@ FENCED = "ABRFPSTUJQHLVZW"                        # every section's open edges g
 START = (9.5, 12.5)
 FLAGS = [(21.5, 20.5, "flag 0", "rubber"), (32.5, 35.5, "flag 1", "rubber"), (19.5, 35.5, "flag 2", "glass")]
 # (no FORK clock: in the see-saw's window its two numerals, the plate's 4 lanes and the event lane passed the
-# 6 pose changes a window may land on one step, SPEC.md 130.19.10)
+# 6 pose changes a window may land on one step, SPEC.md 137.19.10)
 CLOCKS = [(7, 13, 28, "start", "on"), (34, 36, 6, "turntable", "out"),
           (22, 55, 10, "finish", "on")]
 ROUTE = [(9.5, 12.5), (9.5, 9.5), (9.5, 6.5), (12.5, 6.5), (14.5, 7.5), (14.5, 13), (14.5, 18), (17.5, 20.5),
@@ -184,23 +184,23 @@ EXTRA = [
     "tube drop  17 20  20 20  out +x  height 3",
 ] + (["surface sand rect 20 18 23 22               # the bunker the drop lands in (G16: it kills the bounce)"]
        if BUNKER else []) + [
-    "# the SEE-SAW: F's teeter down to the plaza (SPEC.md 130.42), resting with its near (minus) end down",
+    "# the SEE-SAW: F's teeter down to the plaza (SPEC.md 137.42), resting with its near (minus) end down",
     "seesaw %d %d %d %d along y pivot %g" % SEESAW,
-    "# the FORK: the open tube (the rubber way) and the ARCHWAY over a glass pad (SPEC.md 130.39) before the",
+    "# the FORK: the open tube (the rubber way) and the ARCHWAY over a glass pad (SPEC.md 137.39) before the",
     "# glass way's tube",
     "tube keep  26 30  32 33  via 26 32  via 32 32",
     "archway tile 21 30 along y",
     "pad glass 21 30",
     "tube keep  21 31  19 34  via 19 31",
-    "# the rubber way's TURNTABLE (SPEC.md 130.43): the middle column open on every other quarter turn",
+    "# the rubber way's TURNTABLE (SPEC.md 137.43): the middle column open on every other quarter turn",
     "prop turntable 31 37 size 3 fill ooo/.o./.o. seed 228",
     "# the second windmill: entered -x off U, out of its house's +y face onto the rejoin",
     "tube keep  30 41  27 45  via 27 41",
     "prop windmill 30 41",
-    "# the glass way: a respawning JUMP (SPEC.md 130.25.9, 130.55) on the ledge, the rubber pads past the gap",
+    "# the glass way: a respawning JUMP (SPEC.md 137.25.9, 137.55) on the ledge, the rubber pads past the gap",
     "prop jump %d %d for 10 respawn" % JUMP,
     "pad rubber 21 43", "pad rubber 22 43",
-    "# the finish: the CUP in a sandpit (SPEC.md 130.14.4.3; MOON's ring)",
+    "# the finish: the CUP in a sandpit (SPEC.md 137.14.4.3; MOON's ring)",
     "surface sand rect 22 51 27 56",
     "surface normal tile %d %d" % CUP,
     "cup %d %d" % CUP,
@@ -233,7 +233,7 @@ def guards():
 
 
 def blockrails():
-    """the guard cells beside a RAMP (a guard stands only on a whole flat floor's edge, SPEC.md 130.35.1): a
+    """the guard cells beside a RAMP (a guard stands only on a whole flat floor's edge, SPEC.md 137.35.1): a
     BLOCK rail there instead, 2 units over the highest corner it guards -> {(wx, wy): z}"""
     out = {}
     for g in guards():
@@ -491,7 +491,7 @@ def bbc(out, glass=False):
         if c in CELLS and c not in GAP and SECTION.get(c) != "W":
             L.append("way %d %d" % c)
     if not glass:
-        # the GLASS way (ROUTE2) as a `branch` (SPEC.md 130.14.4.1), DOWN's shape: the tool's alone - no byte
+        # the GLASS way (ROUTE2) as a `branch` (SPEC.md 137.14.4.1), DOWN's shape: the tool's alone - no byte
         # of the part, nor its identity - so bbcourse's item 8 plans it and holds flag 2 (glass) to it; the
         # main route, rubber, touches only its own way's flags
         L.append("# the glass way: a branch from the plaza, rejoining at the finish (the tool's alone)")
